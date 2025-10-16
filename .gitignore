@@ -1,0 +1,21 @@
+# OS / Tools
+.DS_Store
+.vscode/
+.vs/
+
+# .NET
+bin/
+obj/
+TestResults/
+
+# Node
+node_modules/
+.next/
+.turbo/
+out/
+dist/
+
+# Env files
+.env
+.env.*
+
