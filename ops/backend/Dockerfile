@@ -1,7 +1,7 @@
 # Build
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
-COPY ../backend ./
+COPY . ./
 WORKDIR /src/Api
 RUN dotnet restore
 RUN dotnet publish -c Release -o /out
@@ -13,4 +13,3 @@ COPY --from=build /out ./
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "Api.dll"]
-
