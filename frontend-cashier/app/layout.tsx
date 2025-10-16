@@ -1,3 +1,5 @@
+import './globals.css'
+
 export const metadata = {
   title: 'Kuyumculuk - Kasiyer',
   description: 'Kasiyer uygulaması'

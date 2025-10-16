@@ -1,5 +1,18 @@
 using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
+using KuyumculukTakipProgrami.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using KuyumculukTakipProgrami.Application.Invoices;
+using KuyumculukTakipProgrami.Application.Expenses;
+using KuyumculukTakipProgrami.Domain.Entities.Market;
+using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using KuyumculukTakipProgrami.Domain.Entities;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,6 +21,38 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHttpClient();
+builder.Services.AddCors(opts =>
+{
+    opts.AddDefaultPolicy(policy =>
+        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+});
+
+// JWT Auth
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtKey = jwtSection.GetValue<string>("Key") ?? "insecure-dev-key-change-me-please-very-long";
+var jwtIssuer = jwtSection.GetValue<string>("Issuer") ?? "KTP";
+var jwtAudience = jwtSection.GetValue<string>("Audience") ?? "KTP-Clients";
+var jwtExpiresHours = jwtSection.GetValue<int?>("ExpiresHours") ?? 8;
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+}).AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ClockSkew = TimeSpan.FromMinutes(1)
+    };
+});
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -17,7 +62,335 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Ensure databases
+app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<KtpDbContext>();
+    var marketDb = scope.ServiceProvider.GetRequiredService<MarketDbContext>();
+    try
+    {
+        db.Database.Migrate();
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
+        await EnsureMarketSchemaAsync(marketDb);
+        await EnsureUsersSchemaAsync(db);
+        if (db.Database.CanConnect())
+        {
+            Console.WriteLine("Database Connected ✅");
+        }
+        await SeedData.EnsureSeededAsync(db);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Database initialization failed: {ex.Message}");
+    }
+}
+
+// Invoices
+app.MapPost("/api/invoices", async (CreateInvoiceDto dto, ICreateInvoiceHandler handler, CancellationToken ct) =>
+{
+    try
+    {
+        var id = await handler.HandleAsync(new CreateInvoice(dto), ct);
+        return Results.Created($"/api/invoices/{id}", new { id });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { errors = ex.Message.Split(" | ") });
+    }
+}).WithTags("Invoices");
+
+app.MapGet("/api/invoices", async (IListInvoicesHandler handler, CancellationToken ct) =>
+{
+    var list = await handler.HandleAsync(new ListInvoices(), ct);
+    return Results.Ok(list);
+}).WithTags("Invoices");
+
+// Expenses
+app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler handler, CancellationToken ct) =>
+{
+    try
+    {
+        var id = await handler.HandleAsync(new CreateExpense(dto), ct);
+        return Results.Created($"/api/expenses/{id}", new { id });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { errors = ex.Message.Split(" | ") });
+    }
+}).WithTags("Expenses");
+
+app.MapGet("/api/expenses", async (IListExpensesHandler handler, CancellationToken ct) =>
+{
+    var list = await handler.HandleAsync(new ListExpenses(), ct);
+    return Results.Ok(list);
+}).WithTags("Expenses");
+
+// Pricing settings endpoints
+app.MapGet("/api/pricing/settings/{code}", async (string code, MarketDbContext mdb) =>
+{
+    code = code.ToUpperInvariant();
+    var s = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == code);
+    s ??= new PriceSetting { Code = code, MarginBuy = 0, MarginSell = 0 };
+    return Results.Ok(new { code = s.Code, marginBuy = s.MarginBuy, marginSell = s.MarginSell });
+}).WithTags("Pricing");
+
+app.MapPut("/api/pricing/settings/{code}", async (string code, PriceSetting body, MarketDbContext mdb) =>
+{
+    code = code.ToUpperInvariant();
+    var existing = await mdb.PriceSettings.FirstOrDefaultAsync(x => x.Code == code);
+    if (existing is null)
+    {
+        existing = new PriceSetting { Id = Guid.NewGuid(), Code = code };
+        mdb.PriceSettings.Add(existing);
+    }
+    existing.MarginBuy = body.MarginBuy;
+    existing.MarginSell = body.MarginSell;
+    existing.UpdatedAt = DateTime.UtcNow;
+    await mdb.SaveChangesAsync();
+    return Results.Ok(new { code = existing.Code, marginBuy = existing.MarginBuy, marginSell = existing.MarginSell });
+}).WithTags("Pricing");
+
+// Fetch and store ALTIN
+app.MapPost("/api/pricing/refresh", async (IHttpClientFactory httpFactory, IConfiguration cfg, MarketDbContext mdb, CancellationToken ct) =>
+{
+    var url = cfg["Pricing:FeedUrl"] ?? "https://canlipiyasalar.haremaltin.com/tmp/altin.json";
+    var lang = cfg["Pricing:LanguageParam"] ?? "tr";
+    var client = httpFactory.CreateClient();
+    var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
+    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ulaşılmıyor", statusCode: 502);
+    var json = await resp.Content.ReadAsStringAsync(ct);
+
+    if (!TryParseAltin(json, out var alis, out var satis, out var sourceTime))
+        return Results.Problem("ALTIN verisi bulunamadı", statusCode: 422);
+
+    var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
+                  ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
+
+    var rec = new PriceRecord
+    {
+        Id = Guid.NewGuid(),
+        Code = "ALTIN",
+        Alis = alis,
+        Satis = satis,
+        SourceTime = DateTime.SpecifyKind(sourceTime, DateTimeKind.Utc),
+        FinalAlis = alis + setting.MarginBuy,
+        FinalSatis = satis + setting.MarginSell,
+        CreatedAt = DateTime.UtcNow
+    };
+    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == rec.Code && x.SourceTime == rec.SourceTime, ct);
+    if (!exists)
+    {
+        mdb.PriceRecords.Add(rec);
+        await mdb.SaveChangesAsync(ct);
+    }
+    return Results.Ok(new
+    {
+        code = rec.Code,
+        alis = rec.Alis,
+        satis = rec.Satis,
+        finalAlis = rec.FinalAlis,
+        finalSatis = rec.FinalSatis,
+        sourceTime = rec.SourceTime
+    });
+}).WithTags("Pricing");
+
+app.MapGet("/api/pricing/{code}/latest", async (string code, MarketDbContext mdb, CancellationToken ct) =>
+{
+    code = code.ToUpperInvariant();
+    var rec = await mdb.PriceRecords.Where(x => x.Code == code)
+        .OrderByDescending(x => x.SourceTime)
+        .ThenByDescending(x => x.CreatedAt)
+        .FirstOrDefaultAsync(ct);
+    if (rec is null) return Results.NotFound();
+    return Results.Ok(new
+    {
+        code = rec.Code,
+        alis = rec.Alis,
+        satis = rec.Satis,
+        finalAlis = rec.FinalAlis,
+        finalSatis = rec.FinalSatis,
+        sourceTime = rec.SourceTime
+    });
+}).WithTags("Pricing");
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+// Auth
+app.MapPost("/api/auth/login", async (LoginRequest req, KtpDbContext db) =>
+{
+    var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
+    if (user is null) return Results.Unauthorized();
+    if (!VerifyPassword(req.Password ?? string.Empty, user.PasswordHash)) return Results.Unauthorized();
+
+    var token = IssueJwt(user, jwtIssuer, jwtAudience, jwtKey, TimeSpan.FromHours(jwtExpiresHours));
+    return Results.Ok(new { token, role = user.Role.ToString(), email = user.Email });
+}).WithTags("Auth");
+
+// Users (admin only)
+app.MapPost("/api/users", async (CreateUserRequest req, KtpDbContext db) =>
+{
+    var email = (req.Email ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(req.Password))
+        return Results.BadRequest(new { error = "Email ve şifre gereklidir" });
+    var exists = await db.Users.AnyAsync(x => x.Email.ToLower() == email.ToLower());
+    if (exists) return Results.Conflict(new { error = "Email zaten kayıtlı" });
+    var user = new User
+    {
+        Id = Guid.NewGuid(),
+        Email = email,
+        PasswordHash = HashPassword(req.Password!),
+        Role = req.Role
+    };
+    db.Users.Add(user);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Email, role = user.Role.ToString() });
+}).RequireAuthorization();
+
+// Bootstrap first admin if none exists (one-time)
+app.MapPost("/api/users/bootstrap", async (CreateUserRequest req, KtpDbContext db) =>
+{
+    var any = await db.Users.AnyAsync();
+    if (any) return Results.BadRequest(new { error = "Kullanıcılar zaten mevcut" });
+    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "İlk kullanıcı Yönetici olmalı" });
+    var user = new User
+    {
+        Id = Guid.NewGuid(),
+        Email = (req.Email ?? string.Empty).Trim(),
+        PasswordHash = HashPassword(req.Password ?? string.Empty),
+        Role = Role.Yonetici
+    };
+    db.Users.Add(user);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Email, role = user.Role.ToString() });
+});
 
 app.Run();
 
+static bool TryParseAltin(string json, out decimal alis, out decimal satis, out DateTime sourceTime)
+{
+    alis = 0; satis = 0; sourceTime = DateTime.UtcNow;
+    try
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var data = root.GetProperty("data");
+        if (!data.TryGetProperty("ALTIN", out var altin)) return false;
+        var alisStr = altin.GetProperty("alis").ToString();
+        var satisStr = altin.GetProperty("satis").ToString();
+        var tarihStr = altin.GetProperty("tarih").GetString();
+        var ci = CultureInfo.InvariantCulture;
+        alis = decimal.Parse(alisStr, ci);
+        satis = decimal.Parse(satisStr, ci);
+        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye çevir.
+        if (!DateTime.TryParseExact(
+                tarihStr,
+                "dd-MM-yyyy HH:mm:ss",
+                CultureInfo.GetCultureInfo("tr-TR"),
+                DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal,
+                out sourceTime))
+        {
+            sourceTime = DateTime.UtcNow;
+        }
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
+}
+static async Task EnsureMarketSchemaAsync(MarketDbContext db)
+{
+    var sql = @"CREATE SCHEMA IF NOT EXISTS market;
+CREATE TABLE IF NOT EXISTS market.""PriceSettings"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""Code"" varchar(32) NOT NULL UNIQUE,
+    ""MarginBuy"" numeric(18,2) NOT NULL,
+    ""MarginSell"" numeric(18,2) NOT NULL,
+    ""UpdatedAt"" timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS market.""PriceRecords"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""Code"" varchar(32) NOT NULL,
+    ""Alis"" numeric(18,3) NOT NULL,
+    ""Satis"" numeric(18,3) NOT NULL,
+    ""SourceTime"" timestamptz NOT NULL,
+    ""FinalAlis"" numeric(18,3) NOT NULL,
+    ""FinalSatis"" numeric(18,3) NOT NULL,
+    ""CreatedAt"" timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS IX_PriceSettings_Code ON market.""PriceSettings"" (""Code"");
+CREATE UNIQUE INDEX IF NOT EXISTS IX_PriceRecords_Code_SourceTime ON market.""PriceRecords"" (""Code"", ""SourceTime"");
+CREATE TABLE IF NOT EXISTS market.""InvoiceGoldSnapshots"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""InvoiceId"" uuid NOT NULL UNIQUE,
+    ""Code"" varchar(32) NOT NULL,
+    ""FinalSatis"" numeric(18,3) NOT NULL,
+    ""SourceTime"" timestamptz NOT NULL,
+    ""CreatedAt"" timestamptz NOT NULL
+);";
+    await db.Database.ExecuteSqlRawAsync(sql);
+}
+static async Task EnsureUsersSchemaAsync(KtpDbContext db)
+{
+    var sql = @"CREATE TABLE IF NOT EXISTS ""Users"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""Email"" varchar(200) NOT NULL UNIQUE,
+    ""PasswordHash"" text NOT NULL,
+    ""Role"" int NOT NULL
+);";
+    await db.Database.ExecuteSqlRawAsync(sql);
+}
+
+static string IssueJwt(User user, string issuer, string audience, string key, TimeSpan lifetime)
+{
+    var claims = new List<Claim>
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+        new Claim(JwtRegisteredClaimNames.Email, user.Email),
+        new Claim(ClaimTypes.Role, user.Role.ToString())
+    };
+    var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
+    var jwt = new JwtSecurityToken(
+        issuer: issuer,
+        audience: audience,
+        claims: claims,
+        notBefore: DateTime.UtcNow,
+        expires: DateTime.UtcNow.Add(lifetime),
+        signingCredentials: creds
+    );
+    return new JwtSecurityTokenHandler().WriteToken(jwt);
+}
+
+static string HashPassword(string password)
+{
+    using var rng = RandomNumberGenerator.Create();
+    var salt = new byte[16];
+    rng.GetBytes(salt);
+    var iterations = 10000;
+    using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, iterations, HashAlgorithmName.SHA256);
+    var hash = pbkdf2.GetBytes(32);
+    return $"{iterations}.{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
+}
+
+static bool VerifyPassword(string password, string stored)
+{
+    try
+    {
+        var parts = stored.Split('.');
+        if (parts.Length != 3) return false;
+        var iterations = int.Parse(parts[0]);
+        var salt = Convert.FromBase64String(parts[1]);
+        var expected = Convert.FromBase64String(parts[2]);
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, iterations, HashAlgorithmName.SHA256);
+        var actual = pbkdf2.GetBytes(32);
+        return CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
+    catch { return false; }
+}
+
+public record LoginRequest(string Email, string Password);
+public record CreateUserRequest(string Email, string Password, Role Role);

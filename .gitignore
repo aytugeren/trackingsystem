@@ -19,3 +19,9 @@ dist/
 .env
 .env.*
 
+# Misc tmp
+tmp.bin
+tmp_expenses_resp.txt
+
+# Windows reserved name dropped from repo
+CON

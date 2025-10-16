@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ktp-postgres
+    environment:
+      POSTGRES_USER: ktp
+      POSTGRES_PASSWORD: ktp_pwd
+      POSTGRES_DB: ktp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ktp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ktp -d ktp_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ktp-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ktp_pgdata:
+    name: ktp_pgdata
+

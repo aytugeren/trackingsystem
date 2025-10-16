@@ -1,0 +1,19 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace KuyumculukTakipProgrami.Domain.Entities;
+
+public class Expense
+{
+    public Guid Id { get; set; }
+    public DateOnly Tarih { get; set; }
+    public int SiraNo { get; set; }
+
+    [MaxLength(150)]
+    public string? MusteriAdSoyad { get; set; }
+
+    [MaxLength(11)]
+    public string? TCKN { get; set; }
+
+    public decimal Tutar { get; set; }
+}
+

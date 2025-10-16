@@ -1,15 +1,14 @@
-export const metadata = {
-  title: 'Kuyumculuk - Yönetim',
-  description: 'Yönetim paneli'
-}
+import './globals.css'
+import type { ReactNode } from 'react'
+import { SiteShell } from '@/components/layout/site-shell'
+import { inter } from '@/lib/fonts'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="tr">
-      <body>
-        {children}
+    <html lang="tr" suppressHydrationWarning className={inter.variable}>
+      <body className="font-sans">
+        <SiteShell>{children}</SiteShell>
       </body>
     </html>
   )
 }
-
