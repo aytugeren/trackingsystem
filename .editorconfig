@@ -1,0 +1,5 @@
+# Editor configuration for consistent encoding
+root = true
+
+[*]
+charset = utf-8
