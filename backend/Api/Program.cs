@@ -192,6 +192,15 @@ app.MapPost("/api/invoices", async (CreateInvoiceDto dto, ICreateInvoiceHandler 
         var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
         var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
         Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+        if (currentUserId is null)
+        {
+            var hdrSub = http.Request.Headers["X-User-Id"].FirstOrDefault();
+            if (Guid.TryParse(hdrSub, out var uid2)) currentUserId = uid2;
+        }
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            email = http.Request.Headers["X-User-Email"].FirstOrDefault();
+        }
         var id = await handler.HandleAsync(new CreateInvoice(dto, currentUserId), ct);
         // Stamp creator info for legacy fields
         var inv = await db.Invoices.FindAsync(new object?[] { id }, ct);
@@ -264,6 +273,15 @@ app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler 
         var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
         var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
         Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+        if (currentUserId is null)
+        {
+            var hdrSub = http.Request.Headers["X-User-Id"].FirstOrDefault();
+            if (Guid.TryParse(hdrSub, out var uid2)) currentUserId = uid2;
+        }
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            email = http.Request.Headers["X-User-Email"].FirstOrDefault();
+        }
         var id = await handler.HandleAsync(new CreateExpense(dto, currentUserId), ct);
         // Stamp creator info for legacy fields
         var exp = await db.Expenses.FindAsync(new object?[] { id }, ct);

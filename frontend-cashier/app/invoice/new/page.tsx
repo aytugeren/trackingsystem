@@ -62,6 +62,24 @@ export default function InvoiceNewPage() {
 
   const handleKeypadTo = (setter: React.Dispatch<React.SetStateAction<string>>) => ({ onKey: (k: string) => setter((v) => v + k), onBackspace: () => setter((v) => v.slice(0, -1)), onClear: () => setter('') })
 
+  function sanitizeAmountInput(v: string): string {
+    // Keep digits and at most one separator, normalize to comma for display
+    const cleaned = v.replace(/[^0-9.,]/g, '')
+    const parts = cleaned.replace(/\./g, ',').split(',')
+    if (parts.length === 1) return parts[0]
+    const intPart = parts[0]
+    const fracPart = parts.slice(1).join('').slice(0, 2)
+    return intPart + (fracPart ? (',' + fracPart) : '')
+  }
+
+  function formatAmountDisplay(v: string): string {
+    if (!v) return ''
+    const normalized = sanitizeAmountInput(v)
+    const [intPart, fracPart] = normalized.split(',')
+    const withSep = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    return fracPart != null && fracPart !== '' ? `${withSep},${fracPart}` : withSep
+  }
+
   async function onSave() {
     setError('')
     setSuccess('')
@@ -168,7 +186,7 @@ export default function InvoiceNewPage() {
         <TouchField label="Doğum Yılı" value={birthYear} onChange={(v) => setBirthYear(v.replace(/[^0-9]/g, '').slice(0,4))} inputMode="numeric" pattern="\d*" maxLength={4} onFocus={() => setActiveKeypad(null)} error={birthYearError} />
         <TouchField label="TCKN" value={tckn} onChange={(v) => setTckn(v.replace(/[^0-9]/g, '').slice(0, 11))} inputMode="numeric" pattern="\d*" maxLength={11} onFocus={() => setActiveKeypad(null)} error={tcknError} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <TouchField label="Tutar" value={amount} onChange={setAmount} inputMode="decimal" onFocus={() => setActiveKeypad('amount')} />
+          <TouchField label="Tutar" value={formatAmountDisplay(amount)} onChange={(v) => setAmount(sanitizeAmountInput(v))} inputMode="decimal" onFocus={() => setActiveKeypad('amount')} />
           {activeKeypad === 'amount' && (
             <BigKeypad {...handleKeypadTo(setAmount)} />
           )}

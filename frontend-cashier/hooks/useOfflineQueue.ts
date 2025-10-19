@@ -37,6 +37,16 @@ function getToken(): string | null {
   } catch { return null }
 }
 
+function decodeJwt(token: string | null): { sub?: string; email?: string } {
+  try {
+    if (!token) return {}
+    const parts = token.split('.')
+    if (parts.length < 2) return {}
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return { sub: payload?.sub, email: payload?.email }
+  } catch { return {} }
+}
+
 export function useOfflineQueue(baseUrl: string) {
   const [isOnline, setIsOnline] = useState<boolean>(true)
   const flushingRef = useRef(false)
@@ -51,9 +61,16 @@ export function useOfflineQueue(baseUrl: string) {
       const remaining: QueueItem[] = []
       for (const item of q) {
         try {
+          const token = getToken()
+          const { sub, email } = decodeJwt(token)
           const res = await fetch(baseUrl + item.endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(sub ? { 'X-User-Id': sub } : {}),
+              ...(email ? { 'X-User-Email': email } : {}),
+            },
             body: JSON.stringify(item.payload)
           })
           if (!res.ok) {
@@ -81,9 +98,16 @@ export function useOfflineQueue(baseUrl: string) {
       return { queued: true }
     }
     try {
+      const token = getToken()
+      const { sub, email } = decodeJwt(token)
       const res = await fetch(baseUrl + endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(sub ? { 'X-User-Id': sub } : {}),
+          ...(email ? { 'X-User-Email': email } : {}),
+        },
         body: JSON.stringify(payload)
       })
       if (!res.ok) {
