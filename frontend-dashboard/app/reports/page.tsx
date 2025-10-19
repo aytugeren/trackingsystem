@@ -34,7 +34,7 @@ export default function ReportsPage() {
     async function load() {
       try {
         setError(null)
-        const [inv, exp] = await Promise.all([api.listInvoices(), api.listExpenses()])
+        const [inv, exp] = await Promise.all([api.listAllInvoices(), api.listAllExpenses()])
         if (!mounted) return
         setInvoices(inv)
         setExpenses(exp)
@@ -177,4 +177,3 @@ export default function ReportsPage() {
     </div>
   )
 }
-

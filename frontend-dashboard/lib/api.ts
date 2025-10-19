@@ -6,9 +6,9 @@ export type Invoice = {
   tckn?: string | null
   tutar: number
   odemeSekli: number // 0: Havale, 1: KrediKarti
-  createdByEmail?: string | null
   altinSatisFiyati?: number | null
   kesildi?: boolean
+  kasiyerAdSoyad?: string | null
 }
 
 export type Expense = {
@@ -18,6 +18,7 @@ export type Expense = {
   musteriAdSoyad?: string | null
   tckn?: string | null
   tutar: number
+  kasiyerAdSoyad?: string | null
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
@@ -29,6 +30,8 @@ function authHeaders(): HeadersInit {
   } catch { return {} }
 }
 
+export type Paginated<T> = { items: T[]; totalCount: number }
+
 async function getJson<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path}`
   const res = await fetch(url, { cache: 'no-store', headers: { ...authHeaders() } })
@@ -37,8 +40,32 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  listInvoices: () => getJson<Invoice[]>('/api/invoices'),
-  listExpenses: () => getJson<Expense[]>('/api/expenses'),
+  listInvoices: (page = 1, pageSize = 20) => getJson<Paginated<Invoice>>(`/api/invoices?page=${page}&pageSize=${pageSize}`),
+  listExpenses: (page = 1, pageSize = 20) => getJson<Paginated<Expense>>(`/api/expenses?page=${page}&pageSize=${pageSize}`),
+  async listAllInvoices(): Promise<Invoice[]> {
+    const pageSize = 500
+    let page = 1
+    const acc: Invoice[] = []
+    while (true) {
+      const { items, totalCount } = await api.listInvoices(page, pageSize)
+      acc.push(...items)
+      if (acc.length >= totalCount) break
+      page++
+    }
+    return acc
+  },
+  async listAllExpenses(): Promise<Expense[]> {
+    const pageSize = 500
+    let page = 1
+    const acc: Expense[] = []
+    while (true) {
+      const { items, totalCount } = await api.listExpenses(page, pageSize)
+      acc.push(...items)
+      if (acc.length >= totalCount) break
+      page++
+    }
+    return acc
+  },
   async setInvoiceStatus(id: string, kesildi: boolean): Promise<void> {
     const url = `${API_BASE}/api/invoices/${id}/status`
     const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ kesildi }) })

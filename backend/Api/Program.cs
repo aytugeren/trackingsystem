@@ -15,6 +15,7 @@ using System.Text;
 using KuyumculukTakipProgrami.Domain.Entities;
 using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
+using Microsoft.Extensions.Caching.Memory;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -118,8 +120,20 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Invoices_KasiyerId_Users') THEN " +
+            "ALTER TABLE \"Invoices\" ADD CONSTRAINT \"FK_Invoices_KasiyerId_Users\" FOREIGN KEY (\"KasiyerId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Expenses_KasiyerId_Users') THEN " +
+            "ALTER TABLE \"Expenses\" ADD CONSTRAINT \"FK_Expenses_KasiyerId_Users\" FOREIGN KEY (\"KasiyerId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
         await EnsureMarketSchemaAsync(marketDb);
         await EnsureUsersSchemaAsync(db);
         if (db.Database.CanConnect())
@@ -127,6 +141,19 @@ using (var scope = app.Services.CreateScope())
             Console.WriteLine("Database Connected âœ…");
         }
         await SeedData.EnsureSeededAsync(db);
+        // Temizlik: Eski test seed verilerini sil ("Ali Veli", "Ahmet Demir")
+        var demoInvoices = db.Invoices.Where(x => x.MusteriAdSoyad == "Ali Veli");
+        if (await demoInvoices.AnyAsync())
+        {
+            db.Invoices.RemoveRange(demoInvoices);
+            await db.SaveChangesAsync();
+        }
+        var demoExpenses = db.Expenses.Where(x => x.MusteriAdSoyad == "Ahmet Demir");
+        if (await demoExpenses.AnyAsync())
+        {
+            db.Expenses.RemoveRange(demoExpenses);
+            await db.SaveChangesAsync();
+        }
         // Ensure default admin user exists (idempotent)
         var adminEmail = seedAdminEmail;
         var existingAdmin = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == adminEmail.ToLower());
@@ -162,16 +189,9 @@ app.MapPost("/api/invoices", async (CreateInvoiceDto dto, ICreateInvoiceHandler 
 {
     try
     {
-        var id = await handler.HandleAsync(new CreateInvoice(dto), ct);
-        var inv = await db.Invoices.FindAsync(new object?[] { id }, ct);
-        if (inv is not null)
-        {
-            var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
-            if (Guid.TryParse(sub, out var uid)) inv.CreatedById = uid; else inv.CreatedById = null;
-            inv.CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
-            await db.SaveChangesAsync(ct);
-        }
+        var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+        Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+        var id = await handler.HandleAsync(new CreateInvoice(dto, currentUserId), ct);
         return Results.Created($"/api/invoices/{id}", new { id });
     }
     catch (ArgumentException ex)
@@ -190,10 +210,41 @@ app.MapPut("/api/invoices/{id:guid}/status", async (Guid id, UpdateInvoiceStatus
     return Results.NoContent();
 }).WithTags("Invoices").RequireAuthorization("AdminOnly");
 
-app.MapGet("/api/invoices", async (IListInvoicesHandler handler, CancellationToken ct) =>
+app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IMemoryCache cache, CancellationToken ct) =>
 {
-    var list = await handler.HandleAsync(new ListInvoices(), ct);
-    return Results.Ok(list);
+    var p = Math.Max(1, page ?? 1);
+    var ps = Math.Clamp(pageSize ?? 20, 1, 500);
+    var cacheKey = $"invoices:{p}:{ps}";
+    if (!cache.TryGetValue(cacheKey, out object? cached))
+    {
+        var baseQuery = from i in db.Invoices.AsNoTracking()
+                        join u in db.Users.AsNoTracking() on i.KasiyerId equals u.Id into uu
+                        from u in uu.DefaultIfEmpty()
+                        select new
+                        {
+                            id = i.Id,
+                            tarih = i.Tarih,
+                            siraNo = i.SiraNo,
+                            musteriAdSoyad = i.MusteriAdSoyad,
+                            tckn = i.TCKN,
+                            tutar = i.Tutar,
+                            odemeSekli = i.OdemeSekli,
+                            altinSatisFiyati = i.AltinSatisFiyati,
+                            kesildi = i.Kesildi,
+                            kasiyerAdSoyad = (u != null ? u.Email : null)
+                        };
+
+        var ordered = baseQuery
+            .OrderBy(x => x.kesildi) // Bekliyor (false) önce
+            .ThenByDescending(x => x.tarih)
+            .ThenByDescending(x => x.siraNo);
+
+        var totalCount = await db.Invoices.AsNoTracking().CountAsync(ct);
+        var items = await ordered.Skip((p - 1) * ps).Take(ps).ToListAsync(ct);
+        cached = new { items, totalCount };
+        cache.Set(cacheKey, cached, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) });
+    }
+    return Results.Ok(cached);
 }).WithTags("Invoices").RequireAuthorization();
 
 // Expenses
@@ -201,16 +252,9 @@ app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler 
 {
     try
     {
-        var id = await handler.HandleAsync(new CreateExpense(dto), ct);
-        var exp = await db.Expenses.FindAsync(new object?[] { id }, ct);
-        if (exp is not null)
-        {
-            var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
-            if (Guid.TryParse(sub, out var uid)) exp.CreatedById = uid; else exp.CreatedById = null;
-            exp.CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
-            await db.SaveChangesAsync(ct);
-        }
+        var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+        Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+        var id = await handler.HandleAsync(new CreateExpense(dto, currentUserId), ct);
         return Results.Created($"/api/expenses/{id}", new { id });
     }
     catch (ArgumentException ex)
@@ -219,10 +263,37 @@ app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler 
     }
 }).WithTags("Expenses").RequireAuthorization();
 
-app.MapGet("/api/expenses", async (IListExpensesHandler handler, CancellationToken ct) =>
+app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IMemoryCache cache, CancellationToken ct) =>
 {
-    var list = await handler.HandleAsync(new ListExpenses(), ct);
-    return Results.Ok(list);
+    var p = Math.Max(1, page ?? 1);
+    var ps = Math.Clamp(pageSize ?? 20, 1, 500);
+    var cacheKey = $"expenses:{p}:{ps}";
+    if (!cache.TryGetValue(cacheKey, out object? cached))
+    {
+        var baseQuery = from e in db.Expenses.AsNoTracking()
+                        join u in db.Users.AsNoTracking() on e.KasiyerId equals u.Id into uu
+                        from u in uu.DefaultIfEmpty()
+                        select new
+                        {
+                            id = e.Id,
+                            tarih = e.Tarih,
+                            siraNo = e.SiraNo,
+                            musteriAdSoyad = e.MusteriAdSoyad,
+                            tckn = e.TCKN,
+                            tutar = e.Tutar,
+                            kasiyerAdSoyad = (u != null ? u.Email : null)
+                        };
+
+        var ordered = baseQuery
+            .OrderByDescending(x => x.tarih)
+            .ThenByDescending(x => x.siraNo);
+
+        var totalCount = await db.Expenses.AsNoTracking().CountAsync(ct);
+        var items = await ordered.Skip((p - 1) * ps).Take(ps).ToListAsync(ct);
+        cached = new { items, totalCount };
+        cache.Set(cacheKey, cached, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) });
+    }
+    return Results.Ok(cached);
 }).WithTags("Expenses").RequireAuthorization();
 
 // Pricing settings endpoints

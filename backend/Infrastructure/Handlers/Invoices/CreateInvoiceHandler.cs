@@ -47,7 +47,8 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
             MusteriAdSoyad = command.Dto.MusteriAdSoyad,
             TCKN = command.Dto.TCKN,
             Tutar = command.Dto.Tutar,
-            OdemeSekli = command.Dto.OdemeSekli
+            OdemeSekli = command.Dto.OdemeSekli,
+            KasiyerId = command.CurrentUserId
         };
         
         // 1) Try live fetch ALTIN price, apply margins, set invoice price and upsert price record
