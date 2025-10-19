@@ -59,15 +59,20 @@ export default function ExpenseNewPage() {
     setBirthYearError(validateBirthYear(birthYear) ? '' : 'Doğum yılı geçersiz')
   }, [birthYear])
 
-  const handleKeypadTo = (setter: React.Dispatch<React.SetStateAction<string>>) => ({ onKey: (k: string) => setter((v) => v + k), onBackspace: () => setter((v) => v.slice(0, -1)), onClear: () => setter('') })
+  const handleKeypadTo = (setter: React.Dispatch<React.SetStateAction<string>>) => ({
+    onKey: (k: string) => setter((v) => sanitizeAmountInput(v + k)),
+    onBackspace: () => setter((v) => v.slice(0, -1)),
+    onClear: () => setter('')
+  })
 
   function sanitizeAmountInput(v: string): string {
-    const cleaned = v.replace(/[^0-9.,]/g, '')
-    const parts = cleaned.replace(/\./g, ',').split(',')
-    if (parts.length === 1) return parts[0]
-    const intPart = parts[0]
-    const fracPart = parts.slice(1).join('').slice(0, 2)
-    return intPart + (fracPart ? (',' + fracPart) : '')
+    // Remove dots (grouping), keep digits and at most one comma for decimals
+    const cleaned = v.replace(/\./g, '').replace(/[^0-9,]/g, '')
+    const firstComma = cleaned.indexOf(',')
+    if (firstComma === -1) return cleaned
+    const intPart = cleaned.slice(0, firstComma).replace(/,/g, '')
+    const fracPart = cleaned.slice(firstComma + 1).replace(/,/g, '').slice(0, 2)
+    return intPart + (fracPart ? (',' + fracPart) : ',')
   }
 
   function formatAmountDisplay(v: string): string {
@@ -75,7 +80,7 @@ export default function ExpenseNewPage() {
     const normalized = sanitizeAmountInput(v)
     const [intPart, fracPart] = normalized.split(',')
     const withSep = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-    return fracPart != null && fracPart !== '' ? `${withSep},${fracPart}` : withSep
+    return fracPart != null && fracPart !== '' ? `${withSep},${fracPart}` : (normalized.endsWith(',') ? withSep + ',' : withSep)
   }
 
   async function onSave() {
