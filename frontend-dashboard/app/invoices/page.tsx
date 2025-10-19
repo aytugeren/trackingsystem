@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Invoice } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,7 +34,7 @@ export default function InvoicesPage() {
         setData(list)
       } catch {
         if (!mounted) return
-        setError('Veri alÄ±namadÄ±')
+        setError('Veri alınamadı')
         setData(null)
       }
     }
@@ -81,23 +81,23 @@ export default function InvoicesPage() {
         <CardContent>
           <div className="grid gap-3 md:grid-cols-4">
             <div className="space-y-1">
-              <Label htmlFor="start">BaÅŸlangÄ±Ã§ Tarihi</Label>
+              <Label htmlFor="start">Başlangıç Tarihi</Label>
               <Input id="start" type="date" value={filters.start || ''} onChange={(e) => setFilters((f) => ({ ...f, start: e.target.value || undefined }))} />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="end">BitiÅŸ Tarihi</Label>
+              <Label htmlFor="end">Bitiş Tarihi</Label>
               <Input id="end" type="date" value={filters.end || ''} onChange={(e) => setFilters((f) => ({ ...f, end: e.target.value || undefined }))} />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="method">Ã–deme Åekli</Label>
+              <Label htmlFor="method">Ödeme Şekli</Label>
               <Select id="method" value={filters.method} onChange={(e) => setFilters((f) => ({ ...f, method: e.target.value as Filters['method'] }))}>
-                <option value="all">TÃ¼mÃ¼</option>
+                <option value="all">Tümü</option>
                 <option value="havale">Havale</option>
-                <option value="kredikarti">Kredi KartÄ±</option>
+                <option value="kredikarti">Kredi Kartı</option>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="q">MÃ¼ÅŸteri AdÄ± / TCKN</Label>
+              <Label htmlFor="q">Müşteri Adı / TCKN</Label>
               <Input id="q" placeholder="Ara" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
             </div>
           </div>
@@ -130,20 +130,20 @@ export default function InvoicesPage() {
                 <THead>
                   <TR>
                     <TH>Tarih</TH>
-                    <TH>SÄ±ra No</TH>
-                    <TH>MÃ¼ÅŸteri Ad Soyad</TH>
+                    <TH>Sıra No</TH>
+                    <TH>Müşteri Ad Soyad</TH>
                     <TH>TCKN</TH>
                     <TH>Kasiyer</TH>
                     <TH>Has Altın</TH>
                     <TH className="text-right">Tutar</TH>
                     <TH>Durum</TH>
-                    <TH>Ã–deme Åekli</TH>
+                    <TH>Ödeme Şekli</TH>
                   </TR>
                 </THead>
                 <TBody>
                   {filtered.length === 0 ? (
                     <TR>
-                      <TD colSpan={6} className="text-center text-sm text-muted-foreground">KayÄ±t bulunamadÄ±</TD>
+                      <TD colSpan={6} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
                     </TR>
                   ) : filtered.map((x) => (
                     <TR key={x.id}>
@@ -159,7 +159,7 @@ export default function InvoicesPage() {
                         {x.odemeSekli === 0 ? (
                           <Badge variant="success">Havale</Badge>
                         ) : (
-                          <Badge variant="warning">Kredi KartÄ±</Badge>
+                          <Badge variant="warning">Kredi Kartı</Badge>
                         )}
                       </TD>
                     </TR>
