@@ -25,6 +25,18 @@ function writeQueue(items: QueueItem[]) {
   }
 }
 
+function getToken(): string | null {
+  try {
+    const ls = typeof localStorage !== 'undefined' ? localStorage.getItem('ktp_c_token') : null
+    if (ls) return ls
+    if (typeof document !== 'undefined') {
+      const v = document.cookie.split('; ').find(x => x.startsWith('ktp_c_token='))?.split('=')[1]
+      return v || null
+    }
+    return null
+  } catch { return null }
+}
+
 export function useOfflineQueue(baseUrl: string) {
   const [isOnline, setIsOnline] = useState<boolean>(true)
   const flushingRef = useRef(false)
@@ -41,7 +53,7 @@ export function useOfflineQueue(baseUrl: string) {
         try {
           const res = await fetch(baseUrl + item.endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
             body: JSON.stringify(item.payload)
           })
           if (!res.ok) {
@@ -71,7 +83,7 @@ export function useOfflineQueue(baseUrl: string) {
     try {
       const res = await fetch(baseUrl + endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
         body: JSON.stringify(payload)
       })
       if (!res.ok) {
@@ -100,4 +112,3 @@ export function useOfflineQueue(baseUrl: string) {
 
   return { isOnline, sendOrQueue, flush }
 }
-

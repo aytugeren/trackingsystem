@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace KuyumculukTakipProgrami.Domain.Entities;
 
@@ -15,5 +15,8 @@ public class Expense
     public string? TCKN { get; set; }
 
     public decimal Tutar { get; set; }
-}
 
+    // Oluşturan kullanıcı bilgisi (JWT'den)
+    public Guid? CreatedById { get; set; }
+    public string? CreatedByEmail { get; set; }
+}

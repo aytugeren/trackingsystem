@@ -1,9 +1,13 @@
 import Link from 'next/link'
+import LogoutButton from '../components/LogoutButton'
 
 export default function Page() {
   return (
     <main>
-      <h1>Kasiyer Uygulaması</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>Kasiyer Uygulaması</h1>
+        <LogoutButton />
+      </div>
       <div className="link-grid">
         <Link href="/invoice/new">
           <button className="primary" style={{ width: '100%' }}>Yeni Fatura</button>
@@ -21,3 +25,4 @@ export default function Page() {
     </main>
   )
 }
+

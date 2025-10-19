@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace KuyumculukTakipProgrami.Domain.Entities;
 
@@ -20,4 +20,11 @@ public class Invoice
 
     // O anki has altın satış fiyatı (marjlı)
     public decimal? AltinSatisFiyati { get; set; }
+
+    // Oluşturan kullanıcı bilgisi (JWT'den)
+    public Guid? CreatedById { get; set; }
+    public string? CreatedByEmail { get; set; }
+
+    // Fatura durumu: kesildi/kesilmedi
+    public bool Kesildi { get; set; }
 }

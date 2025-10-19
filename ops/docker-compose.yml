@@ -6,6 +6,12 @@ services:
       dockerfile: ../ops/backend/Dockerfile
     env_file:
       - ./env.backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     ports:
       - "8080:8080"
     working_dir: /app
@@ -21,10 +27,17 @@ services:
         API_REWRITE_TARGET: http://api:8080
     env_file:
       - ./env.frontend-cashier
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   dashboard:
     build:
@@ -34,10 +47,17 @@ services:
         API_REWRITE_TARGET: http://api:8080
     env_file:
       - ./env.frontend-dashboard
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
     ports:
       - "3001:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   postgres:
     image: postgres:16

@@ -2,9 +2,11 @@ import jsPDF from 'jspdf'
 import autoTable, { UserOptions } from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import { type Invoice, type Expense } from './api'
+import { ensurePdfUnicodeFont } from './pdf-font'
 
-export function downloadInvoicesPdf(rows: Invoice[], opts?: { start?: string; end?: string }) {
+export async function downloadInvoicesPdf(rows: Invoice[], opts?: { start?: string; end?: string }) {
   const doc = new jsPDF({ orientation: 'l' })
+  await ensurePdfUnicodeFont(doc)
   const title = 'Faturalar'
   const range = (opts?.start || opts?.end) ? `Tarih Aralığı: ${opts?.start || '-'} - ${opts?.end || '-'}` : ''
   const total = rows.reduce((a, b) => a + Number(b.tutar), 0)
@@ -39,8 +41,9 @@ export function downloadInvoicesXlsx(rows: Invoice[]) {
   XLSX.writeFile(wb, name)
 }
 
-export function downloadExpensesPdf(rows: Expense[], opts?: { start?: string; end?: string }) {
+export async function downloadExpensesPdf(rows: Expense[], opts?: { start?: string; end?: string }) {
   const doc = new jsPDF({ orientation: 'l' })
+  await ensurePdfUnicodeFont(doc)
   const title = 'Giderler'
   const range = (opts?.start || opts?.end) ? `Tarih Aralığı: ${opts?.start || '-'} - ${opts?.end || '-'}` : ''
   const total = rows.reduce((a, b) => a + Number(b.tutar), 0)

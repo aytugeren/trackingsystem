@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Invoice } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,7 +34,7 @@ export default function InvoicesPage() {
         setData(list)
       } catch {
         if (!mounted) return
-        setError('Veri alınamadı')
+        setError('Veri alÄ±namadÄ±')
         setData(null)
       }
     }
@@ -63,6 +63,15 @@ export default function InvoicesPage() {
 
   const total = useMemo(() => filtered.reduce((a, b) => a + Number(b.tutar), 0), [filtered])
 
+  async function toggleStatus(inv: Invoice) {
+    try {
+      await api.setInvoiceStatus(inv.id, !(inv.kesildi ?? false))
+      setData((prev) => (prev ? prev.map(x => x.id === inv.id ? { ...x, kesildi: !(inv.kesildi ?? false) } : x) : prev))
+    } catch {
+      setError('Durum güncellenemedi')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -72,23 +81,23 @@ export default function InvoicesPage() {
         <CardContent>
           <div className="grid gap-3 md:grid-cols-4">
             <div className="space-y-1">
-              <Label htmlFor="start">Başlangıç Tarihi</Label>
+              <Label htmlFor="start">BaÅŸlangÄ±Ã§ Tarihi</Label>
               <Input id="start" type="date" value={filters.start || ''} onChange={(e) => setFilters((f) => ({ ...f, start: e.target.value || undefined }))} />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="end">Bitiş Tarihi</Label>
+              <Label htmlFor="end">BitiÅŸ Tarihi</Label>
               <Input id="end" type="date" value={filters.end || ''} onChange={(e) => setFilters((f) => ({ ...f, end: e.target.value || undefined }))} />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="method">Ödeme Şekli</Label>
+              <Label htmlFor="method">Ã–deme Åekli</Label>
               <Select id="method" value={filters.method} onChange={(e) => setFilters((f) => ({ ...f, method: e.target.value as Filters['method'] }))}>
-                <option value="all">Tümü</option>
+                <option value="all">TÃ¼mÃ¼</option>
                 <option value="havale">Havale</option>
-                <option value="kredikarti">Kredi Kartı</option>
+                <option value="kredikarti">Kredi KartÄ±</option>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="q">Müşteri Adı / TCKN</Label>
+              <Label htmlFor="q">MÃ¼ÅŸteri AdÄ± / TCKN</Label>
               <Input id="q" placeholder="Ara" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
             </div>
           </div>
@@ -121,17 +130,20 @@ export default function InvoicesPage() {
                 <THead>
                   <TR>
                     <TH>Tarih</TH>
-                    <TH>Sıra No</TH>
-                    <TH>Müşteri Ad Soyad</TH>
+                    <TH>SÄ±ra No</TH>
+                    <TH>MÃ¼ÅŸteri Ad Soyad</TH>
                     <TH>TCKN</TH>
+                    <TH>Kasiyer</TH>
+                    <TH>Has Altın</TH>
                     <TH className="text-right">Tutar</TH>
-                    <TH>Ödeme Şekli</TH>
+                    <TH>Durum</TH>
+                    <TH>Ã–deme Åekli</TH>
                   </TR>
                 </THead>
                 <TBody>
                   {filtered.length === 0 ? (
                     <TR>
-                      <TD colSpan={6} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
+                      <TD colSpan={6} className="text-center text-sm text-muted-foreground">KayÄ±t bulunamadÄ±</TD>
                     </TR>
                   ) : filtered.map((x) => (
                     <TR key={x.id}>
@@ -139,12 +151,15 @@ export default function InvoicesPage() {
                       <TD>{x.siraNo}</TD>
                       <TD>{x.musteriAdSoyad || '-'}</TD>
                       <TD>{x.tckn || '-'}</TD>
+                      <TD>{x.createdByEmail || '-'}</TD>
+                      <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
+                      <TD><button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button></TD>
                       <TD>
                         {x.odemeSekli === 0 ? (
                           <Badge variant="success">Havale</Badge>
                         ) : (
-                          <Badge variant="warning">Kredi Kartı</Badge>
+                          <Badge variant="warning">Kredi KartÄ±</Badge>
                         )}
                       </TD>
                     </TR>
@@ -159,3 +174,4 @@ export default function InvoicesPage() {
     </div>
   )
 }
+

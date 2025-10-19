@@ -1,8 +1,9 @@
-"use client"
+﻿"use client"
 import { useEffect, useMemo, useState } from 'react'
 import TouchField from '../../../components/ui/TouchField'
 import SuccessToast from '../../../components/ui/SuccessToast'
 import ErrorToast from '../../../components/ui/ErrorToast'
+import BackButton from '../../../components/BackButton'
 
 export default function PricingSettingsPage() {
   const apiBase = useMemo(() => process.env.NEXT_PUBLIC_API_URL || '', [])
@@ -33,15 +34,15 @@ export default function PricingSettingsPage() {
       const body = {
         code: 'ALTIN',
         marginBuy: parseFloat(marginBuy.replace(',', '.')) || 0,
-        marginSell: parseFloat(marginSell.replace(',', '.')) || 0
+        marginSell: parseFloat(marginSell.replace(',', '.')) || 0,
       }
       const res = await fetch(apiBase + '/api/pricing/settings/ALTIN', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error('Kaydedilemedi')
-      setSuccess('Kaydedildi ✅')
+      setSuccess('Kaydedildi ✓')
     } catch (e: any) {
       setError(e.message || 'Kaydedilemedi')
     } finally {
@@ -53,7 +54,10 @@ export default function PricingSettingsPage() {
 
   return (
     <main>
-      <h1>Fiyat Ayarları (ALTIN)</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <h1>Fiyat Ayarları (ALTIN)</h1>
+        <BackButton />
+      </div>
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TouchField label="Alış Marj (TL)" value={marginBuy} onChange={setMarginBuy} inputMode="decimal" />
         <TouchField label="Satış Marj (TL)" value={marginSell} onChange={setMarginSell} inputMode="decimal" />
@@ -66,4 +70,3 @@ export default function PricingSettingsPage() {
     </main>
   )
 }
-

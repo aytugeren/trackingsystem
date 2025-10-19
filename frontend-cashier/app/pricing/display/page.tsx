@@ -1,7 +1,8 @@
-"use client"
+﻿"use client"
 import { useEffect, useMemo, useState } from 'react'
 import SuccessToast from '../../../components/ui/SuccessToast'
 import ErrorToast from '../../../components/ui/ErrorToast'
+import BackButton from '../../../components/BackButton'
 
 type Latest = {
   code: string
@@ -38,7 +39,7 @@ export default function PricingDisplayPage() {
     try {
       const res = await fetch(apiBase + '/api/pricing/refresh', { method: 'POST' })
       if (!res.ok) throw new Error('Güncelleme başarısız')
-      setSuccess('Güncellendi ✅')
+      setSuccess('Güncellendi ✓')
       await load()
     } catch (e: any) {
       setError(e.message || 'Güncelleme başarısız')
@@ -55,7 +56,10 @@ export default function PricingDisplayPage() {
 
   return (
     <main>
-      <h1>ALTIN Fiyatı</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <h1>ALTIN Fiyatı</h1>
+        <BackButton />
+      </div>
       <div className="card" style={{ textAlign: 'center' }}>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between' }}>
           <div style={{ flex: 1, background: '#eef7f2', borderRadius: 12, padding: 12 }}>
@@ -85,4 +89,3 @@ function formatTL(v?: number) {
   if (v == null || Number.isNaN(v)) return '-'
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 2 }).format(v)
 }
-

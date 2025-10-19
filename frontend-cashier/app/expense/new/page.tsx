@@ -5,6 +5,7 @@ import BigKeypad from '../../../components/ui/BigKeypad'
 import SuccessToast from '../../../components/ui/SuccessToast'
 import ErrorToast from '../../../components/ui/ErrorToast'
 import { useOfflineQueue } from '../../../hooks/useOfflineQueue'
+import BackButton from '../../../components/BackButton'
 
 function todayStr() {
   const d = new Date()
@@ -143,7 +144,10 @@ export default function ExpenseNewPage() {
 
   return (
     <main>
-      <h1>Gider Ekle</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <h1>Gider Ekle</h1>
+        <BackButton />
+      </div>
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TouchField label="Tarih" type="date" value={date} onChange={setDate} />
         <div className="row">

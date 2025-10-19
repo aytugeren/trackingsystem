@@ -1,5 +1,5 @@
 "use client"
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem('ktp_token')
+      if (token) router.replace('/')
+    } catch {}
+  }, [router])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -23,6 +29,8 @@ export default function LoginPage() {
       localStorage.setItem('ktp_token', resp.token)
       localStorage.setItem('ktp_role', resp.role)
       localStorage.setItem('ktp_email', resp.email)
+      // also set a cookie copy for middleware/SSR (non-HttpOnly since set on client)
+      document.cookie = `ktp_token=${resp.token}; Max-Age=${60*60*8}; Path=/` // 8h
       router.push('/')
     } catch (err) {
       setError('Giriş başarısız. Bilgileri kontrol edin.')
@@ -55,4 +63,3 @@ export default function LoginPage() {
     </div>
   )
 }
-

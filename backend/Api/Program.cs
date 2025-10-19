@@ -1,4 +1,4 @@
-using KuyumculukTakipProgrami.Application;
+﻿using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using KuyumculukTakipProgrami.Domain.Entities;
+using System.Text.Json.Serialization;
+using System.Text.Encodings.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +24,12 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpClient();
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    // Allow UTF-8 characters (Turkish) in JSON without escaping
+    options.SerializerOptions.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+});
 builder.Services.AddCors(opts =>
 {
     opts.AddDefaultPolicy(policy =>
@@ -52,7 +60,10 @@ builder.Services.AddAuthentication(options =>
         ClockSkew = TimeSpan.FromMinutes(1)
     };
 });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", p => p.RequireRole(Role.Yonetici.ToString()));
+});
 
 var app = builder.Build();
 
@@ -66,6 +77,16 @@ if (app.Environment.IsDevelopment())
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+// Set Turkish culture and console encoding for proper I/O
+try
+{
+    Console.OutputEncoding = Encoding.UTF8;
+    Console.InputEncoding = Encoding.UTF8;
+}
+catch { }
+var tr = new CultureInfo("tr-TR");
+CultureInfo.DefaultThreadCurrentCulture = tr;
+CultureInfo.DefaultThreadCurrentUICulture = tr;
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<KtpDbContext>();
@@ -74,13 +95,41 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.Migrate();
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
         await EnsureMarketSchemaAsync(marketDb);
         await EnsureUsersSchemaAsync(db);
         if (db.Database.CanConnect())
         {
-            Console.WriteLine("Database Connected ✅");
+            Console.WriteLine("Database Connected âœ…");
         }
         await SeedData.EnsureSeededAsync(db);
+        // Ensure default admin user exists (idempotent)
+        var adminEmail = "aytgeren@gmail.com";
+        var existingAdmin = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == adminEmail.ToLower());
+        if (existingAdmin is null)
+        {
+            var user = new User
+            {
+                Id = Guid.NewGuid(),
+                Email = adminEmail,
+                PasswordHash = HashPassword("72727361Aa"),
+                Role = Role.Yonetici
+            };
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+            Console.WriteLine($"Seeded default admin user: {adminEmail}");
+        }
+        else if (app.Environment.IsDevelopment() && !VerifyPassword("72727361Aa", existingAdmin.PasswordHash))
+        {
+            // In development, keep default admin password in sync for convenience
+            existingAdmin.PasswordHash = HashPassword("72727361Aa");
+            await db.SaveChangesAsync();
+            Console.WriteLine($"Reset default admin password for: {adminEmail}");
+        }
     }
     catch (Exception ex)
     {
@@ -89,44 +138,72 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Invoices
-app.MapPost("/api/invoices", async (CreateInvoiceDto dto, ICreateInvoiceHandler handler, CancellationToken ct) =>
+app.MapPost("/api/invoices", async (CreateInvoiceDto dto, ICreateInvoiceHandler handler, KtpDbContext db, HttpContext http, CancellationToken ct) =>
 {
     try
     {
         var id = await handler.HandleAsync(new CreateInvoice(dto), ct);
+        var inv = await db.Invoices.FindAsync(new object?[] { id }, ct);
+        if (inv is not null)
+        {
+            var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
+            if (Guid.TryParse(sub, out var uid)) inv.CreatedById = uid; else inv.CreatedById = null;
+            inv.CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
+            await db.SaveChangesAsync(ct);
+        }
         return Results.Created($"/api/invoices/{id}", new { id });
     }
     catch (ArgumentException ex)
     {
         return Results.BadRequest(new { errors = ex.Message.Split(" | ") });
     }
-}).WithTags("Invoices");
+}).WithTags("Invoices").RequireAuthorization();
+
+// Update invoice status (admin only)
+app.MapPut("/api/invoices/{id:guid}/status", async (Guid id, UpdateInvoiceStatusRequest body, KtpDbContext db) =>
+{
+    var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
+    if (inv is null) return Results.NotFound();
+    inv.Kesildi = body.Kesildi;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).WithTags("Invoices").RequireAuthorization("AdminOnly");
 
 app.MapGet("/api/invoices", async (IListInvoicesHandler handler, CancellationToken ct) =>
 {
     var list = await handler.HandleAsync(new ListInvoices(), ct);
     return Results.Ok(list);
-}).WithTags("Invoices");
+}).WithTags("Invoices").RequireAuthorization();
 
 // Expenses
-app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler handler, CancellationToken ct) =>
+app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler handler, KtpDbContext db, HttpContext http, CancellationToken ct) =>
 {
     try
     {
         var id = await handler.HandleAsync(new CreateExpense(dto), ct);
+        var exp = await db.Expenses.FindAsync(new object?[] { id }, ct);
+        if (exp is not null)
+        {
+            var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
+            if (Guid.TryParse(sub, out var uid)) exp.CreatedById = uid; else exp.CreatedById = null;
+            exp.CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
+            await db.SaveChangesAsync(ct);
+        }
         return Results.Created($"/api/expenses/{id}", new { id });
     }
     catch (ArgumentException ex)
     {
         return Results.BadRequest(new { errors = ex.Message.Split(" | ") });
     }
-}).WithTags("Expenses");
+}).WithTags("Expenses").RequireAuthorization();
 
 app.MapGet("/api/expenses", async (IListExpensesHandler handler, CancellationToken ct) =>
 {
     var list = await handler.HandleAsync(new ListExpenses(), ct);
     return Results.Ok(list);
-}).WithTags("Expenses");
+}).WithTags("Expenses").RequireAuthorization();
 
 // Pricing settings endpoints
 app.MapGet("/api/pricing/settings/{code}", async (string code, MarketDbContext mdb) =>
@@ -160,11 +237,11 @@ app.MapPost("/api/pricing/refresh", async (IHttpClientFactory httpFactory, IConf
     var lang = cfg["Pricing:LanguageParam"] ?? "tr";
     var client = httpFactory.CreateClient();
     var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
-    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ulaşılmıyor", statusCode: 502);
+    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ulaÅŸÄ±lmÄ±yor", statusCode: 502);
     var json = await resp.Content.ReadAsStringAsync(ct);
 
     if (!TryParseAltin(json, out var alis, out var satis, out var sourceTime))
-        return Results.Problem("ALTIN verisi bulunamadı", statusCode: 422);
+        return Results.Problem("ALTIN verisi bulunamadÄ±", statusCode: 422);
 
     var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
                   ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
@@ -235,9 +312,9 @@ app.MapPost("/api/users", async (CreateUserRequest req, KtpDbContext db) =>
 {
     var email = (req.Email ?? string.Empty).Trim();
     if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(req.Password))
-        return Results.BadRequest(new { error = "Email ve şifre gereklidir" });
+        return Results.BadRequest(new { error = "Email ve ÅŸifre gereklidir" });
     var exists = await db.Users.AnyAsync(x => x.Email.ToLower() == email.ToLower());
-    if (exists) return Results.Conflict(new { error = "Email zaten kayıtlı" });
+    if (exists) return Results.Conflict(new { error = "Email zaten kayÄ±tlÄ±" });
     var user = new User
     {
         Id = Guid.NewGuid(),
@@ -248,14 +325,42 @@ app.MapPost("/api/users", async (CreateUserRequest req, KtpDbContext db) =>
     db.Users.Add(user);
     await db.SaveChangesAsync();
     return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Email, role = user.Role.ToString() });
-}).RequireAuthorization();
+}).RequireAuthorization("AdminOnly");
+
+// List users (admin only)
+app.MapGet("/api/users", async (string? role, KtpDbContext db) =>
+{
+    IQueryable<User> q = db.Users.AsNoTracking();
+    if (!string.IsNullOrWhiteSpace(role))
+    {
+        if (!Enum.TryParse<Role>(role, true, out var r))
+            return Results.BadRequest(new { error = "Geçersiz rol" });
+        q = q.Where(u => u.Role == r);
+    }
+    var list = await q
+        .OrderBy(u => u.Email)
+        .Select(u => new { id = u.Id, email = u.Email, role = u.Role.ToString() })
+        .ToListAsync();
+    return Results.Ok(list);
+}).RequireAuthorization("AdminOnly");
+
+// Reset password (admin only)
+app.MapPut("/api/users/{id:guid}/password", async (Guid id, ResetPasswordRequest req, KtpDbContext db) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
+    if (user is null) return Results.NotFound();
+    if (string.IsNullOrWhiteSpace(req.Password)) return Results.BadRequest(new { error = "�Yifre gereklidir" });
+    user.PasswordHash = HashPassword(req.Password!);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
 
 // Bootstrap first admin if none exists (one-time)
 app.MapPost("/api/users/bootstrap", async (CreateUserRequest req, KtpDbContext db) =>
 {
     var any = await db.Users.AnyAsync();
-    if (any) return Results.BadRequest(new { error = "Kullanıcılar zaten mevcut" });
-    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "İlk kullanıcı Yönetici olmalı" });
+    if (any) return Results.BadRequest(new { error = "KullanÄ±cÄ±lar zaten mevcut" });
+    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "Ä°lk kullanÄ±cÄ± YÃ¶netici olmalÄ±" });
     var user = new User
     {
         Id = Guid.NewGuid(),
@@ -285,7 +390,7 @@ static bool TryParseAltin(string json, out decimal alis, out decimal satis, out 
         var ci = CultureInfo.InvariantCulture;
         alis = decimal.Parse(alisStr, ci);
         satis = decimal.Parse(satisStr, ci);
-        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye çevir.
+        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye Ã§evir.
         if (!DateTime.TryParseExact(
                 tarihStr,
                 "dd-MM-yyyy HH:mm:ss",
@@ -394,3 +499,5 @@ static bool VerifyPassword(string password, string stored)
 
 public record LoginRequest(string Email, string Password);
 public record CreateUserRequest(string Email, string Password, Role Role);
+public record ResetPasswordRequest(string Password);
+public record UpdateInvoiceStatusRequest(bool Kesildi);

@@ -1,9 +1,10 @@
 "use client"
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { IconExpense, IconHome, IconInvoice } from '@/components/ui/icons'
 
-const items = [
+const baseItems = [
   { href: '/', label: 'Ana Sayfa', icon: IconHome },
   { href: '/invoices', label: 'Faturalar', icon: IconInvoice },
   { href: '/expenses', label: 'Giderler', icon: IconExpense },
@@ -12,10 +13,14 @@ const items = [
 
 export function MainNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
+  const [role, setRole] = useState<string | null>(null)
+  useEffect(() => {
+    try { setRole(localStorage.getItem('ktp_role')) } catch {}
+  }, [])
 
   return (
     <nav className="flex flex-col gap-1">
-      {items.map((it) => {
+      {[...baseItems, ...(role === 'Yonetici' ? [{ href: '/cashiers', label: 'Kasiyerler', icon: IconHome }] as const : [])].map((it) => {
         const active = pathname === it.href
         const Icon = it.icon
         return (
