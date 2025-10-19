@@ -81,15 +81,21 @@ if (app.Environment.IsDevelopment())
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
-// Force UTF-8 for JSON responses
+// Force UTF-8 for JSON responses (only for /api)
 app.Use(async (context, next) =>
 {
-    await next();
-    var ct = context.Response.ContentType;
-    if (string.IsNullOrEmpty(ct) || ct.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+    context.Response.OnStarting(state =>
     {
-        context.Response.Headers["Content-Type"] = "application/json; charset=utf-8";
-    }
+        var http = (HttpContext)state!;
+        var ct = http.Response.ContentType;
+        var isApi = http.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase);
+        if (isApi && (string.IsNullOrEmpty(ct) || ct.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)))
+        {
+            http.Response.ContentType = "application/json; charset=utf-8";
+        }
+        return Task.CompletedTask;
+    }, context);
+    await next();
 });
 // Set Turkish culture and console encoding for proper I/O
 try
