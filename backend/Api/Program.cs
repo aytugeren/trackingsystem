@@ -190,8 +190,17 @@ app.MapPost("/api/invoices", async (CreateInvoiceDto dto, ICreateInvoiceHandler 
     try
     {
         var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+        var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
         Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
         var id = await handler.HandleAsync(new CreateInvoice(dto, currentUserId), ct);
+        // Stamp creator info for legacy fields
+        var inv = await db.Invoices.FindAsync(new object?[] { id }, ct);
+        if (inv is not null)
+        {
+            inv.CreatedById = currentUserId;
+            inv.CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
+            await db.SaveChangesAsync(ct);
+        }
         return Results.Created($"/api/invoices/{id}", new { id });
     }
     catch (ArgumentException ex)
@@ -253,8 +262,17 @@ app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler 
     try
     {
         var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+        var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value;
         Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
         var id = await handler.HandleAsync(new CreateExpense(dto, currentUserId), ct);
+        // Stamp creator info for legacy fields
+        var exp = await db.Expenses.FindAsync(new object?[] { id }, ct);
+        if (exp is not null)
+        {
+            exp.CreatedById = currentUserId;
+            exp.CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
+            await db.SaveChangesAsync(ct);
+        }
         return Results.Created($"/api/expenses/{id}", new { id });
     }
     catch (ArgumentException ex)
