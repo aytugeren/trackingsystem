@@ -28,6 +28,11 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
             entity.Property(x => x.OdemeSekli).HasConversion<int>();
             entity.Property(x => x.AltinSatisFiyati).HasPrecision(18, 3);
+            // Kasiyer ilişkisi (nullable, kullanıcı silinirse null kalır)
+            entity.HasOne(x => x.Kasiyer)
+                  .WithMany()
+                  .HasForeignKey(x => x.KasiyerId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Expense>(entity =>
@@ -39,6 +44,11 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.MusteriAdSoyad).HasMaxLength(150);
             entity.Property(x => x.TCKN).HasMaxLength(11);
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
+            // Kasiyer ilişkisi (nullable)
+            entity.HasOne(x => x.Kasiyer)
+                  .WithMany()
+                  .HasForeignKey(x => x.KasiyerId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<User>(entity =>

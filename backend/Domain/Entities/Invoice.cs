@@ -25,6 +25,10 @@ public class Invoice
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }
 
+    // Kasiyer (Users tablosuna FK)
+    public Guid? KasiyerId { get; set; }
+    public User? Kasiyer { get; set; }
+
     // Fatura durumu: kesildi/kesilmedi
     public bool Kesildi { get; set; }
 }

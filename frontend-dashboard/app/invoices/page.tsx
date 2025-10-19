@@ -22,16 +22,21 @@ export default function InvoicesPage() {
   const [data, setData] = useState<Invoice[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<Filters>({ method: 'all', q: '' })
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(20)
+  const [totalCount, setTotalCount] = useState(0)
+  const [enterTick, setEnterTick] = useState(0)
 
-  // Load from API (refetch when filters change to match spec, even if server ignores)
+  // Load from API (pagination + lazy load)
   useEffect(() => {
     let mounted = true
     async function load() {
       try {
         setError(null)
-        const list = await api.listInvoices()
+        const resp = await api.listInvoices(page, pageSize)
         if (!mounted) return
-        setData(list)
+        setData(resp.items)
+        setTotalCount(resp.totalCount)
       } catch {
         if (!mounted) return
         setError('Veri alınamadı')
@@ -39,10 +44,8 @@ export default function InvoicesPage() {
       }
     }
     load()
-    return () => {
-      mounted = false
-    }
-  }, [filters.start, filters.end, filters.method, filters.q])
+    return () => { mounted = false }
+  }, [filters.start, filters.end, filters.method, filters.q, page, pageSize, enterTick])
 
   const filtered = useMemo(() => {
     const all = data || []
@@ -72,6 +75,8 @@ export default function InvoicesPage() {
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+
   return (
     <div className="space-y-4">
       <Card>
@@ -82,11 +87,11 @@ export default function InvoicesPage() {
           <div className="grid gap-3 md:grid-cols-4">
             <div className="space-y-1">
               <Label htmlFor="start">Başlangıç Tarihi</Label>
-              <Input id="start" type="date" value={filters.start || ''} onChange={(e) => setFilters((f) => ({ ...f, start: e.target.value || undefined }))} />
+              <Input id="start" type="date" value={filters.start || ''} onChange={(e) => setFilters((f) => ({ ...f, start: e.target.value || undefined }))} onKeyDown={(e) => { if (e.key === 'Enter') setEnterTick((t) => t + 1) }} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="end">Bitiş Tarihi</Label>
-              <Input id="end" type="date" value={filters.end || ''} onChange={(e) => setFilters((f) => ({ ...f, end: e.target.value || undefined }))} />
+              <Input id="end" type="date" value={filters.end || ''} onChange={(e) => setFilters((f) => ({ ...f, end: e.target.value || undefined }))} onKeyDown={(e) => { if (e.key === 'Enter') setEnterTick((t) => t + 1) }} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="method">Ödeme Şekli</Label>
@@ -98,7 +103,7 @@ export default function InvoicesPage() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="q">Müşteri Adı / TCKN</Label>
-              <Input id="q" placeholder="Ara" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
+              <Input id="q" placeholder="Ara" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') setEnterTick((t) => t + 1) }} />
             </div>
           </div>
         </CardContent>
@@ -151,7 +156,7 @@ export default function InvoicesPage() {
                       <TD>{x.siraNo}</TD>
                       <TD>{x.musteriAdSoyad || '-'}</TD>
                       <TD>{x.tckn || '-'}</TD>
-                      <TD>{x.createdByEmail || '-'}</TD>
+                      <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
                       <TD><button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button></TD>
@@ -166,7 +171,17 @@ export default function InvoicesPage() {
                   ))}
                 </TBody>
               </Table>
-              <div className="text-right font-semibold">Toplam: {total.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</div>
+              <div className="flex items-center justify-between">
+                <div className="space-x-2">
+                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Önceki</Button>
+                  {Array.from({ length: Math.min(3, Math.max(1, Math.ceil(totalCount / pageSize))) }).map((_, idx) => {
+                    const pNo = idx + 1
+                    return <Button key={pNo} variant={pNo === page ? 'default' : 'outline'} onClick={() => setPage(pNo)}>{pNo}</Button>
+                  })}
+                  <Button variant="outline" disabled={page >= Math.ceil(totalCount / pageSize)} onClick={() => setPage((p) => p + 1)}>Sonraki →</Button>
+                </div>
+                <div className="text-right font-semibold">Toplam: {total.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</div>
+              </div>
             </>
           )}
         </CardContent>

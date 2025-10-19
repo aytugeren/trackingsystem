@@ -19,4 +19,8 @@ public class Expense
     // Oluşturan kullanıcı bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }
+
+    // Kasiyer (Users tablosuna FK)
+    public Guid? KasiyerId { get; set; }
+    public User? Kasiyer { get; set; }
 }

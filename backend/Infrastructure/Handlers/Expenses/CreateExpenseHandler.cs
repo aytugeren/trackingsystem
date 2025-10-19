@@ -34,7 +34,8 @@ public class CreateExpenseHandler : ICreateExpenseHandler
             SiraNo = command.Dto.SiraNo,
             MusteriAdSoyad = command.Dto.MusteriAdSoyad,
             TCKN = command.Dto.TCKN,
-            Tutar = command.Dto.Tutar
+            Tutar = command.Dto.Tutar,
+            KasiyerId = command.CurrentUserId
         };
 
         _db.Expenses.Add(entity);
