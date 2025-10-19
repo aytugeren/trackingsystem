@@ -13,25 +13,19 @@ Kuyumculuk Takip Programı — Portainer Deploy
 
 Ortam Değişkenleri
 
-- Backend: `ops/env.backend`
-  - `ASPNETCORE_ENVIRONMENT=Production` olarak ayarlı.
-  - `Jwt__Key` üretim için güçlü ve uzun bir secret ile doldurun.
-  - Postgres bağlantıları compose içindeki `postgres` servisine ayarlı.
-- Frontend Dashboard: `ops/env.frontend-dashboard`
-  - `NODE_ENV=production`
-  - `NEXT_PUBLIC_API_BASE` boş (aynı origin). Next.js rewrites `/api` isteklerini API konteynerine yönlendirir.
-- Frontend Cashier: `ops/env.frontend-cashier`
-  - `NODE_ENV=production`
-  - `NEXT_PUBLIC_API_URL` boş (aynı origin). Gerekirse public API URL’i verilebilir.
-  - `API_REWRITE_TARGET` build sırasında API servisine (`http://api:8080`) yönlendirir.
+- Tüm servisler docker-compose içinde environment değişkenleri ile yönetilir.
+- `ops/.env.example` dosyasını kopyalayıp `ops/.env` olarak düzenleyebilirsiniz; Portainer Stack ekranında da bu değişkenleri tek tek tanımlayabilirsiniz.
+- Önemli: `JWT_KEY` üretimde mutlaka güçlü ve uzun bir değer olmalı.
 
 Yayınlama (Portainer Stack)
 
 1) Portainer > Stacks > Add Stack
 2) Repository’den deploy ediyorsanız repo yolunu ve `ops/docker-compose.yml` yolunu gösterin.
    - Alternatif: `ops/docker-compose.yml` içeriğini direkt yapıştırın.
-3) Env/Secrets
-   - `ops/env.backend`, `ops/env.frontend-dashboard`, `ops/env.frontend-cashier` dosyalarını Stack altında Environment vars olarak ekleyebilirsiniz veya compose’daki `env_file` kullanımını olduğu gibi bırakabilirsiniz (Git’ten geliyorsa). `Jwt__Key` değerini mutlaka değiştirin.
+3) Environment Variables
+   - Stack oluştururken değişken alanlarına `ops/.env.example` içindeki anahtarları girin.
+   - Ya da `ops/.env` dosyasını kullanmak için Portainer’da “.env file” seçeneğini işaretleyin (varsa).
+   - `JWT_KEY` değerini mutlaka değiştirin.
 4) Deploy
    - Stack deploy edildiğinde sırasıyla Postgres, API ve frontendl’er ayağa kalkar.
    - Sağlık kontrolleri: API `/health`, frontend kök `/`.
@@ -66,7 +60,7 @@ Ağ ve Reverse Proxy (Opsiyonel)
 
 Komutlar (Portainer dışı, direkt Docker Compose ile)
 
-- `cd ops && docker compose up -d --build`
+- `cd ops && cp .env.example .env && docker compose up -d --build`
 - Loglar: `docker compose logs -f api` vb.
 
 Varsayılan Erişimler

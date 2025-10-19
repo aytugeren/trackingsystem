@@ -1,11 +1,22 @@
 version: "3.8"
+
 services:
   api:
     build:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
-    env_file:
-      - ./env.backend
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Information}
+      ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
+      ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
+      Pricing__FeedUrl: ${PRICING_FEED_URL:-https://canlipiyasalar.haremaltin.com/tmp/altin.json}
+      Pricing__LanguageParam: ${PRICING_LANGUAGE_PARAM:-tr}
+      Jwt__Key: ${JWT_KEY:-CHANGE_ME}
+      Jwt__Issuer: ${JWT_ISSUER:-KTP}
+      Jwt__Audience: ${JWT_AUDIENCE:-KTP-Clients}
+      Seed__AdminEmail: ${SEED_ADMIN_EMAIL:-aytgeren@gmail.com}
+      Seed__AdminPassword: ${SEED_ADMIN_PASSWORD:-72727361Aa}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
@@ -13,7 +24,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8080}:8080"
     working_dir: /app
     depends_on:
       postgres:
@@ -24,9 +35,14 @@ services:
       context: ../frontend-cashier
       dockerfile: ../ops/frontend-cashier/Dockerfile
       args:
-        API_REWRITE_TARGET: http://api:8080
-    env_file:
-      - ./env.frontend-cashier
+        API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+    environment:
+      NODE_ENV: ${FRONTEND_NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+      API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+      NEXT_PUBLIC_ID_VERIFY_ENABLED: ${NEXT_PUBLIC_ID_VERIFY_ENABLED:-false}
+      NEXT_PUBLIC_ID_VERIFY_REQUIRED: ${NEXT_PUBLIC_ID_VERIFY_REQUIRED:-false}
+      NEXT_PUBLIC_ID_VERIFY_URL: ${NEXT_PUBLIC_ID_VERIFY_URL:-/api/identity/verify}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
@@ -34,7 +50,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "3000:3000"
+      - "${CASHIER_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy
@@ -44,9 +60,11 @@ services:
       context: ../frontend-dashboard
       dockerfile: ../ops/frontend-dashboard/Dockerfile
       args:
-        API_REWRITE_TARGET: http://api:8080
-    env_file:
-      - ./env.frontend-dashboard
+        API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+    environment:
+      NODE_ENV: ${FRONTEND_NODE_ENV:-production}
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}
+      API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
@@ -54,7 +72,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "3001:3000"
+      - "${DASHBOARD_PORT:-3001}:3000"
     depends_on:
       api:
         condition: service_healthy
@@ -63,15 +81,15 @@ services:
     image: postgres:16
     container_name: ktp-postgres
     environment:
-      POSTGRES_USER: ktp
-      POSTGRES_PASSWORD: ktp_pwd
-      POSTGRES_DB: ktp_db
+      POSTGRES_USER: ${POSTGRES_USER:-ktp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ktp_pwd}
+      POSTGRES_DB: ${POSTGRES_DB:-ktp_db}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ktp_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ktp -d ktp_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ktp} -d ${POSTGRES_DB:-ktp_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,10 +99,10 @@ services:
     image: dpage/pgadmin4:latest
     container_name: ktp-pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
     ports:
-      - "5050:80"
+      - "${PGADMIN_PORT:-5050}:80"
     depends_on:
       postgres:
         condition: service_healthy

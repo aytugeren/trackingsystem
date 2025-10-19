@@ -65,6 +65,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly", p => p.RequireRole(Role.Yonetici.ToString()));
 });
 
+// Seed configuration (admin user)
+var seedAdminEmail = builder.Configuration["Seed:AdminEmail"] ?? "aytgeren@gmail.com";
+var seedAdminPassword = builder.Configuration["Seed:AdminPassword"] ?? "72727361Aa";
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -108,7 +112,7 @@ using (var scope = app.Services.CreateScope())
         }
         await SeedData.EnsureSeededAsync(db);
         // Ensure default admin user exists (idempotent)
-        var adminEmail = "aytgeren@gmail.com";
+        var adminEmail = seedAdminEmail;
         var existingAdmin = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == adminEmail.ToLower());
         if (existingAdmin is null)
         {
@@ -116,7 +120,7 @@ using (var scope = app.Services.CreateScope())
             {
                 Id = Guid.NewGuid(),
                 Email = adminEmail,
-                PasswordHash = HashPassword("72727361Aa"),
+                PasswordHash = HashPassword(seedAdminPassword),
                 Role = Role.Yonetici
             };
             db.Users.Add(user);
