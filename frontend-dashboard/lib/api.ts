@@ -5,7 +5,8 @@ export type Invoice = {
   musteriAdSoyad?: string | null
   tckn?: string | null
   tutar: number
-  odemeSekli: number // 0: Havale, 1: KrediKarti
+  // Backend enums are serialized as strings; old clients may have numbers
+  odemeSekli: number | 'Havale' | 'KrediKarti'
   altinSatisFiyati?: number | null
   kesildi?: boolean
   kasiyerAdSoyad?: string | null

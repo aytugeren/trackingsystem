@@ -50,10 +50,11 @@ export default function InvoicesPage() {
   const filtered = useMemo(() => {
     const all = data || []
     return all.filter((x) => {
+      const isHavale = (x.odemeSekli === 0 || (x.odemeSekli as any) === 'Havale')
       if (filters.start && x.tarih < filters.start) return false
       if (filters.end && x.tarih > filters.end) return false
-      if (filters.method === 'havale' && x.odemeSekli !== 0) return false
-      if (filters.method === 'kredikarti' && x.odemeSekli !== 1) return false
+      if (filters.method === 'havale' && !isHavale) return false
+      if (filters.method === 'kredikarti' && isHavale) return false
       const q = filters.q.trim().toLowerCase()
       if (q) {
         const inName = (x.musteriAdSoyad || '').toLowerCase().includes(q)
@@ -151,22 +152,22 @@ export default function InvoicesPage() {
                       <TD colSpan={6} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
                     </TR>
                   ) : filtered.map((x) => (
-                    <TR key={x.id}>
-                      <TD>{x.tarih}</TD>
-                      <TD>{x.siraNo}</TD>
-                      <TD>{x.musteriAdSoyad || '-'}</TD>
-                      <TD>{x.tckn || '-'}</TD>
-                      <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
-                      <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
-                      <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
-                      <TD><button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button></TD>
-                      <TD>
-                        {x.odemeSekli === 0 ? (
+                  <TR key={x.id}>
+                    <TD>{x.tarih}</TD>
+                    <TD>{x.siraNo}</TD>
+                    <TD>{x.musteriAdSoyad || '-'}</TD>
+                    <TD>{x.tckn || '-'}</TD>
+                    <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
+                    <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
+                    <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
+                    <TD><button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button></TD>
+                    <TD>
+                        {(x.odemeSekli === 0 || (x.odemeSekli as any) === 'Havale') ? (
                           <Badge variant="success">Havale</Badge>
                         ) : (
                           <Badge variant="warning">Kredi Kartı</Badge>
                         )}
-                      </TD>
+                    </TD>
                     </TR>
                   ))}
                 </TBody>
@@ -189,4 +190,3 @@ export default function InvoicesPage() {
     </div>
   )
 }
-

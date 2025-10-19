@@ -1,4 +1,4 @@
-import jsPDF from 'jspdf'
+﻿import jsPDF from 'jspdf'
 import autoTable, { UserOptions } from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import { type Invoice, type Expense } from './api'
@@ -8,7 +8,7 @@ export async function downloadInvoicesPdf(rows: Invoice[], opts?: { start?: stri
   const doc = new jsPDF({ orientation: 'l' })
   await ensurePdfUnicodeFont(doc)
   const title = 'Faturalar'
-  const range = (opts?.start || opts?.end) ? `Tarih Aralığı: ${opts?.start || '-'} - ${opts?.end || '-'}` : ''
+  const range = (opts?.start || opts?.end) ? `Tarih AralÄ±ÄŸÄ±: ${opts?.start || '-'} - ${opts?.end || '-'}` : ''
   const total = rows.reduce((a, b) => a + Number(b.tutar), 0)
   doc.setFontSize(16)
   doc.text(title, 14, 16)
@@ -16,8 +16,8 @@ export async function downloadInvoicesPdf(rows: Invoice[], opts?: { start?: stri
     doc.setFontSize(11)
     doc.text(range, 14, 24)
   }
-  const head = [[ 'Tarih', 'Sıra No', 'Müşteri', 'TCKN', 'Tutar', 'Ödeme Şekli' ]]
-  const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', formatTRY(r.tutar), r.odemeSekli === 0 ? 'Havale' : 'Kredi Kartı' ])
+  const head = [[ 'Tarih', 'Sıra No', 'MÃ¼ÅŸteri', 'TCKN', 'Tutar', 'Ã–deme Åekli' ]]
+  const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', formatTRY(r.tutar), (r.odemeSekli === 0 || (r.odemeSekli as any) === 'Havale') ? 'Havale' : 'Kredi Kartı' ])
   autoTable(doc, { head, body } as UserOptions)
   const y = (doc as any).lastAutoTable?.finalY || 28
   doc.setFontSize(12)
@@ -30,10 +30,10 @@ export function downloadInvoicesXlsx(rows: Invoice[]) {
   const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
     Tarih: r.tarih,
     'Sıra No': r.siraNo,
-    Müşteri: r.musteriAdSoyad || '',
+    MÃ¼ÅŸteri: r.musteriAdSoyad || '',
     TCKN: r.tckn || '',
     Tutar: r.tutar,
-    'Ödeme Şekli': r.odemeSekli === 0 ? 'Havale' : 'Kredi Kartı'
+    'Ã–deme Åekli': (r.odemeSekli === 0 || (r.odemeSekli as any) === 'Havale') ? 'Havale' : 'Kredi Kartı'
   })))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Faturalar')
@@ -45,7 +45,7 @@ export async function downloadExpensesPdf(rows: Expense[], opts?: { start?: stri
   const doc = new jsPDF({ orientation: 'l' })
   await ensurePdfUnicodeFont(doc)
   const title = 'Giderler'
-  const range = (opts?.start || opts?.end) ? `Tarih Aralığı: ${opts?.start || '-'} - ${opts?.end || '-'}` : ''
+  const range = (opts?.start || opts?.end) ? `Tarih AralÄ±ÄŸÄ±: ${opts?.start || '-'} - ${opts?.end || '-'}` : ''
   const total = rows.reduce((a, b) => a + Number(b.tutar), 0)
   doc.setFontSize(16)
   doc.text(title, 14, 16)
@@ -53,7 +53,7 @@ export async function downloadExpensesPdf(rows: Expense[], opts?: { start?: stri
     doc.setFontSize(11)
     doc.text(range, 14, 24)
   }
-  const head = [[ 'Tarih', 'Sıra No', 'Müşteri', 'TCKN', 'Tutar' ]]
+  const head = [[ 'Tarih', 'Sıra No', 'MÃ¼ÅŸteri', 'TCKN', 'Tutar' ]]
   const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', formatTRY(r.tutar) ])
   autoTable(doc, { head, body } as UserOptions)
   const y = (doc as any).lastAutoTable?.finalY || 28
@@ -67,7 +67,7 @@ export function downloadExpensesXlsx(rows: Expense[]) {
   const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
     Tarih: r.tarih,
     'Sıra No': r.siraNo,
-    Müşteri: r.musteriAdSoyad || '',
+    MÃ¼ÅŸteri: r.musteriAdSoyad || '',
     TCKN: r.tckn || '',
     Tutar: r.tutar
   })))
@@ -87,4 +87,6 @@ function yyyymmdd(d: Date) {
 function formatTRY(v: number) {
   return Number(v).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })
 }
+
+
 

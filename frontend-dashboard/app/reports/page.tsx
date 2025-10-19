@@ -93,7 +93,8 @@ export default function ReportsPage() {
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
       const label = `${monthNames[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`
       const row = map.get(key) || { ay: label, havale: 0, kredikarti: 0 }
-      if (inv.odemeSekli === 0) row.havale += Number(inv.tutar); else row.kredikarti += Number(inv.tutar)
+      const isHavale = (inv.odemeSekli as any) === 0 || (inv.odemeSekli as any) === 'Havale'
+      if (isHavale) row.havale += Number(inv.tutar); else row.kredikarti += Number(inv.tutar)
       map.set(key, row)
     }
     return Array.from(map.entries()).sort((a,b) => a[0].localeCompare(b[0])).map(x => x[1])
