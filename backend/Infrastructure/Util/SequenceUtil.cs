@@ -14,9 +14,13 @@ public static class SequenceUtil
 
     public static async Task<int> NextIntAsync(DatabaseFacade database, string sequenceName, string? initTable, string? initColumn, CancellationToken ct = default)
     {
-        await using var conn = database.GetDbConnection();
+        var conn = database.GetDbConnection();
+        var openedHere = false;
         if (conn.State != ConnectionState.Open)
+        {
             await conn.OpenAsync(ct);
+            openedHere = true;
+        }
 
         // Check if sequence exists
         bool exists;
@@ -46,6 +50,11 @@ public static class SequenceUtil
                 cmdInit.CommandText = $"SELECT setval('\"{sequenceName}\"', (SELECT COALESCE(MAX(\"{initColumn}\"),0) FROM \"{initTable}\"));";
                 await cmdInit.ExecuteScalarAsync(ct);
             }
+        }
+
+        if (openedHere)
+        {
+            await conn.CloseAsync();
         }
 
         // Get next value
