@@ -52,17 +52,16 @@ public static class SequenceUtil
             }
         }
 
-        if (openedHere)
-        {
-            await database.CloseConnectionAsync();
-        }
-
         // Get next value
         await using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = $"SELECT nextval('\"{sequenceName}\"');";
             var obj = await cmd.ExecuteScalarAsync(ct);
             var next = Convert.ToInt64(obj);
+            if (openedHere)
+            {
+                await database.CloseConnectionAsync();
+            }
             return next >= int.MaxValue ? int.MaxValue : (int)next;
         }
     }
