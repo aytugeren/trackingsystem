@@ -52,10 +52,10 @@ export default function HomePage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Link href="/invoices">
-              <Button className="w-full h-12 text-base">📄 Faturalar</Button>
+              <Button className="w-full h-12 text-base">Faturalar</Button>
             </Link>
             <Link href="/expenses">
-              <Button className="w-full h-12 text-base" variant="outline">💸 Giderler</Button>
+              <Button className="w-full h-12 text-base" variant="outline">Giderler</Button>
             </Link>
           </div>
         </div>
@@ -65,7 +65,7 @@ export default function HomePage() {
         <h2 className="mb-3 text-sm font-medium text-muted-foreground">Bugünün Özeti</h2>
         <div className="grid gap-4 sm:grid-cols-3">
           <SummaryCard title="Günlük Toplam Gelir" emoji="💰" value={invoices ? income : null} error={error} />
-          <SummaryCard title="Günlük Toplam Gider" emoji="🧾" value={expenses ? outgo : null} error={error} />
+          <SummaryCard title="Günlük Toplam Gider" emoji="💸" value={expenses ? outgo : null} error={error} />
           <SummaryCard title="Günlük Net Kazanç" emoji="📈" value={invoices && expenses ? net : null} error={error} />
         </div>
       </section>
@@ -97,3 +97,4 @@ function SummaryCard({ title, value, error, emoji }: { title: string; value: num
     </Card>
   )
 }
+

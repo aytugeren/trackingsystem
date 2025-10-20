@@ -19,7 +19,7 @@ type Filters = {
 }
 
 export default function InvoicesPage() {
-  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const r2 = (n: number) => Math.round(n * 100) / 100
   const [data, setData] = useState<Invoice[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<Filters>({ method: 'all', q: '' })
@@ -141,21 +141,14 @@ export default function InvoicesPage() {
           <div className="flex items-center justify-between">
             <CardTitle>Faturalar</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => downloadInvoicesPdf(filtered, { start: filters.start, end: filters.end })}>PDF olarak indir</Button>
-              <Button variant="outline" onClick={() => downloadInvoicesXlsx(filtered)}>Excel olarak indir</Button>
+              <Button variant="outline" onClick={() => downloadInvoicesPdf(filtered, { start: filters.start, end: filters.end })}>PDF</Button>
+              <Button variant="outline" onClick={() => downloadInvoicesXlsx(filtered)}>Excel</Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {error ? (
-            <p className="text-sm text-red-600">{error}</p>
-          ) : !data ? (
-            <div className="space-y-2">
-              <Skeleton className="h-6 w-1/3" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-2/3" />
-            </div>
+        <CardContent>
+          {!data ? (
+            <Skeleton className="h-32 w-full" />
           ) : (
             <>
               <Table>
@@ -163,46 +156,47 @@ export default function InvoicesPage() {
                   <TR>
                     <TH>Tarih</TH>
                     <TH>Sıra No</TH>
-                    <TH>Müşteri Ad Soyad</TH>
+                    <TH>Müşteri</TH>
                     <TH>TCKN</TH>
                     <TH>Kasiyer</TH>
                     <TH>Ayar</TH>
                     <TH>Has Altın</TH>
                     <TH className="text-right">Tutar</TH>
-                    <TH>Durum</TH>
+                    <TH>İşlem</TH>
                     <TH>Ödeme Şekli</TH>
                   </TR>
                 </THead>
                 <TBody>
                   {filtered.length === 0 ? (
                     <TR>
-                      <TD colSpan={6} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
+                      <TD colSpan={10} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
                     </TR>
                   ) : filtered.map((x) => (
-                  <TR key={x.id}>
-                    <TD>{x.tarih}</TD>
-                    <TD>{x.siraNo}</TD>
-                    <TD>{x.musteriAdSoyad || '-'}</TD>
-                    <TD>{x.tckn || '-'}</TD>
-                    <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
-                    <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
-                    <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
-                    <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
-                    <TD className="space-x-2">
-                      <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button>
-                      <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Fatura Kes</button>
-                    </TD>
-                    <TD>
+                    <TR key={x.id}>
+                      <TD>{x.tarih}</TD>
+                      <TD>{x.siraNo}</TD>
+                      <TD>{x.musteriAdSoyad || '-'}</TD>
+                      <TD>{x.tckn || '-'}</TD>
+                      <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
+                      <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
+                      <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
+                      <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
+                      <TD className="space-x-2">
+                        <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button>
+                        <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Fatura Kes</button>
+                      </TD>
+                      <TD>
                         {(x.odemeSekli === 0 || (x.odemeSekli as any) === 'Havale') ? (
                           <Badge variant="success">Havale</Badge>
                         ) : (
                           <Badge variant="warning">Kredi Kartı</Badge>
                         )}
-                    </TD>
+                      </TD>
                     </TR>
                   ))}
                 </TBody>
               </Table>
+
               {modalOpen && selected && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
                   <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
@@ -212,7 +206,6 @@ export default function InvoicesPage() {
                       <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
                       <div className="pt-2">Ürün Fiyatı</div>
                       <Input value={String(selected.tutar || 0)} readOnly placeholder="0,00" />
-                      {/* Client-side preview using Tutar */}
                       {(() => {
                         const has = Number(selected.altinSatisFiyati || 0)
                         const ay22 = ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22')
@@ -238,14 +231,15 @@ export default function InvoicesPage() {
                   </div>
                 </div>
               )}
+
               <div className="flex items-center justify-between">
                 <div className="space-x-2">
-                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Önceki</Button>
+                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Önceki</Button>
                   {Array.from({ length: Math.min(3, Math.max(1, Math.ceil(totalCount / pageSize))) }).map((_, idx) => {
                     const pNo = idx + 1
                     return <Button key={pNo} variant={pNo === page ? 'default' : 'outline'} onClick={() => setPage(pNo)}>{pNo}</Button>
                   })}
-                  <Button variant="outline" disabled={page >= Math.ceil(totalCount / pageSize)} onClick={() => setPage((p) => p + 1)}>Sonraki →</Button>
+                  <Button variant="outline" disabled={page >= Math.ceil(totalCount / pageSize)} onClick={() => setPage((p) => p + 1)}>Sonraki</Button>
                 </div>
                 <div className="text-right font-semibold">Toplam: {total.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</div>
               </div>
@@ -256,9 +250,4 @@ export default function InvoicesPage() {
     </div>
   )
 }
-
-
-
-
-
 

@@ -16,7 +16,7 @@ type Filters = {
 }
 
 export default function ExpensesPage() {
-  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const r2 = (n: number) => Math.round(n * 100) / 100
   const [data, setData] = useState<Expense[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<Filters>({ q: '' })
@@ -119,22 +119,14 @@ export default function ExpensesPage() {
           <div className="flex items-center justify-between">
             <CardTitle>Giderler</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => downloadExpensesPdf(filtered, { start: filters.start, end: filters.end })}>PDF olarak indir</Button>
-              <Button variant="outline" onClick={() => downloadExpensesXlsx(filtered)}>Excel olarak indir</Button>
-              <Button variant="outline" onClick={() => setShowAll(s => !s)}>{showAll ? 'Tümünü gizle' : 'Tümünü göster'}</Button>
+              <Button variant="outline" onClick={() => downloadExpensesPdf(filtered, { start: filters.start, end: filters.end })}>PDF</Button>
+              <Button variant="outline" onClick={() => downloadExpensesXlsx(filtered)}>Excel</Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {error ? (
-            <p className="text-sm text-red-600">{error}</p>
-          ) : !data ? (
-            <div className="space-y-2">
-              <Skeleton className="h-6 w-1/3" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-2/3" />
-            </div>
+        <CardContent>
+          {!data ? (
+            <Skeleton className="h-32 w-full" />
           ) : (
             <>
               <Table>
@@ -142,12 +134,12 @@ export default function ExpensesPage() {
                   <TR>
                     <TH>Tarih</TH>
                     <TH>Sıra No</TH>
-                    <TH>Müşteri Ad Soyad</TH>
+                    <TH>Müşteri</TH>
                     <TH>TCKN</TH>
                     <TH>Kasiyer</TH>
                     <TH>Ayar</TH>
                     <TH>Has Altın</TH>
-                    <TH>Durum</TH>
+                    <TH>İşlem</TH>
                     <TH className="text-right">Tutar</TH>
                   </TR>
                 </THead>
@@ -174,6 +166,7 @@ export default function ExpensesPage() {
                   ))}
                 </TBody>
               </Table>
+
               {modalOpen && selected && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
                   <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
@@ -208,6 +201,7 @@ export default function ExpensesPage() {
                   </div>
                 </div>
               )}
+
               <div className="flex items-center justify-between">
                 <div className="space-x-2">
                   <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Önceki</Button>
