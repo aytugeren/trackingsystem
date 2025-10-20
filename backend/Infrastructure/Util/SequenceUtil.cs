@@ -18,7 +18,7 @@ public static class SequenceUtil
         var openedHere = false;
         if (conn.State != ConnectionState.Open)
         {
-            await conn.OpenAsync(ct);
+            await database.OpenConnectionAsync(ct);
             openedHere = true;
         }
 
@@ -54,7 +54,7 @@ public static class SequenceUtil
 
         if (openedHere)
         {
-            await conn.CloseAsync();
+            await database.CloseConnectionAsync();
         }
 
         // Get next value

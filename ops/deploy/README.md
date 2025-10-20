@@ -19,11 +19,13 @@ Production Deploy Guide
    - GET /api/invoices with small pageSize to confirm latency is low.
 
 5) Backups
-   - Ensure pg_dump available on PATH or set Backup:PgDumpPath
-   - Confirm ops/backups folder is writable.
+   - pg_dump is installed in the API image (postgresql-client). No extra step needed.
+   - Backups are persisted via docker volume `ktp_backups` mounted at `/app/ops/backups`.
    - Manual run: powershell ops/backup/run-now.ps1 -Env Production
+
+7) Persist DataProtection keys (auth cookies, tokens)
+   - Keys are persisted via docker volume `ktp_dataprotection` at `/root/.aspnet/DataProtection-Keys`.
 
 6) Rollback plan
    - Backups exist under ops/backups; archives nightly at 23:59.
    - Index creation is idempotent and concurrent; safe to rerun off-peak.
-

@@ -19,6 +19,19 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-KTP-Clients}
       Seed__AdminEmail: ${SEED_ADMIN_EMAIL:-admin@example.com}
       Seed__AdminPassword: ${SEED_ADMIN_PASSWORD:-72727361Aa}
+      # Backup configuration
+      Backup__Enabled: ${BACKUP_ENABLED:-true}
+      Backup__BackupRoot: ${BACKUP_ROOT:-ops/backups}
+      Backup__PgDumpPath: ${BACKUP_PG_DUMP_PATH:-pg_dump}
+      Backup__HourlyStartHour: ${BACKUP_HOURLY_START_HOUR:-0}
+      Backup__HourlyEndHour: ${BACKUP_HOURLY_END_HOUR:-23}
+      Backup__ArchiveAt: ${BACKUP_ARCHIVE_AT:-23:59}
+      Backup__RetentionDays: ${BACKUP_RETENTION_DAYS:-60}
+      Backup__Compress: ${BACKUP_COMPRESS:-true}
+      Backup__BusyStart: ${BACKUP_BUSY_START:-09:00}
+      Backup__BusyEnd: ${BACKUP_BUSY_END:-19:30}
+      # Optimization toggles
+      Optimization__EnableIndexCreation: ${OPTIMIZATION_ENABLE_INDEX_CREATION:-false}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
@@ -28,6 +41,9 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
     working_dir: /app
+    volumes:
+      - ktp_backups:/app/ops/backups
+      - ktp_dataprotection:/root/.aspnet/DataProtection-Keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,6 +137,10 @@ networks:
 volumes:
   ktp_pgdata:
     name: ktp_pgdata
+  ktp_backups:
+    name: ktp_backups
+  ktp_dataprotection:
+    name: ktp_dataprotection
 
 
 
