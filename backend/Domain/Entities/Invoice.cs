@@ -18,8 +18,18 @@ public class Invoice
 
     public OdemeSekli OdemeSekli { get; set; }
 
+    // Altın ayarı (22 / 24)
+    public AltinAyar AltinAyar { get; set; }
+
     // O anki has altın satış fiyatı (marjlı)
     public decimal? AltinSatisFiyati { get; set; }
+
+    // Finalization fields
+    public decimal? SafAltinDegeri { get; set; }
+    public decimal? UrunFiyati { get; set; }
+    public decimal? YeniUrunFiyati { get; set; }
+    public decimal? GramDegeri { get; set; }
+    public decimal? Iscilik { get; set; }
 
     // Oluşturan kullanıcı bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }

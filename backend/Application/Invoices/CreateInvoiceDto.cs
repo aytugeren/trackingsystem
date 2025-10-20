@@ -10,5 +10,5 @@ public class CreateInvoiceDto
     public string? TCKN { get; set; }
     public decimal Tutar { get; set; }
     public OdemeSekli OdemeSekli { get; set; }
+    public AltinAyar AltinAyar { get; set; }
 }
-

@@ -1,4 +1,4 @@
-﻿using KuyumculukTakipProgrami.Application;
+using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -116,11 +116,18 @@ using (var scope = app.Services.CreateScope())
     try
     {
         db.Database.Migrate();
+        await EnsureUsersSchemaAsync(db);
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"SafAltinDegeri\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"UrunFiyati\" numeric(18,2) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"YeniUrunFiyati\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"GramDegeri\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"Iscilik\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync(
             "DO $$ BEGIN " +
             "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Invoices_KasiyerId_Users') THEN " +
@@ -129,16 +136,23 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"SafAltinDegeri\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"UrunFiyati\" numeric(18,2) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"YeniUrunFiyati\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"GramDegeri\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Iscilik\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync(
             "DO $$ BEGIN " +
             "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Expenses_KasiyerId_Users') THEN " +
             "ALTER TABLE \"Expenses\" ADD CONSTRAINT \"FK_Expenses_KasiyerId_Users\" FOREIGN KEY (\"KasiyerId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL; " +
             "END IF; END $$;");
         await EnsureMarketSchemaAsync(marketDb);
-        await EnsureUsersSchemaAsync(db);
         if (db.Database.CanConnect())
         {
-            Console.WriteLine("Database Connected âœ…");
+            Console.WriteLine("Database Connected ?");
         }
         await SeedData.EnsureSeededAsync(db);
         // Temizlik: Eski test seed verilerini sil ("Ali Veli", "Ahmet Demir")
@@ -228,6 +242,31 @@ app.MapPut("/api/invoices/{id:guid}/status", async (Guid id, UpdateInvoiceStatus
     return Results.NoContent();
 }).WithTags("Invoices").RequireAuthorization("AdminOnly");
 
+// Finalize invoice: compute fields and set as Kesildi
+app.MapPost("/api/invoices/{id:guid}/finalize", async (Guid id, KtpDbContext db) =>
+{
+    var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
+    if (inv is null) return Results.NotFound();
+    if (!inv.AltinSatisFiyati.HasValue)
+        return Results.BadRequest(new { error = "Alt?n sat?? fiyat? bulunamad?." });
+    
+
+    var hasAltin = inv.AltinSatisFiyati!.Value;
+    var safAltin = inv.AltinAyar == AltinAyar.Ayar22 ? hasAltin * 0.916m : hasAltin * 0.995m;
+    var yeniUrun = inv.AltinAyar == AltinAyar.Ayar22 ? inv.Tutar * 0.99m : inv.Tutar * 0.998m;
+    var gram = (safAltin == 0 ? 0 : yeniUrun / safAltin);
+    var iscilik = (inv.Tutar - (gram * safAltin)) / 1.20m;
+
+    inv.UrunFiyati = Math.Round(inv.Tutar, 2);
+    inv.SafAltinDegeri = Math.Round(safAltin, 3);
+    inv.YeniUrunFiyati = Math.Round(yeniUrun, 3);
+    inv.GramDegeri = Math.Round(gram, 3);
+    inv.Iscilik = Math.Round(iscilik, 3);
+    inv.Kesildi = true;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { inv.Id, inv.SafAltinDegeri, inv.UrunFiyati, inv.YeniUrunFiyati, inv.GramDegeri, inv.Iscilik, inv.Kesildi });
+}).WithTags("Invoices").RequireAuthorization();
+
 app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IMemoryCache cache, CancellationToken ct) =>
 {
     var p = Math.Max(1, page ?? 1);
@@ -247,13 +286,19 @@ app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IM
                             tckn = i.TCKN,
                             tutar = i.Tutar,
                             odemeSekli = i.OdemeSekli,
+                            altinAyar = i.AltinAyar,
                             altinSatisFiyati = i.AltinSatisFiyati,
+                            safAltinDegeri = i.SafAltinDegeri,
+                            urunFiyati = i.UrunFiyati,
+                            yeniUrunFiyati = i.YeniUrunFiyati,
+                            gramDegeri = i.GramDegeri,
+                            iscilik = i.Iscilik,
                             kesildi = i.Kesildi,
                             kasiyerAdSoyad = (u != null ? u.Email : null)
                         };
 
         var ordered = baseQuery
-            .OrderBy(x => x.kesildi) // Bekliyor (false) önce
+            .OrderBy(x => x.kesildi) // Bekliyor (false) ?nce
             .ThenByDescending(x => x.tarih)
             .ThenByDescending(x => x.siraNo);
 
@@ -299,6 +344,42 @@ app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler 
     }
 }).WithTags("Expenses").RequireAuthorization();
 
+
+// Update expense status (admin only)
+app.MapPut("/api/expenses/{id:guid}/status", async (Guid id, UpdateInvoiceStatusRequest body, KtpDbContext db) =>
+{
+    var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
+    if (exp is null) return Results.NotFound();
+    exp.Kesildi = body.Kesildi;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).WithTags("Expenses").RequireAuthorization("AdminOnly");
+
+// Finalize expense: compute fields and set as Kesildi
+app.MapPost("/api/expenses/{id:guid}/finalize", async (Guid id, KtpDbContext db) =>
+{
+    var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
+    if (exp is null) return Results.NotFound();
+    if (!exp.AltinSatisFiyati.HasValue)
+        return Results.BadRequest(new { error = "Alt?n sat?? fiyat? bulunamad?." });
+    
+
+    var hasAltin = exp.AltinSatisFiyati!.Value;
+    var safAltin = exp.AltinAyar == AltinAyar.Ayar22 ? hasAltin * 0.916m : hasAltin * 0.995m;
+    var yeniUrun = exp.AltinAyar == AltinAyar.Ayar22 ? exp.Tutar * 0.99m : exp.Tutar * 0.998m;
+    var gram = (safAltin == 0 ? 0 : yeniUrun / safAltin);
+    var iscilik = (exp.Tutar - (gram * safAltin)) / 1.20m;
+
+    exp.UrunFiyati = Math.Round(exp.Tutar, 2);
+    exp.SafAltinDegeri = Math.Round(safAltin, 3);
+    exp.YeniUrunFiyati = Math.Round(yeniUrun, 3);
+    exp.GramDegeri = Math.Round(gram, 3);
+    exp.Iscilik = Math.Round(iscilik, 3);
+    exp.Kesildi = true;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { exp.Id, exp.SafAltinDegeri, exp.UrunFiyati, exp.YeniUrunFiyati, exp.GramDegeri, exp.Iscilik, exp.Kesildi });
+}).WithTags("Expenses").RequireAuthorization();
+
 app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IMemoryCache cache, CancellationToken ct) =>
 {
     var p = Math.Max(1, page ?? 1);
@@ -317,11 +398,20 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
                             musteriAdSoyad = e.MusteriAdSoyad,
                             tckn = e.TCKN,
                             tutar = e.Tutar,
+                            altinAyar = e.AltinAyar,
+                            altinSatisFiyati = e.AltinSatisFiyati,
+                            safAltinDegeri = e.SafAltinDegeri,
+                            urunFiyati = e.UrunFiyati,
+                            yeniUrunFiyati = e.YeniUrunFiyati,
+                            gramDegeri = e.GramDegeri,
+                            iscilik = e.Iscilik,
+                            kesildi = e.Kesildi,
                             kasiyerAdSoyad = (u != null ? u.Email : null)
                         };
 
         var ordered = baseQuery
-            .OrderByDescending(x => x.tarih)
+            .OrderBy(x => x.kesildi) // Bekliyor (false) ?nce
+            .ThenByDescending(x => x.tarih)
             .ThenByDescending(x => x.siraNo);
 
         var totalCount = await db.Expenses.AsNoTracking().CountAsync(ct);
@@ -364,11 +454,11 @@ app.MapPost("/api/pricing/refresh", async (IHttpClientFactory httpFactory, IConf
     var lang = cfg["Pricing:LanguageParam"] ?? "tr";
     var client = httpFactory.CreateClient();
     var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
-    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ulaÅŸÄ±lmÄ±yor", statusCode: 502);
+    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ula��lm�yor", statusCode: 502);
     var json = await resp.Content.ReadAsStringAsync(ct);
 
     if (!TryParseAltin(json, out var alis, out var satis, out var sourceTime))
-        return Results.Problem("ALTIN verisi bulunamadÄ±", statusCode: 422);
+        return Results.Problem("ALTIN verisi bulunamad�", statusCode: 422);
 
     var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
                   ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
@@ -439,9 +529,9 @@ app.MapPost("/api/users", async (CreateUserRequest req, KtpDbContext db) =>
 {
     var email = (req.Email ?? string.Empty).Trim();
     if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(req.Password))
-        return Results.BadRequest(new { error = "Email ve ÅŸifre gereklidir" });
+        return Results.BadRequest(new { error = "Email ve �ifre gereklidir" });
     var exists = await db.Users.AnyAsync(x => x.Email.ToLower() == email.ToLower());
-    if (exists) return Results.Conflict(new { error = "Email zaten kayÄ±tlÄ±" });
+    if (exists) return Results.Conflict(new { error = "Email zaten kay�tl�" });
     var user = new User
     {
         Id = Guid.NewGuid(),
@@ -461,7 +551,7 @@ app.MapGet("/api/users", async (string? role, KtpDbContext db) =>
     if (!string.IsNullOrWhiteSpace(role))
     {
         if (!Enum.TryParse<Role>(role, true, out var r))
-            return Results.BadRequest(new { error = "Geçersiz rol" });
+            return Results.BadRequest(new { error = "Ge?ersiz rol" });
         q = q.Where(u => u.Role == r);
     }
     var list = await q
@@ -476,7 +566,7 @@ app.MapPut("/api/users/{id:guid}/password", async (Guid id, ResetPasswordRequest
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
     if (user is null) return Results.NotFound();
-    if (string.IsNullOrWhiteSpace(req.Password)) return Results.BadRequest(new { error = "�Yifre gereklidir" });
+    if (string.IsNullOrWhiteSpace(req.Password)) return Results.BadRequest(new { error = "?Yifre gereklidir" });
     user.PasswordHash = HashPassword(req.Password!);
     await db.SaveChangesAsync();
     return Results.NoContent();
@@ -486,8 +576,8 @@ app.MapPut("/api/users/{id:guid}/password", async (Guid id, ResetPasswordRequest
 app.MapPost("/api/users/bootstrap", async (CreateUserRequest req, KtpDbContext db) =>
 {
     var any = await db.Users.AnyAsync();
-    if (any) return Results.BadRequest(new { error = "KullanÄ±cÄ±lar zaten mevcut" });
-    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "Ä°lk kullanÄ±cÄ± YÃ¶netici olmalÄ±" });
+    if (any) return Results.BadRequest(new { error = "Kullan�c�lar zaten mevcut" });
+    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "�lk kullan�c� Y�netici olmal�" });
     var user = new User
     {
         Id = Guid.NewGuid(),
@@ -517,7 +607,7 @@ static bool TryParseAltin(string json, out decimal alis, out decimal satis, out 
         var ci = CultureInfo.InvariantCulture;
         alis = decimal.Parse(alisStr, ci);
         satis = decimal.Parse(satisStr, ci);
-        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye Ã§evir.
+        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye �evir.
         if (!DateTime.TryParseExact(
                 tarihStr,
                 "dd-MM-yyyy HH:mm:ss",
@@ -628,3 +718,17 @@ public record LoginRequest(string Email, string Password);
 public record CreateUserRequest(string Email, string Password, Role Role);
 public record ResetPasswordRequest(string Password);
 public record UpdateInvoiceStatusRequest(bool Kesildi);
+public record FinalizeRequest(decimal UrunFiyati);
+
+
+
+
+
+
+
+
+
+
+
+
+

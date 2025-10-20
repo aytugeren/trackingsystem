@@ -28,12 +28,9 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
 
     public async Task<Guid> HandleAsync(CreateInvoice command, CancellationToken cancellationToken = default)
     {
-        // Auto-assign SiraNo per date if not provided or invalid
-        if (command.Dto.SiraNo < 1)
-        {
-            var max = _db.Invoices.Where(x => x.Tarih == command.Dto.Tarih).Select(x => (int?)x.SiraNo).Max();
-            command.Dto.SiraNo = (max ?? 0) + 1;
-        }
+        // Always assign global, monotonically increasing SiraNo using DB sequence (never resets)
+        command.Dto.SiraNo = await KuyumculukTakipProgrami.Infrastructure.Util.SequenceUtil
+            .NextIntAsync(_db.Database, "Invoices_SiraNo_seq", initTable: "Invoices", initColumn: "SiraNo", ct: cancellationToken);
 
         var errors = DtoValidators.Validate(command.Dto);
         if (errors.Count > 0)
@@ -48,6 +45,7 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
             TCKN = command.Dto.TCKN,
             Tutar = command.Dto.Tutar,
             OdemeSekli = command.Dto.OdemeSekli,
+            AltinAyar = command.Dto.AltinAyar,
             KasiyerId = command.CurrentUserId
         };
         

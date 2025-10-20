@@ -7,5 +7,5 @@ public class CreateExpenseDto
     public string? MusteriAdSoyad { get; set; }
     public string? TCKN { get; set; }
     public decimal Tutar { get; set; }
+    public KuyumculukTakipProgrami.Domain.Entities.AltinAyar AltinAyar { get; set; }
 }
-

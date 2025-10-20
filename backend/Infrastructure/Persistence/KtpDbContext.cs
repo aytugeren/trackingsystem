@@ -27,7 +27,13 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.TCKN).HasMaxLength(11);
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
             entity.Property(x => x.OdemeSekli).HasConversion<int>();
+            entity.Property(x => x.AltinAyar).HasConversion<int>();
             entity.Property(x => x.AltinSatisFiyati).HasPrecision(18, 3);
+            entity.Property(x => x.SafAltinDegeri).HasPrecision(18, 3);
+            entity.Property(x => x.UrunFiyati).HasPrecision(18, 2);
+            entity.Property(x => x.YeniUrunFiyati).HasPrecision(18, 3);
+            entity.Property(x => x.GramDegeri).HasPrecision(18, 3);
+            entity.Property(x => x.Iscilik).HasPrecision(18, 3);
             // Kasiyer ilişkisi (nullable, kullanıcı silinirse null kalır)
             entity.HasOne(x => x.Kasiyer)
                   .WithMany()
@@ -44,6 +50,12 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.MusteriAdSoyad).HasMaxLength(150);
             entity.Property(x => x.TCKN).HasMaxLength(11);
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
+            entity.Property(x => x.AltinAyar).HasConversion<int>();
+            entity.Property(x => x.SafAltinDegeri).HasPrecision(18, 3);
+            entity.Property(x => x.UrunFiyati).HasPrecision(18, 2);
+            entity.Property(x => x.YeniUrunFiyati).HasPrecision(18, 3);
+            entity.Property(x => x.GramDegeri).HasPrecision(18, 3);
+            entity.Property(x => x.Iscilik).HasPrecision(18, 3);
             // Kasiyer ilişkisi (nullable)
             entity.HasOne(x => x.Kasiyer)
                   .WithMany()

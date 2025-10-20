@@ -7,7 +7,13 @@ export type Invoice = {
   tutar: number
   // Backend enums are serialized as strings; old clients may have numbers
   odemeSekli: number | 'Havale' | 'KrediKarti'
+  altinAyar?: number | 'Ayar22' | 'Ayar24'
   altinSatisFiyati?: number | null
+  safAltinDegeri?: number | null
+  urunFiyati?: number | null
+  yeniUrunFiyati?: number | null
+  gramDegeri?: number | null
+  iscilik?: number | null
   kesildi?: boolean
   kasiyerAdSoyad?: string | null
 }
@@ -19,6 +25,14 @@ export type Expense = {
   musteriAdSoyad?: string | null
   tckn?: string | null
   tutar: number
+  altinAyar?: number | 'Ayar22' | 'Ayar24'
+  altinSatisFiyati?: number | null
+  safAltinDegeri?: number | null
+  urunFiyati?: number | null
+  yeniUrunFiyati?: number | null
+  gramDegeri?: number | null
+  iscilik?: number | null
+  kesildi?: boolean
   kasiyerAdSoyad?: string | null
 }
 
@@ -71,6 +85,21 @@ export const api = {
     const url = `${API_BASE}/api/invoices/${id}/status`
     const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ kesildi }) })
     if (!res.ok) throw new Error('Durum güncellenemedi')
+  },
+  async setExpenseStatus(id: string, kesildi: boolean): Promise<void> {
+    const url = `${API_BASE}/api/expenses/${id}/status`
+    const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ kesildi }) })
+    if (!res.ok) throw new Error('Durum güncellenemedi')
+  },
+  async finalizeInvoice(id: string): Promise<void> {
+    const url = `${API_BASE}/api/invoices/${id}/finalize`
+    const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Fatura kesilemedi')
+  },
+  async finalizeExpense(id: string): Promise<void> {
+    const url = `${API_BASE}/api/expenses/${id}/finalize`
+    const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Gider kesilemedi')
   },
   async login(email: string, password: string): Promise<{ token: string; role: string; email: string }> {
     const url = `${API_BASE}/api/auth/login`

@@ -114,7 +114,14 @@ export function useOfflineQueue(baseUrl: string) {
         enqueue(endpoint, payload)
         return { queued: true }
       }
-      return { ok: true }
+      let data: any = null
+      try {
+        const ct = res.headers.get('content-type') || ''
+        if (ct.includes('application/json')) {
+          data = await res.json()
+        }
+      } catch {}
+      return { ok: true, data }
     } catch {
       enqueue(endpoint, payload)
       return { queued: true }

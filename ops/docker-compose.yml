@@ -1,4 +1,4 @@
-version: "3.8"
+﻿version: "3.8"
 
 services:
   api:
@@ -6,16 +6,16 @@ services:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Information}
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
       ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
       ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
       Pricing__FeedUrl: ${PRICING_FEED_URL:-https://canlipiyasalar.haremaltin.com/tmp/altin.json}
       Pricing__LanguageParam: ${PRICING_LANGUAGE_PARAM:-tr}
-      Jwt__Key: ${JWT_KEY:-CHANGE_ME}
+      Jwt__Key: ${JWT_KEY:-insecure-dev-key-change-me-please-very-long-0123456789abcdef}
       Jwt__Issuer: ${JWT_ISSUER:-KTP}
       Jwt__Audience: ${JWT_AUDIENCE:-KTP-Clients}
-      Seed__AdminEmail: ${SEED_ADMIN_EMAIL:-aytgeren@gmail.com}
+      Seed__AdminEmail: ${SEED_ADMIN_EMAIL:-admin@example.com}
       Seed__AdminPassword: ${SEED_ADMIN_PASSWORD:-72727361Aa}
     restart: unless-stopped
     healthcheck:
@@ -37,7 +37,7 @@ services:
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     environment:
-      NODE_ENV: ${FRONTEND_NODE_ENV:-production}
+      NODE_ENV: ${FRONTEND_NODE_ENV:-development}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
       API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
       NEXT_PUBLIC_ID_VERIFY_ENABLED: ${NEXT_PUBLIC_ID_VERIFY_ENABLED:-false}
@@ -62,7 +62,7 @@ services:
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     environment:
-      NODE_ENV: ${FRONTEND_NODE_ENV:-production}
+      NODE_ENV: ${FRONTEND_NODE_ENV:-development}
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}
       API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     restart: unless-stopped
@@ -115,3 +115,6 @@ networks:
 volumes:
   ktp_pgdata:
     name: ktp_pgdata
+
+
+

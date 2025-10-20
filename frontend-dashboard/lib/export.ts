@@ -16,8 +16,8 @@ export async function downloadInvoicesPdf(rows: Invoice[], opts?: { start?: stri
     doc.setFontSize(11)
     doc.text(range, 14, 24)
   }
-  const head = [[ 'Tarih', 'Sira No', 'Musteri', 'TCKN', 'Tutar', 'Odeme Sekli' ]]
-  const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', formatTRY(r.tutar), (r.odemeSekli === 0 || (r.odemeSekli as any) === 'Havale') ? 'Havale' : 'Kredi Kartı' ])
+  const head = [[ 'Tarih', 'Sira No', 'Musteri', 'TCKN', 'Ayar', 'Tutar', 'Odeme Sekli' ]]
+  const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', (!r.altinAyar ? '-' : ((r.altinAyar === 22 || (r.altinAyar as any) === 'Ayar22') ? '22 Ayar' : '24 Ayar')), formatTRY(r.tutar), (r.odemeSekli === 0 || (r.odemeSekli as any) === 'Havale') ? 'Havale' : 'Kredi Kartı' ])
   autoTable(doc, { head, body } as UserOptions)
   const y = (doc as any).lastAutoTable?.finalY || 28
   doc.setFontSize(12)
@@ -32,6 +32,7 @@ export function downloadInvoicesXlsx(rows: Invoice[]) {
     'Sira No': r.siraNo,
     Musteri: r.musteriAdSoyad || '',
     TCKN: r.tckn || '',
+    Ayar: (!r.altinAyar ? '' : ((r.altinAyar === 22 || (r.altinAyar as any) === 'Ayar22') ? '22 Ayar' : '24 Ayar')),
     Tutar: r.tutar,
     'Odeme Sekli': (r.odemeSekli === 0 || (r.odemeSekli as any) === 'Havale') ? 'Havale' : 'Kredi Kartı'
   })))
@@ -53,8 +54,8 @@ export async function downloadExpensesPdf(rows: Expense[], opts?: { start?: stri
     doc.setFontSize(11)
     doc.text(range, 14, 24)
   }
-  const head = [[ 'Tarih', 'Sira No', 'Musteri', 'TCKN', 'Tutar' ]]
-  const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', formatTRY(r.tutar) ])
+  const head = [[ 'Tarih', 'Sira No', 'Musteri', 'TCKN', 'Ayar', 'Tutar' ]]
+  const body = rows.map(r => [ r.tarih, String(r.siraNo), r.musteriAdSoyad || '-', r.tckn || '-', (!r.altinAyar ? '-' : ((r.altinAyar === 22 || (r.altinAyar as any) === 'Ayar22') ? '22 Ayar' : '24 Ayar')), formatTRY(r.tutar) ])
   autoTable(doc, { head, body } as UserOptions)
   const y = (doc as any).lastAutoTable?.finalY || 28
   doc.setFontSize(12)
@@ -69,6 +70,7 @@ export function downloadExpensesXlsx(rows: Expense[]) {
     'Sira No': r.siraNo,
     Musteri: r.musteriAdSoyad || '',
     TCKN: r.tckn || '',
+    Ayar: (!r.altinAyar ? '' : ((r.altinAyar === 22 || (r.altinAyar as any) === 'Ayar22') ? '22 Ayar' : '24 Ayar')),
     Tutar: r.tutar
   })))
   const wb = XLSX.utils.book_new()

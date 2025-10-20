@@ -16,6 +16,7 @@ type Filters = {
 }
 
 export default function ExpensesPage() {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
   const [data, setData] = useState<Expense[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<Filters>({ q: '' })
@@ -23,6 +24,10 @@ export default function ExpensesPage() {
   const [pageSize] = useState(20)
   const [totalCount, setTotalCount] = useState(0)
   const [enterTick, setEnterTick] = useState(0)
+  const [showAll, setShowAll] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [selected, setSelected] = useState<Expense | null>(null)
+  const [urunFiyati, setUrunFiyati] = useState<string>('')
 
   useEffect(() => {
     let mounted = true
@@ -44,7 +49,7 @@ export default function ExpensesPage() {
   }, [filters.start, filters.end, filters.q, page, pageSize, enterTick])
 
   const filtered = useMemo(() => {
-    const all = data || []
+    const all = (data || []).filter(x => showAll ? true : !(x.kesildi ?? false))
     return all.filter((x) => {
       if (filters.start && x.tarih < filters.start) return false
       if (filters.end && x.tarih > filters.end) return false
@@ -56,10 +61,34 @@ export default function ExpensesPage() {
       }
       return true
     })
-  }, [data, filters])
+  }, [data, filters, showAll])
 
   const total = useMemo(() => filtered.reduce((a, b) => a + Number(b.tutar), 0), [filtered])
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+
+  async function toggleStatus(exp: Expense) {
+    try {
+      await api.setExpenseStatus(exp.id, !(exp.kesildi ?? false))
+      setData((prev) => (prev ? prev.map(x => x.id === exp.id ? { ...x, kesildi: !(exp.kesildi ?? false) } : x) : prev))
+    } catch {
+      setError('Durum güncellenemedi')
+    }
+  }
+
+  function openFinalize(exp: Expense) {
+    setSelected(exp)
+    setUrunFiyati(String(exp.tutar))
+    setModalOpen(true)
+  }
+  function closeModal() { setModalOpen(false); setSelected(null); setUrunFiyati('') }
+  async function finalize() {
+    if (!selected) return
+    try {
+      await api.finalizeExpense(selected.id)
+      setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, kesildi: true, urunFiyati: x.tutar } : x) : prev)
+      closeModal(); setEnterTick(t => t + 1)
+    } catch { setError('Gider kesilemedi') }
+  }
 
   return (
     <div className="space-y-4">
@@ -92,6 +121,7 @@ export default function ExpensesPage() {
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => downloadExpensesPdf(filtered, { start: filters.start, end: filters.end })}>PDF olarak indir</Button>
               <Button variant="outline" onClick={() => downloadExpensesXlsx(filtered)}>Excel olarak indir</Button>
+              <Button variant="outline" onClick={() => setShowAll(s => !s)}>{showAll ? 'Tümünü gizle' : 'Tümünü göster'}</Button>
             </div>
           </div>
         </CardHeader>
@@ -115,13 +145,16 @@ export default function ExpensesPage() {
                     <TH>Müşteri Ad Soyad</TH>
                     <TH>TCKN</TH>
                     <TH>Kasiyer</TH>
+                    <TH>Ayar</TH>
+                    <TH>Has Altın</TH>
+                    <TH>Durum</TH>
                     <TH className="text-right">Tutar</TH>
                   </TR>
                 </THead>
                 <TBody>
                   {filtered.length === 0 ? (
                     <TR>
-                      <TD colSpan={6} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
+                      <TD colSpan={8} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
                     </TR>
                   ) : filtered.map((x) => (
                     <TR key={x.id}>
@@ -130,19 +163,59 @@ export default function ExpensesPage() {
                       <TD>{x.musteriAdSoyad || '-'}</TD>
                       <TD>{x.tckn || '-'}</TD>
                       <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
+                      <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
+                      <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
+                      <TD className="space-x-2">
+                        <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button>
+                        <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Gider Kes</button>
+                      </TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
                     </TR>
                   ))}
                 </TBody>
               </Table>
+              {modalOpen && selected && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                  <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
+                    <h3 className="text-lg font-semibold">Gider Kes</h3>
+                    <div className="space-y-1 text-sm">
+                      <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
+                      <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
+                      <div className="pt-2">Ürün Fiyatı</div>
+                      <Input value={urunFiyati} readOnly placeholder="0,00" />
+                      {(() => {
+                        const has = Number(selected.altinSatisFiyati || 0)
+                        const ay22 = ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22')
+                        const saf = has * (ay22 ? 0.916 : 0.995)
+                        const u = Number(selected.tutar || 0)
+                        const yeni = u * (ay22 ? 0.99 : 0.998)
+                        const gram = saf ? (yeni / saf) : 0
+                        const isc = (u - (gram * saf)) / 1.20
+                        return (
+                          <div className="mt-2 space-y-1">
+                            <div>Saf Altın Değeri: <b>{saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            <div>Yeni Ürün Fiyatı: <b>{yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            <div>Gram Değeri: <b>{gram.toLocaleString('tr-TR')}</b></div>
+                            <div>İşçilik: <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                          </div>
+                        )
+                      })()}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={closeModal}>Vazgeç</Button>
+                      <Button onClick={finalize}>Kes</Button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <div className="space-x-2">
-                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Önceki</Button>
+                  <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Önceki</Button>
                   {Array.from({ length: Math.min(3, Math.max(1, Math.ceil(totalCount / pageSize))) }).map((_, idx) => {
                     const pNo = idx + 1
                     return <Button key={pNo} variant={pNo === page ? 'default' : 'outline'} onClick={() => setPage(pNo)}>{pNo}</Button>
                   })}
-                  <Button variant="outline" disabled={page >= Math.ceil(totalCount / pageSize)} onClick={() => setPage((p) => p + 1)}>Sonraki →</Button>
+                  <Button variant="outline" disabled={page >= Math.ceil(totalCount / pageSize)} onClick={() => setPage((p) => p + 1)}>Sonraki</Button>
                 </div>
                 <div className="text-right font-semibold">Toplam: {total.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</div>
               </div>
@@ -153,3 +226,4 @@ export default function ExpensesPage() {
     </div>
   )
 }
+

@@ -16,11 +16,27 @@ public class Expense
 
     public decimal Tutar { get; set; }
 
-    // Oluşturan kullanıcı bilgisi (JWT'den)
+    // O anki has altin satis fiyati (marjli)
+    public decimal? AltinSatisFiyati { get; set; }
+
+    // Altın ayarı (22 / 24)
+    public AltinAyar AltinAyar { get; set; }
+
+    // Finalization fields
+    public decimal? SafAltinDegeri { get; set; }
+    public decimal? UrunFiyati { get; set; }
+    public decimal? YeniUrunFiyati { get; set; }
+    public decimal? GramDegeri { get; set; }
+    public decimal? Iscilik { get; set; }
+
+    // Olusturan kullanici bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }
 
     // Kasiyer (Users tablosuna FK)
     public Guid? KasiyerId { get; set; }
     public User? Kasiyer { get; set; }
+
+    // Gider durumu: kesildi/kesilmedi
+    public bool Kesildi { get; set; }
 }
