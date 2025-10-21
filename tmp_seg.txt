@@ -1,0 +1,29 @@
+﻿ null)
+                entity.AltinSatisFiyati = latestStored.FinalSatis;
+        }
+
+        db.Invoices.Add(entity);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return Results.Created($"/api/invoices/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { errors = ex.Message.Split(" | ") });
+    }
+}).WithTags("Invoices").RequireAuthorization();
+
+// Cashier: create draft expense with definitive, gapless SiraNo
+app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbContext db, MarketDbContext mdb, IHttpClientFactory httpFactory, IConfiguration cfg, HttpContext http, CancellationToken ct) =>
+{
+    try
+    {
+        var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var email = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+            ?? http.User.FindFirst(ClaimTypes.Email)?.Value;
+        Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+        if (currentUserId is null)
+        {
+            var hdrSub = http.Request.Headers["X-User-Id"].FirstOrDefault();
+            if (Guid.TryParse(hdrSub, out

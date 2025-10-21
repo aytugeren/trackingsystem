@@ -31,6 +31,9 @@ public class Invoice
     public decimal? GramDegeri { get; set; }
     public decimal? Iscilik { get; set; }
 
+    // Kasiyer onayı tamamlandığında işaretlemek için
+    public DateTime? FinalizedAt { get; set; }
+
     // Oluşturan kullanıcı bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }

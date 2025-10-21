@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import TouchField from '../../../components/ui/TouchField'
 import BigKeypad from '../../../components/ui/BigKeypad'
@@ -32,12 +32,18 @@ function InvoiceNewInner() {
   const initialType = (searchParams.get('type') === 'expense' ? 'expense' : (searchParams.get('type') === 'invoice' ? 'invoice' : 'invoice')) as TxType
 
   const apiBase = useMemo(() => process.env.NEXT_PUBLIC_API_URL || '', [])
-  const { sendOrQueue } = useOfflineQueue(apiBase)
+  const { sendOrQueue, isOnline } = useOfflineQueue(apiBase)
 
   const [txType, setTxType] = useState<TxType>(initialType)
   const [date, setDate] = useState<string>(todayStr())
   const [fullName, setFullName] = useState<string>('')
-  const [birthYear, setBirthYear] = useState<string>('')
+  const [birthYear, setBirthYear] = useState<string>(() => {
+    const now = new Date().getFullYear()
+    const min = now - 85
+    const max = now - 18
+    const r = Math.floor(Math.random() * (max - min + 1)) + min
+    return String(r)
+  })
   const [tckn, setTckn] = useState<string>('')
   const [amount, setAmount] = useState<string>('')
   const [payment, setPayment] = useState<'havale' | 'krediKarti' | ''>('')
@@ -46,8 +52,11 @@ function InvoiceNewInner() {
   const [error, setError] = useState('')
   const [activeKeypad, setActiveKeypad] = useState<'amount' | null>(null)
   const [tcknError, setTcknError] = useState<string>('')
-  const [birthYearError, setBirthYearError] = useState<string>('')
   const [ayar, setAyar] = useState<22 | 24 | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [predictedSira, setPredictedSira] = useState<number | null>(null)
+  const [currentAltinSatis, setCurrentAltinSatis] = useState<number | null>(null)
+  const [draftId, setDraftId] = useState<string | null>(null)
 
   function validateTCKN(id: string): boolean {
     if (!/^\d{11}$/.test(id)) return false
@@ -59,23 +68,55 @@ function InvoiceNewInner() {
     return d10 === calc10 && d11 === calc11
   }
 
-  useEffect(() => {
-    if (!tckn) { setTcknError(''); return }
-    setTcknError(validateTCKN(tckn) ? '' : 'TCKN geçersiz')
-  }, [tckn])
-
-  function validateBirthYear(y: string): boolean {
-    if (!/^\d{4}$/.test(y)) return false
-    const year = parseInt(y, 10)
+  function computeBirthYear(): number {
     const now = new Date().getFullYear()
-    return year >= 1900 && year <= now
+    const min = now - 85
+    const max = now - 18
+    if (birthYear && /^\d{4}$/.test(birthYear)) {
+      const val = parseInt(birthYear, 10)
+      if (val >= 1900 && val <= now) return val
+    }
+    return Math.floor(Math.random() * (max - min + 1)) + min
   }
 
-  useEffect(() => {
-    if (!birthYear) { setBirthYearError(''); return }
-    setBirthYearError(validateBirthYear(birthYear) ? '' : 'Doğum yılı geçersiz')
-  }, [birthYear])
+  async function openPreview() {
+    setError('')
+    if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment) || !ayar) {
+      setError('Lütfen tüm alanları doldurun')
+      return
+    }
+    if (!validateTCKN(tckn)) { setError('TCKN geçersiz'); return }
+    // doğum yılı kontrolü kaldırıldı
+    const amountNum = parseFloat(amount.replace(',', '.'))
+    if (Number.isNaN(amountNum)) { setError('Tutar geçersiz'); return }
 
+    if (!isOnline) { setError('Önizleme için çevrimiçi olmalısınız'); return }
+    try {
+      const headers = { 'Content-Type': 'application/json', ...authHeaders() }
+      const payload: any = {
+        tarih: date,
+        siraNo: 0,
+        musteriAdSoyad: fullName.trim(),
+        tckn: tckn,
+        tutar: amountNum,
+        altinAyar: ayar
+      }
+      if (txType === 'invoice') payload.odemeSekli = payment === 'havale' ? 0 : 1
+      const url = txType === 'invoice' ? '/api/cashier/invoices/draft' : '/api/cashier/expenses/draft'
+      const r = await fetch(apiBase + url, { method: 'POST', headers, body: JSON.stringify(payload) })
+      if (!r.ok) { setError('Önizleme oluşturulamadı'); return }
+      const j = await r.json()
+      setDraftId(String(j?.id))
+      setPredictedSira(Number(j?.siraNo || 0))
+      setCurrentAltinSatis(j?.altinSatisFiyati != null ? Number(j.altinSatisFiyati) : null)
+    } catch {
+      setError('Önizleme oluşturulamadı');
+      return
+    }
+    setPreviewOpen(true)
+  }
+
+  
   const handleKeypadTo = (setter: React.Dispatch<React.SetStateAction<string>>) => ({
     onKey: (k: string) => setter((v) => sanitizeAmountInput(v + k)),
     onBackspace: () => setter((v) => v.slice(0, -1)),
@@ -102,7 +143,7 @@ function InvoiceNewInner() {
   async function onSave() {
     setError('')
     setSuccess('')
-    if (!date || !fullName || !birthYear || !tckn || !amount || (txType === 'invoice' && !payment) || !ayar) {
+    if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment) || !ayar) {
       setError('Lütfen tüm alanları doldurun')
       return
     }
@@ -110,10 +151,7 @@ function InvoiceNewInner() {
       setError('TCKN geçersiz')
       return
     }
-    if (!validateBirthYear(birthYear)) {
-      setError('Doğum yılı geçersiz')
-      return
-    }
+    // doğum yılı kontrolü kaldırıldı
     const amountNum = parseFloat(amount.replace(',', '.'))
     if (Number.isNaN(amountNum)) {
       setError('Tutar geçersiz')
@@ -129,7 +167,7 @@ function InvoiceNewInner() {
         const res = await fetch(apiBase + verifyPath, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tckn, firstName, lastName, birthYear: parseInt(birthYear, 10) })
+          body: JSON.stringify({ tckn, firstName, lastName, birthYear: computeBirthYear() })
         })
         if (!res.ok) {
           if (verifyRequired) {
@@ -166,24 +204,33 @@ function InvoiceNewInner() {
       fullName: fullName.trim(),
       firstName,
       lastName,
-      birthYear: parseInt(birthYear, 10),
+      birthYear: computeBirthYear(),
       altinAyar: ayar
     }
 
-    let endpoint = ''
-    let payload: any = { ...common }
-    if (txType === 'invoice') {
-      endpoint = '/api/invoices'
-      payload.odemeSekli = payment === 'havale' ? 0 : 1
+    // If draft exists, finalize it; else fallback to original create
+    let res: any = null
+    if (draftId) {
+      try {
+        const finalizeUrl = txType === 'invoice' ? `/api/invoices/${draftId}/finalize` : `/api/expenses/${draftId}/finalize`
+        const r = await fetch(apiBase + finalizeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } })
+        res = r.ok ? { ok: true } : { queued: false }
+      } catch { res = { queued: false } }
     } else {
-      endpoint = '/api/expenses'
+      let endpoint = ''
+      let payload: any = { ...common }
+      if (txType === 'invoice') {
+        endpoint = '/api/invoices'
+        payload.odemeSekli = payment === 'havale' ? 0 : 1
+      } else {
+        endpoint = '/api/expenses'
+      }
+      res = await sendOrQueue(endpoint, payload)
     }
-
-    const res = await sendOrQueue(endpoint, payload)
     setLoading(false)
     if ((res as any).ok) {
       setSuccess('Kayıt eklendi ✅')
-      // Kredi kartı tahsilat kuyruğu bilgisini bildir
+      // Kredi Kartı tahsilat kuyruğu bilgisini bildir
       if (txType === 'invoice' && payment === 'krediKarti') {
         try {
           const listRes = await fetch(`${apiBase}/api/invoices?page=1&pageSize=500`, {
@@ -205,10 +252,10 @@ function InvoiceNewInner() {
           }
         } catch {}
       }
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null)
+      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setCurrentAltinSatis(null); setDraftId(null)
     } else if ((res as any).queued) {
       setSuccess('Çevrimdışı kaydedildi, sonra gönderilecek ✅')
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null)
+      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setCurrentAltinSatis(null); setDraftId(null)
     } else {
       setError('Kayıt eklenemedi')
     }
@@ -229,7 +276,7 @@ function InvoiceNewInner() {
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TouchField label="Tarih" type="date" value={date} onChange={setDate} />
         <TouchField label="Ad Soyad" value={fullName} onChange={setFullName} onFocus={() => setActiveKeypad(null)} />
-        <TouchField label="Doğum Yılı" value={birthYear} onChange={(v) => setBirthYear(v.replace(/[^0-9]/g, '').slice(0,4))} inputMode="numeric" pattern="\d*" maxLength={4} onFocus={() => setActiveKeypad(null)} error={birthYearError} />
+        {/* Doğum yılı alanı kaldırıldı */}
         <TouchField label="TCKN" value={tckn} onChange={(v) => setTckn(v.replace(/[^0-9]/g, '').slice(0, 11))} inputMode="numeric" pattern="\d*" maxLength={11} onFocus={() => setActiveKeypad(null)} error={tcknError} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <TouchField label="Tutar" value={formatAmountDisplay(amount)} onChange={(v) => setAmount(sanitizeAmountInput(v))} inputMode="decimal" onFocus={() => setActiveKeypad('amount')} />
@@ -251,11 +298,54 @@ function InvoiceNewInner() {
         )}
 
         <div className="actions">
-          <button className="primary" onClick={onSave} disabled={loading}>
-            {loading ? 'Kaydediliyor…' : 'Kaydet'}
+          <button className="primary" onClick={openPreview} disabled={loading}>
+            {loading ? 'Hazırlanıyor…' : 'Önizle'}
           </button>
         </div>
       </div>
+      {previewOpen && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div className="modal" style={{ background: '#fff', borderRadius: 8, padding: 16, width: '100%', maxWidth: 600 }}>
+            <h2 style={{ marginTop: 0 }}>{txType === 'invoice' ? 'Fatura Bilgileri' : 'Gider Bilgileri'}</h2>
+            <div style={{ fontSize: 14, color: '#555', marginBottom: 8 }}>Sıra No: <b>{predictedSira ?? '-'}</b></div>
+            <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div><b>Ad Soyad:</b> {fullName}</div>
+              <div><b>TCKN:</b> {tckn}</div>
+              <div><b>Tarih:</b> {date}</div>
+              {txType === 'invoice' && <div><b>Ödeme:</b> {payment === 'havale' ? 'Havale' : 'Kredi Kartı'}</div>}
+              <div><b>Ayar:</b> {ayar ? (ayar === 22 ? '22 Ayar' : '24 Ayar') : '-'}</div>
+              <div><b>Tutar:</b> {amount ? Number(parseFloat(amount.replace(',', '.'))).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+              <div><b>Has Altın Fiyatı:</b> {currentAltinSatis != null ? Number(currentAltinSatis).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+            </div>
+            {(() => {
+              const r2 = (n: number) => Math.round(n * 100) / 100
+              const has = Number(currentAltinSatis || 0)
+              const ay22 = (ayar === 22)
+              const rawSaf = has * (ay22 ? 0.916 : 0.995)
+              const u = parseFloat(amount.replace(',', '.')) || 0
+              const rawYeni = u * (ay22 ? 0.99 : 0.998)
+              const saf = r2(rawSaf)
+              const yeni = r2(rawYeni)
+              const gram = saf ? r2(yeni / saf) : 0
+              const altinHizmet = r2(gram * saf)
+              const iscilikKdvli = r2(r2(u) - altinHizmet)
+              const isc = r2(iscilikKdvli / 1.20)
+              return (
+                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div><b>Saf Altın Değeri:</b> {saf ? saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+                  <div><b>Yeni Ürün Fiyatı:</b> {yeni ? yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+                  <div><b>Gram Değeri:</b> {gram ? gram.toLocaleString('tr-TR') : '-'}</div>
+                  <div><b>İşçilik (KDV’siz):</b> {isc ? isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+                </div>
+              )
+            })()}
+            <div className="actions" style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="secondary" onClick={async () => { if (draftId) { try { await fetch(`${apiBase}/${txType === 'invoice' ? 'api/invoices' : 'api/expenses'}/${draftId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...authHeaders() } }) } catch {} } setPreviewOpen(false); setPredictedSira(null); setCurrentAltinSatis(null); setDraftId(null) }}>İptal</button>
+              <button className="primary" onClick={onSave} disabled={loading}>{loading ? 'Kaydediliyor…' : 'Onayla'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <SuccessToast message={success} />
       <ErrorToast message={error} />
     </main>
@@ -269,3 +359,22 @@ export default function InvoiceNewPage() {
     </Suspense>
   )
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

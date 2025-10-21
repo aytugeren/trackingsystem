@@ -1,4 +1,4 @@
-export type Invoice = {
+﻿export type Invoice = {
   id: string
   tarih: string // ISO or yyyy-MM-dd
   siraNo: number
@@ -14,6 +14,7 @@ export type Invoice = {
   yeniUrunFiyati?: number | null
   gramDegeri?: number | null
   iscilik?: number | null
+  finalizedAt?: string | null
   kesildi?: boolean
   kasiyerAdSoyad?: string | null
 }
@@ -32,6 +33,7 @@ export type Expense = {
   yeniUrunFiyati?: number | null
   gramDegeri?: number | null
   iscilik?: number | null
+  finalizedAt?: string | null
   kesildi?: boolean
   kasiyerAdSoyad?: string | null
 }
@@ -101,6 +103,16 @@ export const api = {
     const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
     if (!res.ok) throw new Error('Gider kesilemedi')
   },
+  async deleteInvoice(id: string): Promise<void> {
+    const url = `${API_BASE}/api/invoices/${id}`
+    const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Fatura silinemedi')
+  },
+  async deleteExpense(id: string): Promise<void> {
+    const url = `${API_BASE}/api/expenses/${id}`
+    const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Gider silinemedi')
+  },
   async login(email: string, password: string): Promise<{ token: string; role: string; email: string }> {
     const url = `${API_BASE}/api/auth/login`
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
@@ -136,3 +148,6 @@ export function toDateOnlyString(d: Date): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
+
+

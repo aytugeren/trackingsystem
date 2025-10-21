@@ -1,4 +1,5 @@
-"use client"
+﻿"use client"
+import { t } from '@/lib/i18n'
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Invoice } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,6 +28,8 @@ export default function InvoicesPage() {
   const [pageSize] = useState(20)
   const [totalCount, setTotalCount] = useState(0)
   const [enterTick, setEnterTick] = useState(0)
+  const [showAll, setShowAll] = useState(true)
+  const [nowTick, setNowTick] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Invoice | null>(null)
 
@@ -50,8 +53,14 @@ export default function InvoicesPage() {
     return () => { mounted = false }
   }, [filters.start, filters.end, filters.method, filters.q, page, pageSize, enterTick])
 
+  // Tick every second to update transient row highlights
+  useEffect(() => {
+    const h = setInterval(() => setNowTick(t => t + 1), 1000)
+    return () => clearInterval(h)
+  }, [])
+
   const filtered = useMemo(() => {
-    const all = data || []
+    const all = (data || []).filter(x => showAll ? true : !(x.kesildi ?? false))
     return all.filter((x) => {
       const isHavale = (x.odemeSekli === 0 || (x.odemeSekli as any) === 'Havale')
       if (filters.start && x.tarih < filters.start) return false
@@ -66,7 +75,7 @@ export default function InvoicesPage() {
       }
       return true
     })
-  }, [data, filters])
+  }, [data, filters, showAll])
 
   const total = useMemo(() => filtered.reduce((a, b) => a + Number(b.tutar), 0), [filtered])
 
@@ -94,11 +103,23 @@ export default function InvoicesPage() {
     try {
       await api.finalizeInvoice(selected.id)
       // refetch page or optimistically mark as kesildi
-      setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, kesildi: true, urunFiyati: x.tutar } : x) : prev)
+      setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, urunFiyati: x.tutar } : x) : prev)
       closeModal()
       setEnterTick(t => t + 1) // trigger reload to get computed fields
     } catch {
       setError('Fatura kesilemedi')
+    }
+  }
+
+  async function cancelInvoice(inv: Invoice) {
+    if (!inv || inv.kesildi) return
+    const ok = typeof window !== 'undefined' ? window.confirm('Bu faturayı iptal edip veritabanından silmek istiyor musunuz?') : true
+    if (!ok) return
+    try {
+      await api.deleteInvoice(inv.id)
+      setData(prev => prev ? prev.filter(x => x.id !== inv.id) : prev)
+    } catch {
+      setError('Fatura silinemedi')
     }
   }
 
@@ -131,6 +152,12 @@ export default function InvoicesPage() {
             <div className="space-y-1">
               <Label htmlFor="q">Müşteri Adı / TCKN</Label>
               <Input id="q" placeholder="Ara" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') setEnterTick((t) => t + 1) }} />
+            </div>
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={!showAll} onChange={(e) => setShowAll(!e.target.checked)} />
+                Sadece kesilmeyenleri göster
+              </label>
             </div>
           </div>
         </CardContent>
@@ -171,8 +198,15 @@ export default function InvoicesPage() {
                     <TR>
                       <TD colSpan={10} className="text-center text-sm text-muted-foreground">Kayıt bulunamadı</TD>
                     </TR>
-                  ) : filtered.map((x) => (
-                    <TR key={x.id}>
+                  ) : filtered.map((x) => {
+                    const finalizedAt = (x as any).finalizedAt ? new Date((x as any).finalizedAt as any) : null
+                    const recentlyFinalized = finalizedAt ? (Date.now() - finalizedAt.getTime() < 10000) : false
+                    const pending = !(x.kesildi ?? false) && (x.safAltinDegeri == null)
+                    const rowClass = pending
+                      ? 'bg-red-600 text-white'
+                      : (recentlyFinalized ? 'bg-green-600 text-white' : undefined)
+                    return (
+                    <TR key={x.id} className={rowClass}>
                       <TD>{x.tarih}</TD>
                       <TD>{x.siraNo}</TD>
                       <TD>{x.musteriAdSoyad || '-'}</TD>
@@ -182,8 +216,11 @@ export default function InvoicesPage() {
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
                       <TD className="space-x-2">
-                        <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : 'Bekliyor'}</button>
-                        <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Fatura Kes</button>
+                        <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</button>
+                        <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Fatura Bilgileri</button>
+                        {!x.kesildi && (
+                          <button className="border rounded px-2 py-1 text-sm text-red-600" onClick={() => cancelInvoice(x)}>İptal Et</button>
+                        )}
                       </TD>
                       <TD>
                         {(x.odemeSekli === 0 || (x.odemeSekli as any) === 'Havale') ? (
@@ -193,40 +230,45 @@ export default function InvoicesPage() {
                         )}
                       </TD>
                     </TR>
-                  ))}
+                  )})}
                 </TBody>
               </Table>
 
               {modalOpen && selected && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
                   <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
-                    <h3 className="text-lg font-semibold">Fatura Kes</h3>
+                    <h3 className="text-lg font-semibold">Fatura Bilgileri</h3>
                     <div className="space-y-1 text-sm">
                       <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
                       <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
                       <div className="pt-2">Ürün Fiyatı</div>
                       <Input value={String(selected.tutar || 0)} readOnly placeholder="0,00" />
                       {(() => {
+                        const r2 = (n: number) => Math.round(n * 100) / 100
                         const has = Number(selected.altinSatisFiyati || 0)
                         const ay22 = ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22')
-                        const saf = has * (ay22 ? 0.916 : 0.995)
+                        const rawSaf = has * (ay22 ? 0.916 : 0.995)
                         const u = Number(selected.tutar || 0)
-                        const yeni = u * (ay22 ? 0.99 : 0.998)
-                        const gram = saf ? (yeni / saf) : 0
-                        const isc = (u - (gram * saf)) / 1.20
+                        const rawYeni = u * (ay22 ? 0.99 : 0.998)
+                        const saf = r2(rawSaf)
+                        const yeni = r2(rawYeni)
+                        const gram = saf ? r2(yeni / saf) : 0
+                        const altinHizmet = r2(gram * saf)
+                        const iscilikKdvli = r2(r2(u) - altinHizmet)
+                        const isc = r2(iscilikKdvli / 1.20)
                         return (
                           <div className="mt-2 space-y-1">
                             <div>Saf Altın Değeri: <b>{saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
                             <div>Yeni Ürün Fiyatı: <b>{yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
                             <div>Gram Değeri: <b>{gram.toLocaleString('tr-TR')}</b></div>
-                            <div>İşçilik: <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            <div>İşçilik (KDV’siz): <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
                           </div>
                         )
                       })()}
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>Vazgeç</Button>
-                      <Button onClick={finalize}>Kes</Button>
+                      <Button onClick={() => { /* 3. parti entegrasyon için daha sonra */ }}>{t("modal.send")}</Button>
                     </div>
                   </div>
                 </div>
@@ -250,4 +292,9 @@ export default function InvoicesPage() {
     </div>
   )
 }
+
+
+
+
+
 

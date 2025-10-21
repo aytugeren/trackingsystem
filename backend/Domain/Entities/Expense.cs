@@ -29,6 +29,9 @@ public class Expense
     public decimal? GramDegeri { get; set; }
     public decimal? Iscilik { get; set; }
 
+    // Kasiyer onayı tamamlandığında işaretlemek için
+    public DateTime? FinalizedAt { get; set; }
+
     // Olusturan kullanici bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }

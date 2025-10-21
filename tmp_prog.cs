@@ -589,10 +589,8 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
                 {
                     var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
                                   ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
-                    // For expenses, apply buy margin as a discount from spot sell price
-                    var effective = satis - setting.MarginBuy;
-                    if (effective < 0) effective = 0;
-                    finalSatisFromLive = effective;
+                    var finalSatis = satis + setting.MarginSell;
+                    finalSatisFromLive = finalSatis;
                     var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == "ALTIN" && x.SourceTime == srcTime, ct);
                     if (!exists)
                     {
@@ -600,7 +598,7 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
                         {
                             Id = Guid.NewGuid(), Code = "ALTIN", Alis = alis, Satis = satis,
                             SourceTime = DateTime.SpecifyKind(srcTime, DateTimeKind.Utc),
-                            FinalAlis = alis + setting.MarginBuy, FinalSatis = satis + setting.MarginSell, CreatedAt = DateTime.UtcNow
+                            FinalAlis = alis + setting.MarginBuy, FinalSatis = finalSatis, CreatedAt = DateTime.UtcNow
                         });
                         await mdb.SaveChangesAsync(ct);
                     }
@@ -617,13 +615,7 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
                 .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
                 .FirstOrDefaultAsync(ct);
             if (latestStored is not null)
-            {
-                var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
-                              ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
-                var eff = latestStored.Satis - setting.MarginBuy;
-                if (eff < 0) eff = 0;
-                entity.AltinSatisFiyati = eff;
-            }
+                entity.AltinSatisFiyati = latestStored.FinalSatis;
         }
 
         db.Expenses.Add(entity);
@@ -993,6 +985,7 @@ public record CreateUserRequest(string Email, string Password, Role Role);
 public record ResetPasswordRequest(string Password);
 public record UpdateInvoiceStatusRequest(bool Kesildi);
 public record FinalizeRequest(decimal UrunFiyati);
+
 
 
 
