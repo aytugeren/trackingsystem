@@ -1,0 +1,26 @@
+[
+  {
+    "id": "4efdfec2-94e8-443c-a81d-a83e43c9fc0d",
+    "createdAt": "2025-11-03T21:00:11.9053672+03:00",
+    "type": "hourly",
+    "filePath": "",
+    "sizeBytes": 0,
+    "checksumSha256": "",
+    "status": "failed",
+    "message": "An error occurred trying to start process \u0027pg_dump\u0027 with working directory \u0027C:\\DynamicTracker\\trackingsystem\\KuyumculukTakipProgrami\\backend\\Api\u0027. Sistem belirtilen dosyay\u0131 bulam\u0131yor.",
+    "archived": false,
+    "archivePath": null
+  },
+  {
+    "id": "1424e2dc-c678-4932-9952-9b7f438ca052",
+    "createdAt": "2025-11-03T21:00:41.9380782+03:00",
+    "type": "hourly",
+    "filePath": "",
+    "sizeBytes": 0,
+    "checksumSha256": "",
+    "status": "failed",
+    "message": "An error occurred trying to start process \u0027pg_dump\u0027 with working directory \u0027C:\\DynamicTracker\\trackingsystem\\KuyumculukTakipProgrami\\backend\\Api\u0027. Sistem belirtilen dosyay\u0131 bulam\u0131yor.",
+    "archived": false,
+    "archivePath": null
+  }
+]

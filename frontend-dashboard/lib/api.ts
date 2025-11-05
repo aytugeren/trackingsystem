@@ -141,6 +141,63 @@ export const adminApi = {
   },
 }
 
+// Leaves (admin)
+export type Leave = {
+  id: string
+  from: string
+  to: string
+  fromTime?: string | null
+  toTime?: string | null
+  user: string
+  reason?: string | null
+  status: 'Pending' | 'Approved' | 'Rejected' | string
+}
+
+export async function listLeavesAdmin(params?: { from?: string; to?: string }): Promise<Leave[]> {
+  const search = new URLSearchParams()
+  if (params?.from) search.set('from', params.from)
+  if (params?.to) search.set('to', params.to)
+  const url = `${API_BASE}/api/leaves${search.toString() ? `?${search.toString()}` : ''}`
+  const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+  if (!res.ok) throw new Error('İzinler yüklenemedi')
+  const data = await res.json()
+  return (data.items as any[]) as Leave[]
+}
+
+export async function updateLeaveStatus(id: string, status: 'Pending' | 'Approved' | 'Rejected') {
+  const url = `${API_BASE}/api/leaves/${id}/status`
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ status }) })
+  if (!res.ok) throw new Error('Durum güncellenemedi')
+}
+
+export type LeaveSummaryItem = { userId: string; email: string; usedDays: number; allowanceDays?: number | null; remainingDays: number }
+export async function listLeaveSummary(year?: number): Promise<{ year: number; items: LeaveSummaryItem[] }> {
+  const url = `${API_BASE}/api/leaves/summary${year ? `?year=${year}` : ''}`
+  const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+  if (!res.ok) throw new Error('Özet alınamadı')
+  return res.json()
+}
+
+export async function setUserLeaveAllowance(userId: string, days: number) {
+  const url = `${API_BASE}/api/users/${userId}/leave-allowance`
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ days }) })
+  if (!res.ok) throw new Error('İzin hakkı güncellenemedi')
+}
+
+export type UserWithPermissions = { id: string; email: string; role: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null; assignedRoleId?: string | null; customRoleName?: string | null }
+export async function listUsersWithPermissions(): Promise<UserWithPermissions[]> {
+  const url = `${API_BASE}/api/users/permissions`
+  const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+  if (!res.ok) throw new Error('Kullanıcılar yüklenemedi')
+  return res.json()
+}
+
+export async function updateUserPermissions(id: string, p: Partial<Pick<UserWithPermissions, 'canCancelInvoice' | 'canAccessLeavesAdmin' | 'leaveAllowanceDays'> & { workingDayHours: number }>): Promise<void> {
+  const url = `${API_BASE}/api/users/${id}/permissions`
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(p) })
+  if (!res.ok) throw new Error('Yetkiler güncellenemedi')
+}
+
 export function toDateOnlyString(d: Date): string {
   // format as yyyy-MM-dd to compare with DateOnly serialized strings
   const y = d.getFullYear()
@@ -151,3 +208,34 @@ export function toDateOnlyString(d: Date): string {
 
 
 
+
+
+
+// Roles
+export type RoleDef = { id: string; name: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }
+export async function listRoles(): Promise<RoleDef[]> {
+  const url = `${API_BASE}/api/roles`
+  const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+  if (!res.ok) throw new Error('Roller yüklenemedi')
+  return res.json()
+}
+export async function createRole(body: { name: string; canCancelInvoice?: boolean; canAccessLeavesAdmin?: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }): Promise<void> {
+  const url = `${API_BASE}/api/roles`
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
+  if (!res.ok) throw new Error('Rol oluşturulamadı')
+}
+export async function updateRole(id: string, body: Partial<{ name: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; leaveAllowanceDays: number | null; workingDayHours: number | null }>): Promise<void> {
+  const url = `${API_BASE}/api/roles/${id}`
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
+  if (!res.ok) throw new Error('Rol güncellenemedi')
+}
+export async function deleteRole(id: string): Promise<void> {
+  const url = `${API_BASE}/api/roles/${id}`
+  const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+  if (!res.ok) throw new Error('Rol silinemedi')
+}
+export async function assignRole(userId: string, roleId: string | null): Promise<void> {
+  const url = `${API_BASE}/api/users/${userId}/assign-role`
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ roleId }) })
+  if (!res.ok) throw new Error('Rol atanamadı')
+}

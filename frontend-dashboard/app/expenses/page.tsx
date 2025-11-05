@@ -1,4 +1,4 @@
-﻿"use client"
+﻿﻿"use client"
 import { t } from '@/lib/i18n'
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Expense } from '@/lib/api'
@@ -9,6 +9,7 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { downloadExpensesPdf, downloadExpensesXlsx } from '@/lib/export'
+import { IconCopy, IconCheck } from '@/components/ui/icons'
 
 type Filters = {
   start?: string
@@ -30,6 +31,14 @@ export default function ExpensesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Expense | null>(null)
   const [urunFiyati, setUrunFiyati] = useState<string>('')
+  const [copied, setCopied] = useState<string | null>(null)
+  async function copy(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(null), 1500)
+    } catch {}
+  }
 
   useEffect(() => {
     let mounted = true
@@ -205,11 +214,30 @@ export default function ExpensesPage() {
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
                   <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
                     <h3 className="text-lg font-semibold">{t("btn.info.expense")}</h3>
-                    <div className="space-y-1 text-sm">
-                      <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>İsim Soyisim: <b>{selected.musteriAdSoyad || '-'}</b></div>
+                        {selected.musteriAdSoyad ? (
+                          <button className="p-1" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>{copied === 'musteri' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
+                        {selected.tckn ? (
+                          <button className="p-1" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>{copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
+                        ) : null}
+                      </div>
+                      <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b>
+                      {selected.altinSatisFiyati ? (
+                          <button className="p-1" title={copied === 'altinSatisFiyati' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('altinSatisFiyati', String(selected.altinSatisFiyati))}>{copied === 'altinSatisFiyati' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
+                        ) : null}
+                      </div>
                       <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
                       <div className="pt-2">Ürün Fiyatı</div>
-                      <Input value={urunFiyati} readOnly placeholder="0,00" />
+                      <div className="flex items-center gap-2">
+                        <Input value={urunFiyati} readOnly placeholder="0,00" />
+                        <button className="p-1" title={copied === 'urun' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('urun', String(urunFiyati))}>{copied === 'urun' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
+                      </div>
                       {(() => {
                         const r2 = (n: number) => Math.round(n * 100) / 100
                         const has = Number(selected.altinSatisFiyati || 0)
@@ -225,10 +253,26 @@ export default function ExpensesPage() {
                         const isc = r2(iscilikKdvli / 1.20)
                         return (
                           <div className="mt-2 space-y-1">
-                            <div>Saf Altın Değeri: <b>{saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                            <div>Yeni Ürün Fiyatı: <b>{yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                            <div>Gram Değeri: <b>{gram.toLocaleString('tr-TR')}</b></div>
-                            <div>İşçilik (KDV’siz): <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            <div>Saf Altın Değeri: <b>{saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b>
+                            {saf ? (
+                          <button className="text-xs underline" onClick={() => copy('saf', String(saf))}>{copied === 'saf' ? 'Kopyalandı' : 'Kopyala'}</button>
+                        ) : null}
+                            </div>
+                            <div>Yeni Ürün Fiyatı: <b>{yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b>
+                          {gram ? (
+                          <button className="text-xs underline" onClick={() => copy('yeni', String(yeni))}>{copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'}</button>
+                        ) : null}
+                            </div>
+                            <div>Gram Değeri: <b>{gram.toLocaleString('tr-TR')}</b>
+                            {gram ? (
+                          <button className="text-xs underline" onClick={() => copy('gram', String(gram))}>{copied === 'gram' ? 'Kopyalandı' : 'Kopyala'}</button>
+                        ) : null}
+                            </div>
+                            <div>İşçilik (KDV’siz): <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b>
+                            {gram ? (
+                          <button className="text-xs underline" onClick={() => copy('isc', String(isc))}>{copied === 'isc' ? 'Kopyalandı' : 'Kopyala'}</button>
+                        ) : null}
+                            </div>
                           </div>
                         )
                       })()}
@@ -259,6 +303,7 @@ export default function ExpensesPage() {
     </div>
   )
 }
+
 
 
 

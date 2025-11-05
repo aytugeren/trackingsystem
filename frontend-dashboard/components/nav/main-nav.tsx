@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
@@ -18,9 +18,19 @@ export function MainNav({ onNavigate }: { onNavigate?: () => void }) {
     try { setRole(localStorage.getItem('ktp_role')) } catch {}
   }, [])
 
+  const adminItems = [
+    { href: '/cashiers', label: 'Kasiyerler', icon: IconHome },
+    { href: '/leaves', label: 'İzin Yönetimi', icon: IconHome },
+    { href: '/users/permissions', label: 'Kullanıcı Yetkileri', icon: IconHome },
+    { href: '/users/roles', label: 'Roller', icon: IconHome },
+    { href: '/settings', label: 'Ayarlar', icon: IconHome },
+  ] as const
+
+  const items = [...baseItems, ...(role === 'Yonetici' ? adminItems : [])]
+
   return (
     <nav className="flex flex-col gap-1">
-      {[...baseItems, ...(role === 'Yonetici' ? [{ href: '/cashiers', label: 'Kasiyerler', icon: IconHome }] as const : [])].map((it) => {
+      {items.map((it) => {
         const active = pathname === it.href
         const Icon = it.icon
         return (

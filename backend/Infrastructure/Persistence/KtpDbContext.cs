@@ -12,6 +12,9 @@ public class KtpDbContext : DbContext
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<Leave> Leaves => Set<Leave>();
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
+    public DbSet<RoleDef> Roles => Set<RoleDef>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,6 +74,42 @@ public class KtpDbContext : DbContext
             entity.HasIndex(x => x.Email).IsUnique();
             entity.Property(x => x.PasswordHash).IsRequired();
             entity.Property(x => x.Role).HasConversion<int>().IsRequired();
+            entity.Property(x => x.LeaveAllowanceDays);
+            entity.Property(x => x.CanCancelInvoice);
+            entity.Property(x => x.CanAccessLeavesAdmin);
+            entity.Property(x => x.WorkingDayHours);
+        });
+
+        modelBuilder.Entity<Leave>(entity =>
+        {
+            entity.ToTable("Leaves");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.From).HasColumnType("date");
+            entity.Property(x => x.To).HasColumnType("date");
+            entity.Property(x => x.FromTime).HasColumnType("time").IsRequired(false);
+            entity.Property(x => x.ToTime).HasColumnType("time").IsRequired(false);
+            entity.Property(x => x.Reason).HasMaxLength(500);
+            entity.Property(x => x.UserEmail).HasMaxLength(200);
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.Status).HasConversion<int>();
+        });
+
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.ToTable("SystemSettings");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.KeyName).HasMaxLength(100).IsRequired();
+            entity.HasIndex(x => x.KeyName).IsUnique();
+            entity.Property(x => x.Value).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+        });
+
+        modelBuilder.Entity<RoleDef>(entity =>
+        {
+            entity.ToTable("Roles");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.HasIndex(x => x.Name).IsUnique();
         });
     }
 }

@@ -57,6 +57,26 @@ function InvoiceNewInner() {
   const [predictedSira, setPredictedSira] = useState<number | null>(null)
   const [currentAltinSatis, setCurrentAltinSatis] = useState<number | null>(null)
   const [draftId, setDraftId] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+  const PENDING_DRAFT_KEY = 'cashierPendingDraft'
+  async function copy(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(null), 1500)
+    } catch {}
+  }
+  const CopyIcon = (props: React.SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={14} height={14} {...props}>
+      <rect x="9" y="9" width="10" height="10" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+  const CheckIcon = (props: React.SVGProps<SVGSVGElement>) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={14} height={14} {...props}>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
 
   function validateTCKN(id: string): boolean {
     if (!/^\d{11}$/.test(id)) return false
@@ -107,6 +127,12 @@ function InvoiceNewInner() {
       if (!r.ok) { setError('Önizleme oluşturulamadı'); return }
       const j = await r.json()
       setDraftId(String(j?.id))
+      try {
+        const newId = String(j?.id)
+        if (newId) {
+          localStorage.setItem(PENDING_DRAFT_KEY, JSON.stringify({ id: newId, type: txType }))
+        }
+      } catch {}
       setPredictedSira(Number(j?.siraNo || 0))
       setCurrentAltinSatis(j?.altinSatisFiyati != null ? Number(j.altinSatisFiyati) : null)
     } catch {
@@ -115,6 +141,59 @@ function InvoiceNewInner() {
     }
     setPreviewOpen(true)
   }
+  
+  // On mount: if a pending draft exists (from a refresh), delete it
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PENDING_DRAFT_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { id: string; type: TxType }
+      if (parsed?.id && parsed?.type) {
+        const delUrl = `${apiBase}/${parsed.type === 'invoice' ? 'api/invoices' : 'api/expenses'}/${parsed.id}`
+        fetch(delUrl, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...authHeaders() } })
+          .finally(() => { try { localStorage.removeItem(PENDING_DRAFT_KEY) } catch {} })
+      } else {
+        localStorage.removeItem(PENDING_DRAFT_KEY)
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // When preview closes or draft clears, ensure local pending key is removed
+  useEffect(() => {
+    if (!previewOpen || !draftId) {
+      try { localStorage.removeItem(PENDING_DRAFT_KEY) } catch {}
+    }
+  }, [previewOpen, draftId])
+
+  // Extra assurance on refresh/close: try to delete draft on unload
+  useEffect(() => {
+    if (!previewOpen || !draftId) return
+    const type: TxType = txType
+    const id = draftId
+    const delUrl = `${apiBase}/${type === 'invoice' ? 'api/invoices' : 'api/expenses'}/${id}`
+
+    const handler = () => {
+      // Avoid racing with confirmation in progress
+      if (loading) return
+      try {
+        localStorage.setItem(PENDING_DRAFT_KEY, JSON.stringify({ id, type }))
+      } catch {}
+      try {
+        // Best-effort delete with keepalive so it can dispatch while unloading
+        fetch(delUrl, { method: 'DELETE', keepalive: true, headers: { 'Content-Type': 'application/json', ...authHeaders() } }).catch(() => {})
+      } catch {}
+    }
+
+    window.addEventListener('beforeunload', handler)
+    window.addEventListener('pagehide', handler)
+
+    return () => {
+      window.removeEventListener('beforeunload', handler)
+      window.removeEventListener('pagehide', handler)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOpen, draftId, loading])
 
   
   const handleKeypadTo = (setter: React.Dispatch<React.SetStateAction<string>>) => ({
@@ -307,15 +386,87 @@ function InvoiceNewInner() {
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div className="modal" style={{ background: '#fff', borderRadius: 8, padding: 16, width: '100%', maxWidth: 600 }}>
             <h2 style={{ marginTop: 0 }}>{txType === 'invoice' ? 'Fatura Bilgileri' : 'Gider Bilgileri'}</h2>
-            <div style={{ fontSize: 14, color: '#555', marginBottom: 8 }}>Sıra No: <b>{predictedSira ?? '-'}</b></div>
+            <div style={{ fontSize: 14, color: '#555', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>Sıra No: <b>{predictedSira ?? '-'}</b></div>
+              {predictedSira != null && (
+                <button aria-label="Kopyala" title={copied === 'sira' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('sira', String(predictedSira))} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                  {copied === 'sira' ? <CheckIcon /> : <CopyIcon />}
+                </button>
+              )}
+            </div>
             <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div><b>Ad Soyad:</b> {fullName}</div>
-              <div><b>TCKN:</b> {tckn}</div>
-              <div><b>Tarih:</b> {date}</div>
-              {txType === 'invoice' && <div><b>Ödeme:</b> {payment === 'havale' ? 'Havale' : 'Kredi Kartı'}</div>}
-              <div><b>Ayar:</b> {ayar ? (ayar === 22 ? '22 Ayar' : '24 Ayar') : '-'}</div>
-              <div><b>Tutar:</b> {amount ? Number(parseFloat(amount.replace(',', '.'))).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
-              <div><b>Has Altın Fiyatı:</b> {currentAltinSatis != null ? Number(currentAltinSatis).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div><b>Ad Soyad:</b> {fullName || '-'}</div>
+                {fullName ? (
+                  <button aria-label="Kopyala" title={copied === 'adsoyad' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('adsoyad', fullName)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                    {copied === 'adsoyad' ? <CheckIcon /> : <CopyIcon />}
+                  </button>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div><b>TCKN:</b> {tckn || '-'}</div>
+                {tckn ? (
+                  <button aria-label="Kopyala" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('tckn', tckn)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                    {copied === 'tckn' ? <CheckIcon /> : <CopyIcon />}
+                  </button>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div><b>Tarih:</b> {date || '-'}</div>
+                {date ? (
+                  <button aria-label="Kopyala" title={copied === 'tarih' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('tarih', date)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                    {copied === 'tarih' ? <CheckIcon /> : <CopyIcon />}
+                  </button>
+                ) : null}
+              </div>
+              {txType === 'invoice' && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <div><b>Ödeme:</b> {payment ? (payment === 'havale' ? 'Havale' : 'Kredi Kartı') : '-'}</div>
+                  {payment ? (
+                    <button aria-label="Kopyala" title={copied === 'odeme' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('odeme', payment === 'havale' ? 'Havale' : 'Kredi Kartı')} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                      {copied === 'odeme' ? <CheckIcon /> : <CopyIcon />}
+                    </button>
+                  ) : null}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div><b>Ayar:</b> {ayar ? (ayar === 22 ? '22 Ayar' : '24 Ayar') : '-'}</div>
+                {ayar ? (
+                  <button aria-label="Kopyala" title={copied === 'ayar' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('ayar', ayar === 22 ? '22 Ayar' : '24 Ayar')} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                    {copied === 'ayar' ? <CheckIcon /> : <CopyIcon />}
+                  </button>
+                ) : null}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                {(() => {
+                  const display = amount ? Number(parseFloat(amount.replace(',', '.'))).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                  return (
+                    <>
+                      <div><b>Tutar:</b> {display}</div>
+                      {amount ? (
+                        <button aria-label="Kopyala" title={copied === 'tutar' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('tutar', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                          {copied === 'tutar' ? <CheckIcon /> : <CopyIcon />}
+                        </button>
+                      ) : null}
+                    </>
+                  )
+                })()}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                {(() => {
+                  const display = currentAltinSatis != null ? Number(currentAltinSatis).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                  return (
+                    <>
+                      <div><b>Has Altın Fiyatı:</b> {display}</div>
+                      {currentAltinSatis != null ? (
+                        <button aria-label="Kopyala" title={copied === 'has' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('has', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                          {copied === 'has' ? <CheckIcon /> : <CopyIcon />}
+                        </button>
+                      ) : null}
+                    </>
+                  )
+                })()}
+              </div>
             </div>
             {(() => {
               const r2 = (n: number) => Math.round(n * 100) / 100
@@ -332,10 +483,58 @@ function InvoiceNewInner() {
               const isc = r2(iscilikKdvli / 1.20)
               return (
                 <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  <div><b>Saf Altın Değeri:</b> {saf ? saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
-                  <div><b>Yeni Ürün Fiyatı:</b> {yeni ? yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
-                  <div><b>Gram Değeri:</b> {gram ? gram.toLocaleString('tr-TR') : '-'}</div>
-                  <div><b>İşçilik (KDV’siz):</b> {isc ? isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+                  {(() => {
+                    const display = saf ? saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div><b>Saf Altın Değeri:</b> {display}</div>
+                        {saf ? (
+                          <button aria-label="Kopyala" title={copied === 'saf' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('saf', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                            {copied === 'saf' ? <CheckIcon /> : <CopyIcon />}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                  {(() => {
+                    const display = yeni ? yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div><b>Yeni Ürün Fiyatı:</b> {display}</div>
+                        {yeni ? (
+                          <button aria-label="Kopyala" title={copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('yeni', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                            {copied === 'yeni' ? <CheckIcon /> : <CopyIcon />}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                  {(() => {
+                    const display = gram ? gram.toLocaleString('tr-TR') : '-'
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div><b>Gram Değeri:</b> {display}</div>
+                        {gram ? (
+                          <button aria-label="Kopyala" title={copied === 'gram' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('gram', String(display))} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                            {copied === 'gram' ? <CheckIcon /> : <CopyIcon />}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                  {(() => {
+                    const display = isc ? isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div><b>İşçilik (KDV&apos;siz):</b> {display}</div>
+                        {isc ? (
+                          <button aria-label="Kopyala" title={copied === 'iscilik' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('iscilik', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                            {copied === 'iscilik' ? <CheckIcon /> : <CopyIcon />}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })()}

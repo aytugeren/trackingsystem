@@ -16,6 +16,7 @@ using KuyumculukTakipProgrami.Domain.Entities;
 using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.Caching.Memory;
+using System.Net.Mime;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -117,6 +118,23 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.Migrate();
         await EnsureUsersSchemaAsync(db);
+        // Ensure Leaves table exists (for leave requests)
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Leaves\" (\"Id\" uuid PRIMARY KEY, \"From\" date NOT NULL,\"To\" date NOT NULL,\"FromTime\" time NULL,\"ToTime\" time NULL,\"Reason\" varchar(500) NULL,\"UserId\" uuid NULL,\"UserEmail\" varchar(200) NULL,\"CreatedAt\" timestamp with time zone NOT NULL DEFAULT now(), \"Status\" integer NOT NULL DEFAULT 0);");
+        await db.Database.ExecuteSqlRawAsync("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Leaves_UserId_Users') THEN ALTER TABLE \"Leaves\" ADD CONSTRAINT \"FK_Leaves_UserId_Users\" FOREIGN KEY (\"UserId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL;END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"LeaveAllowanceDays\" integer NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"CanCancelInvoice\" boolean NOT NULL DEFAULT false;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"CanAccessLeavesAdmin\" boolean NOT NULL DEFAULT false;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"WorkingDayHours\" double precision NULL;");
+        // System settings
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"SystemSettings\" (\"Id\" uuid PRIMARY KEY, \"KeyName\" varchar(100) NOT NULL, \"Value\" varchar(100) NOT NULL, \"UpdatedAt\" timestamptz NOT NULL DEFAULT now());");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS IX_SystemSettings_KeyName ON \"SystemSettings\" (\"KeyName\");");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"Status\" integer NOT NULL DEFAULT 0;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
+        // Roles and custom role assignment
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Roles\" (\"Id\" uuid PRIMARY KEY, \"Name\" varchar(200) NOT NULL UNIQUE, \"CanCancelInvoice\" boolean NOT NULL DEFAULT false, \"CanAccessLeavesAdmin\" boolean NOT NULL DEFAULT false, \"LeaveAllowanceDays\" integer NULL, \"WorkingDayHours\" double precision NULL);");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"AssignedRoleId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"CustomRoleName\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
@@ -359,6 +377,7 @@ app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler 
         return Results.BadRequest(new { errors = ex.Message.Split(" | ") });
     }
 }).WithTags("Expenses").RequireAuthorization();
+
 
 
 // Update expense status (admin only)
@@ -641,7 +660,8 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
 app.MapDelete("/api/invoices/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http) =>
 {
     var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
-    if (inv is null) return Results.NotFound();
+    // Idempotent delete: if not found, treat as already deleted
+    if (inv is null) return Results.NoContent();
     if (inv.Kesildi) return Results.BadRequest(new { error = "Kesilmiş kayıt silinemez" });
     // Ownership check (only creator can delete)
     var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
@@ -661,7 +681,8 @@ app.MapDelete("/api/invoices/{id:guid}", async (Guid id, KtpDbContext db, HttpCo
 app.MapDelete("/api/expenses/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http) =>
 {
     var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
-    if (exp is null) return Results.NotFound();
+    // Idempotent delete: if not found, treat as already deleted
+    if (exp is null) return Results.NoContent();
     if (exp.Kesildi) return Results.BadRequest(new { error = "Kesilmiş kayıt silinemez" });
     var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
     Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
@@ -798,6 +819,156 @@ app.MapPost("/api/auth/login", async (LoginRequest req, KtpDbContext db) =>
     return Results.Ok(new { token, role = user.Role.ToString(), email = user.Email });
 }).WithTags("Auth");
 
+// Leaves (izinler)
+app.MapGet("/api/leaves", async (string? from, string? to, KtpDbContext db) =>
+{
+    DateOnly fromDo;
+    DateOnly toDo;
+    if (!string.IsNullOrWhiteSpace(from))
+    {
+        if (DateTime.TryParse(from, out var fdt)) fromDo = DateOnly.FromDateTime(fdt);
+        else if (!DateOnly.TryParse(from, out fromDo)) return Results.BadRequest(new { error = "Geçersiz from" });
+    }
+    else fromDo = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-1));
+
+    if (!string.IsNullOrWhiteSpace(to))
+    {
+        if (DateTime.TryParse(to, out var tdt)) toDo = DateOnly.FromDateTime(tdt);
+        else if (!DateOnly.TryParse(to, out toDo)) return Results.BadRequest(new { error = "Geçersiz to" });
+    }
+    else toDo = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
+
+    var items = await db.Leaves.AsNoTracking()
+        .Where(l => l.To >= fromDo && l.From <= toDo)
+        .OrderByDescending(l => l.CreatedAt)
+        .Select(l => new
+        {
+            id = l.Id,
+            from = l.From.ToString("yyyy-MM-dd"),
+            to = l.To.ToString("yyyy-MM-dd"),
+            fromTime = l.FromTime.HasValue ? l.FromTime.Value.ToString("HH:mm") : null,
+            toTime = l.ToTime.HasValue ? l.ToTime.Value.ToString("HH:mm") : null,
+            user = l.UserEmail,
+            reason = l.Reason,
+            status = l.Status.ToString()
+        })
+        .ToListAsync();
+    return Results.Ok(new { items });
+}).RequireAuthorization();
+
+app.MapPost("/api/leaves", async (LeaveCreateRequest req, KtpDbContext db, HttpContext http) =>
+{
+    if (string.IsNullOrWhiteSpace(req.from) || string.IsNullOrWhiteSpace(req.to))
+        return Results.BadRequest(new { error = "from ve to zorunludur" });
+    DateOnly from;
+    DateOnly to;
+    if (DateTime.TryParse(req.from, out var fromDt)) from = DateOnly.FromDateTime(fromDt); else if (!DateOnly.TryParse(req.from, out from)) return Results.BadRequest(new { error = "Geçersiz from" });
+    if (DateTime.TryParse(req.to, out var toDt)) to = DateOnly.FromDateTime(toDt); else if (!DateOnly.TryParse(req.to, out to)) return Results.BadRequest(new { error = "Geçersiz to" });
+    if (to < from)
+        return Results.BadRequest(new { error = "Bitiş tarihi başlangıçtan önce olamaz" });
+
+    var userIdStr = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? userId = null;
+    if (Guid.TryParse(userIdStr, out var parsed)) userId = parsed;
+    var email = http.User.FindFirst(JwtRegisteredClaimNames.Email)?.Value
+        ?? http.User.FindFirst(ClaimTypes.Email)?.Value
+        ?? http.User.FindFirst("email")?.Value;
+
+    TimeOnly? fromTime = null;
+    TimeOnly? toTime = null;
+    if (!string.IsNullOrWhiteSpace(req.fromTime))
+    {
+        if (!TimeOnly.TryParse(req.fromTime, out var ft)) return Results.BadRequest(new { error = "Geçersiz fromTime" });
+        fromTime = ft;
+    }
+    if (!string.IsNullOrWhiteSpace(req.toTime))
+    {
+        if (!TimeOnly.TryParse(req.toTime, out var tt)) return Results.BadRequest(new { error = "Geçersiz toTime" });
+        toTime = tt;
+    }
+    if (fromTime.HasValue || toTime.HasValue)
+    {
+        // Saat aralığı sadece tek gün için desteklenir
+        if (from != to) return Results.BadRequest(new { error = "Saatli izin sadece tek gün için geçerlidir" });
+        if (!fromTime.HasValue || !toTime.HasValue || toTime.Value <= fromTime.Value)
+            return Results.BadRequest(new { error = "Geçersiz saat aralığı" });
+    }
+
+    var entity = new Leave
+    {
+        Id = Guid.NewGuid(),
+        From = from,
+        To = to,
+        FromTime = fromTime,
+        ToTime = toTime,
+        Reason = string.IsNullOrWhiteSpace(req.reason) ? null : req.reason,
+        UserId = userId,
+        UserEmail = email,
+        CreatedAt = DateTime.UtcNow,
+        Status = LeaveStatus.Pending,
+    };
+    db.Leaves.Add(entity);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/leaves/{entity.Id}", new { id = entity.Id });
+}).RequireAuthorization();
+
+// Admin: update leave status
+app.MapPut("/api/leaves/{id:guid}/status", async (Guid id, UpdateLeaveStatusRequest req, KtpDbContext db) =>
+{
+    if (!Enum.TryParse<LeaveStatus>(req.status, true, out var status))
+        return Results.BadRequest(new { error = "Geçersiz status" });
+    var entity = await db.Leaves.FirstOrDefaultAsync(l => l.Id == id);
+    if (entity is null) return Results.NotFound();
+    entity.Status = status;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
+// Admin: per-user summary for a year
+app.MapGet("/api/leaves/summary", async (int? year, KtpDbContext db) =>
+{
+    var y = year ?? DateTime.UtcNow.Year;
+    var from = new DateOnly(y, 1, 1);
+    var to = new DateOnly(y, 12, 31);
+    var users = await db.Users.AsNoTracking().Select(u => new { u.Id, u.Email, u.LeaveAllowanceDays }).ToListAsync();
+    var approved = await db.Leaves.AsNoTracking()
+        .Where(l => l.Status == LeaveStatus.Approved && l.To >= from && l.From <= to)
+        .Select(l => new { l.UserId, l.From, l.To, l.FromTime, l.ToTime })
+        .ToListAsync();
+    const double workingDayHours = 8.0; // Saat bazlı kesinti için 1 gün = 8 saat varsayımı
+    var used = approved
+        .GroupBy(a => a.UserId)
+        .ToDictionary(
+            g => g.Key,
+            g => g.Sum(x =>
+                (x.FromTime.HasValue && x.ToTime.HasValue)
+                    ? Math.Max(0.0, (x.ToTime.Value.ToTimeSpan() - x.FromTime.Value.ToTimeSpan()).TotalHours) / workingDayHours
+                    : ((x.To.ToDateTime(TimeOnly.MinValue) - x.From.ToDateTime(TimeOnly.MinValue)).Days + 1)
+            )
+        );
+    var list = users.Select(u => new
+    {
+        userId = u.Id,
+        email = u.Email,
+        allowanceDays = (int?)(u.LeaveAllowanceDays ?? 14),
+        usedDays = used.TryGetValue(u.Id, out var d) ? Math.Round(d, 2) : 0.0,
+    }).Select(x => new { x.userId, x.email, x.usedDays, allowanceDays = x.allowanceDays, remainingDays = Math.Round(((x.allowanceDays ?? 14) - x.usedDays), 2) });
+    return Results.Ok(new { year = y, items = list });
+}).RequireAuthorization("AdminOnly");
+
+// Admin: set user allowance
+app.MapPut("/api/users/{id:guid}/leave-allowance", async (Guid id, UpdateLeaveAllowanceRequest req, KtpDbContext db) =>
+{
+    if (req.days < 0 || req.days > 365) return Results.BadRequest(new { error = "Geçersiz gün" });
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
+    if (user is null) return Results.NotFound();
+    user.LeaveAllowanceDays = req.days;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
 // Users (admin only)
 app.MapPost("/api/users", async (CreateUserRequest req, KtpDbContext db) =>
 {
@@ -833,6 +1004,285 @@ app.MapGet("/api/users", async (string? role, KtpDbContext db) =>
         .Select(u => new { id = u.Id, email = u.Email, role = u.Role.ToString() })
         .ToListAsync();
     return Results.Ok(list);
+}).RequireAuthorization("AdminOnly");
+
+// Users + permissions (admin)
+app.MapGet("/api/users/permissions", async (KtpDbContext db) =>
+{
+    var list = await db.Users.AsNoTracking()
+        .OrderBy(u => u.Email)
+        .Select(u => new {
+            id = u.Id,
+            email = u.Email,
+            role = u.Role.ToString(),
+            canCancelInvoice = u.CanCancelInvoice,
+            canAccessLeavesAdmin = u.CanAccessLeavesAdmin,
+            leaveAllowanceDays = u.LeaveAllowanceDays,
+            workingDayHours = u.WorkingDayHours,
+            assignedRoleId = u.AssignedRoleId,
+            customRoleName = u.CustomRoleName
+        })
+        .ToListAsync();
+    return Results.Ok(list);
+}).RequireAuthorization("AdminOnly");
+
+// Roles management (admin)
+app.MapGet("/api/roles", async (KtpDbContext db) =>
+{
+    var list = await db.Roles.AsNoTracking()
+        .OrderBy(r => r.Name)
+        .Select(r => new {
+            id = r.Id, name = r.Name,
+            canCancelInvoice = r.CanCancelInvoice,
+            canAccessLeavesAdmin = r.CanAccessLeavesAdmin,
+            leaveAllowanceDays = r.LeaveAllowanceDays,
+            workingDayHours = r.WorkingDayHours
+        })
+        .ToListAsync();
+    return Results.Ok(list);
+}).RequireAuthorization("AdminOnly");
+
+app.MapPost("/api/roles", async (RoleCreateRequest req, KtpDbContext db) =>
+{
+    var name = (req.name ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Rol adı zorunludur" });
+    var exists = await db.Roles.AnyAsync(r => r.Name.ToLower() == name.ToLower());
+    if (exists) return Results.Conflict(new { error = "Rol adı zaten var" });
+    var role = new RoleDef
+    {
+        Id = Guid.NewGuid(), Name = name,
+        CanCancelInvoice = req.canCancelInvoice ?? false,
+        CanAccessLeavesAdmin = req.canAccessLeavesAdmin ?? false,
+        LeaveAllowanceDays = req.leaveAllowanceDays,
+        WorkingDayHours = req.workingDayHours
+    };
+    db.Roles.Add(role);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/roles/{role.Id}", new { id = role.Id });
+}).RequireAuthorization("AdminOnly");
+
+app.MapPut("/api/roles/{id:guid}", async (Guid id, RoleUpdateRequest req, KtpDbContext db) =>
+{
+    var role = await db.Roles.FirstOrDefaultAsync(r => r.Id == id);
+    if (role is null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(req.name))
+    {
+        var name = req.name.Trim();
+        if (!string.Equals(role.Name, name, StringComparison.Ordinal))
+        {
+            var exists = await db.Roles.AnyAsync(r => r.Id != id && r.Name.ToLower() == name.ToLower());
+            if (exists) return Results.Conflict(new { error = "Rol adı zaten var" });
+            role.Name = name;
+        }
+    }
+    if (req.canCancelInvoice.HasValue) role.CanCancelInvoice = req.canCancelInvoice.Value;
+    if (req.canAccessLeavesAdmin.HasValue) role.CanAccessLeavesAdmin = req.canAccessLeavesAdmin.Value;
+    if (req.leaveAllowanceDays.HasValue) role.LeaveAllowanceDays = req.leaveAllowanceDays.Value;
+    if (req.workingDayHours.HasValue) role.WorkingDayHours = req.workingDayHours.Value;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
+app.MapDelete("/api/roles/{id:guid}", async (Guid id, KtpDbContext db) =>
+{
+    var role = await db.Roles.FirstOrDefaultAsync(r => r.Id == id);
+    if (role is null) return Results.NoContent();
+    db.Roles.Remove(role);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
+// Assign role to user (apply presets to user flags)
+app.MapPut("/api/users/{id:guid}/assign-role", async (Guid id, AssignRoleRequest req, KtpDbContext db) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
+    if (user is null) return Results.NotFound();
+    if (req.roleId.HasValue)
+    {
+        var role = await db.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == req.roleId.Value);
+        if (role is null) return Results.NotFound(new { error = "Rol bulunamadı" });
+        user.AssignedRoleId = role.Id;
+        user.CustomRoleName = role.Name;
+        user.CanCancelInvoice = role.CanCancelInvoice;
+        user.CanAccessLeavesAdmin = role.CanAccessLeavesAdmin;
+        user.LeaveAllowanceDays = role.LeaveAllowanceDays;
+        user.WorkingDayHours = role.WorkingDayHours;
+    }
+    else
+    {
+        user.AssignedRoleId = null;
+        user.CustomRoleName = null;
+    }
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
+// Current user's profile and leave summary
+app.MapGet("/api/me", async (KtpDbContext db, HttpContext http) =>
+{
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    var email = http.User.FindFirst(JwtRegisteredClaimNames.Email)?.Value
+        ?? http.User.FindFirst(ClaimTypes.Email)?.Value
+        ?? http.User.FindFirst("email")?.Value;
+
+    Guid? userId = null;
+    if (Guid.TryParse(sub, out var uidParsed)) userId = uidParsed;
+
+    var user = await db.Users.AsNoTracking()
+        .FirstOrDefaultAsync(u => (userId.HasValue && u.Id == userId.Value) || (!string.IsNullOrWhiteSpace(email) && u.Email == email));
+
+    var y = DateTime.UtcNow.Year;
+    var from = new DateOnly(y, 1, 1);
+    var to = new DateOnly(y, 12, 31);
+
+    var qMine = db.Leaves.AsNoTracking()
+        .Where(l => l.To >= from && l.From <= to);
+    if (userId.HasValue)
+        qMine = qMine.Where(l => l.UserId == userId);
+    else if (!string.IsNullOrWhiteSpace(email))
+        qMine = qMine.Where(l => l.UserEmail == email);
+    else
+        qMine = qMine.Where(l => false);
+
+    var myLeaves = await qMine
+        .Select(l => new { l.From, l.To, l.FromTime, l.ToTime, l.Status })
+        .ToListAsync();
+
+    const double workingDayHours = 8.0;
+    double usedDays = myLeaves
+        .Where(l => l.Status == LeaveStatus.Approved)
+        .Sum(l =>
+            (l.FromTime.HasValue && l.ToTime.HasValue)
+                ? Math.Max(0.0, (l.ToTime.Value.ToTimeSpan() - l.FromTime.Value.ToTimeSpan()).TotalHours) / workingDayHours
+                : ((l.To.ToDateTime(TimeOnly.MinValue) - l.From.ToDateTime(TimeOnly.MinValue)).Days + 1)
+        );
+
+    int allowanceDays = (int)(user?.LeaveAllowanceDays ?? 14);
+    var remainingDays = Math.Round((allowanceDays - usedDays), 2);
+
+    return Results.Ok(new
+    {
+        id = user?.Id ?? userId,
+        email = user?.Email ?? email,
+        role = user?.CustomRoleName ?? user?.Role.ToString(),
+        allowanceDays,
+        usedDays = Math.Round(usedDays, 2),
+        remainingDays
+    });
+}).RequireAuthorization();
+
+app.MapPut("/api/users/{id:guid}/permissions", async (Guid id, UpdateUserPermissionsRequest req, KtpDbContext db) =>
+{
+    var u = await db.Users.FirstOrDefaultAsync(x => x.Id == id);
+    if (u is null) return Results.NotFound();
+    if (req.canCancelInvoice.HasValue) u.CanCancelInvoice = req.canCancelInvoice.Value;
+    if (req.canAccessLeavesAdmin.HasValue) u.CanAccessLeavesAdmin = req.canAccessLeavesAdmin.Value;
+    if (req.leaveAllowanceDays.HasValue) u.LeaveAllowanceDays = req.leaveAllowanceDays.Value;
+    if (req.workingDayHours.HasValue) u.WorkingDayHours = req.workingDayHours.Value;
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
+// Settings: Milyem Oranı
+app.MapGet("/api/settings/milyem", async (KtpDbContext db) =>
+{
+    // Kâr milyemi (‰). If not set, default 0 (no markup).
+    var s = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(x => x.KeyName == "KarMilyemi");
+    if (s is null)
+        s = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(x => x.KeyName == "MilyemOrani"); // backward compat
+    var val = 0.0; // default kar milyemi: 0‰
+    if (s != null && double.TryParse(s.Value, out var parsed)) val = parsed;
+    return Results.Ok(new { value = val });
+}).RequireAuthorization();
+
+app.MapPut("/api/settings/milyem", async (UpdateMilyemRequest req, KtpDbContext db) =>
+{
+    // Kâr milyemi (‰): 0..5000 aralığına izin ver (0..500%).
+    if (req.value < 0 || req.value > 5000) return Results.BadRequest(new { error = "Geçersiz değer" });
+    var s = await db.SystemSettings.FirstOrDefaultAsync(x => x.KeyName == "KarMilyemi");
+    if (s is null)
+    {
+        s = new SystemSetting { Id = Guid.NewGuid(), KeyName = "KarMilyemi", Value = req.value.ToString(System.Globalization.CultureInfo.InvariantCulture), UpdatedAt = DateTime.UtcNow };
+        db.SystemSettings.Add(s);
+    }
+    else
+    {
+        s.Value = req.value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        s.UpdatedAt = DateTime.UtcNow;
+    }
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
+// Advanced calculation settings
+app.MapGet("/api/settings/calc", async (KtpDbContext db) =>
+{
+    var s = await db.SystemSettings.AsNoTracking().ToListAsync();
+    T Get<T>(string key, T def, Func<string, T> parse)
+    {
+        var v = s.FirstOrDefault(x => x.KeyName == key)?.Value;
+        if (string.IsNullOrWhiteSpace(v)) return def;
+        try { return parse(v!); } catch { return def; }
+    }
+
+    var resp = new
+    {
+        defaultKariHesapla = Get("DefaultKariHesapla", true, v => bool.Parse(v)),
+        karMargin = Get("KarMargin", 0.0, v => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)),
+        decimalPrecision = Get("DecimalPrecision", 2, v => int.Parse(v)),
+        karMilyemFormulaType = Get("KarMilyemFormulaType", "basic", v => v),
+        showPercentage = Get("ShowPercentage", true, v => bool.Parse(v)),
+        includeTax = Get("IncludeTax", false, v => bool.Parse(v)),
+        taxRate = Get("TaxRate", 0.0, v => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)),
+    };
+
+    return Results.Ok(resp);
+}).RequireAuthorization();
+
+app.MapPut("/api/settings/calc", async (UpdateCalcSettingsRequest req, KtpDbContext db) =>
+{
+    // basic validation
+    if (req.decimalPrecision < 0 || req.decimalPrecision > 6)
+        return Results.BadRequest(new { error = "decimalPrecision 0..6 olmalıdır" });
+    var okTypes = new[] { "basic", "withMargin", "custom" };
+    if (!okTypes.Contains(req.karMilyemFormulaType))
+        return Results.BadRequest(new { error = "Geçersiz karMilyemFormulaType" });
+    if (req.taxRate < 0 || req.taxRate > 100)
+        return Results.BadRequest(new { error = "taxRate 0..100 olmalıdır" });
+
+    void Upsert(string key, string value)
+    {
+        var s = db.SystemSettings.FirstOrDefault(x => x.KeyName == key);
+        if (s is null)
+        {
+            db.SystemSettings.Add(new SystemSetting
+            {
+                Id = Guid.NewGuid(),
+                KeyName = key,
+                Value = value,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            s.Value = value;
+            s.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    var inv = System.Globalization.CultureInfo.InvariantCulture;
+    Upsert("DefaultKariHesapla", req.defaultKariHesapla.ToString());
+    Upsert("KarMargin", req.karMargin.ToString(inv));
+    Upsert("DecimalPrecision", req.decimalPrecision.ToString());
+    Upsert("KarMilyemFormulaType", req.karMilyemFormulaType);
+    Upsert("ShowPercentage", req.showPercentage.ToString());
+    Upsert("IncludeTax", req.includeTax.ToString());
+    Upsert("TaxRate", req.taxRate.ToString(inv));
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
 }).RequireAuthorization("AdminOnly");
 
 // Reset password (admin only)
@@ -988,11 +1438,31 @@ static bool VerifyPassword(string password, string stored)
     catch { return false; }
 }
 
+// Request models
+public record LeaveCreateRequest(string from, string to, string? reason, string? fromTime, string? toTime);
+public record UpdateLeaveStatusRequest(string status);
+public record UpdateLeaveAllowanceRequest(int days);
+public record UpdateUserPermissionsRequest(bool? canCancelInvoice, bool? canAccessLeavesAdmin, int? leaveAllowanceDays, double? workingDayHours);
+public record RoleCreateRequest(string name, bool? canCancelInvoice, bool? canAccessLeavesAdmin, int? leaveAllowanceDays, double? workingDayHours);
+public record RoleUpdateRequest(string? name, bool? canCancelInvoice, bool? canAccessLeavesAdmin, int? leaveAllowanceDays, double? workingDayHours);
+public record AssignRoleRequest(Guid? roleId);
+public record UpdateMilyemRequest(double value);
+public record UpdateCalcSettingsRequest(
+    bool defaultKariHesapla,
+    double karMargin,
+    int decimalPrecision,
+    string karMilyemFormulaType,
+    bool showPercentage,
+    bool includeTax,
+    double taxRate
+);
+
 public record LoginRequest(string Email, string Password);
 public record CreateUserRequest(string Email, string Password, Role Role);
 public record ResetPasswordRequest(string Password);
 public record UpdateInvoiceStatusRequest(bool Kesildi);
 public record FinalizeRequest(decimal UrunFiyati);
+
 
 
 
