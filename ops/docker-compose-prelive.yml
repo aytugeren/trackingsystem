@@ -1,0 +1,146 @@
+﻿version: "3.8"
+
+services:
+  api:
+    build:
+      context: ../backend
+      dockerfile: ../ops/backend/Dockerfile
+    env_file:
+      - ./env.prelive
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
+      ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
+      ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
+      Pricing__FeedUrl: ${PRICING_FEED_URL:-https://canlipiyasalar.haremaltin.com/tmp/altin.json}
+      Pricing__LanguageParam: ${PRICING_LANGUAGE_PARAM:-tr}
+      Jwt__Key: ${JWT_KEY:-insecure-dev-key-change-me-please-very-long-0123456789abcdef}
+      Jwt__Issuer: ${JWT_ISSUER:-KTP}
+      Jwt__Audience: ${JWT_AUDIENCE:-KTP-Clients}
+      Seed__AdminEmail: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      Seed__AdminPassword: ${SEED_ADMIN_PASSWORD:-72727361Aa}
+      # Backup configuration
+      Backup__Enabled: ${BACKUP_ENABLED:-true}
+      Backup__BackupRoot: ${BACKUP_ROOT:-ops/backups}
+      Backup__PgDumpPath: ${BACKUP_PG_DUMP_PATH:-pg_dump}
+      Backup__HourlyStartHour: ${BACKUP_HOURLY_START_HOUR:-0}
+      Backup__HourlyEndHour: ${BACKUP_HOURLY_END_HOUR:-23}
+      Backup__ArchiveAt: ${BACKUP_ARCHIVE_AT:-23:59}
+      Backup__RetentionDays: ${BACKUP_RETENTION_DAYS:-60}
+      Backup__Compress: ${BACKUP_COMPRESS:-true}
+      Backup__BusyStart: ${BACKUP_BUSY_START:-09:00}
+      Backup__BusyEnd: ${BACKUP_BUSY_END:-19:30}
+      # Optimization toggles
+      Optimization__EnableIndexCreation: ${OPTIMIZATION_ENABLE_INDEX_CREATION:-false}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${API_PORT:-8080}:8080"
+    working_dir: /app
+    volumes:
+      - ktp_backups:/app/ops/backups
+      - ktp_dataprotection:/root/.aspnet/DataProtection-Keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  cashier:
+    build:
+      context: ../frontend-cashier
+      dockerfile: ../ops/frontend-cashier/Dockerfile
+      args:
+        API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+    env_file:
+      - ./env.frontend-cashier
+    environment:
+      NODE_ENV: ${FRONTEND_NODE_ENV:-development}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+      API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+      NEXT_PUBLIC_ID_VERIFY_ENABLED: ${NEXT_PUBLIC_ID_VERIFY_ENABLED:-false}
+      NEXT_PUBLIC_ID_VERIFY_REQUIRED: ${NEXT_PUBLIC_ID_VERIFY_REQUIRED:-false}
+      NEXT_PUBLIC_ID_VERIFY_URL: ${NEXT_PUBLIC_ID_VERIFY_URL:-/api/identity/verify}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${CASHIER_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ../frontend-dashboard
+      dockerfile: ../ops/frontend-dashboard/Dockerfile
+      args:
+        API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+    env_file:
+      - ./env.frontend-dashboard
+    environment:
+      NODE_ENV: ${FRONTEND_NODE_ENV:-development}
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}
+      API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${DASHBOARD_PORT:-3001}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    container_name: ktp-postgres-prelive
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ktp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ktp_pwd}
+      POSTGRES_DB: ${POSTGRES_DB:-ktp_db}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - ktp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ktp} -d ${POSTGRES_DB:-ktp_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ktp-pgadmin-prelive
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  default:
+    name: kuyumculuk-net-prelive
+
+volumes:
+  ktp_pgdata:
+    name: ktp_pgdata_prelive
+  ktp_backups:
+    name: ktp_backups_prelive
+  ktp_dataprotection:
+    name: ktp_dataprotection_prelive
+
+
+
