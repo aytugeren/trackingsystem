@@ -5,8 +5,6 @@ services:
     build:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
-    env_file:
-      - ../.env.prelive
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
@@ -55,8 +53,6 @@ services:
       dockerfile: ../ops/frontend-cashier/Dockerfile
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
-    env_file:
-      - ../.env.prelive
     environment:
       NODE_ENV: ${FRONTEND_NODE_ENV:-development}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
@@ -142,5 +138,4 @@ volumes:
     name: ktp_backups_prelive
   ktp_dataprotection:
     name: ktp_dataprotection_prelive
-
 
