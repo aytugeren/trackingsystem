@@ -6,7 +6,7 @@ services:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
     env_file:
-      - ./env.prelive
+      - ./env.backend
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
