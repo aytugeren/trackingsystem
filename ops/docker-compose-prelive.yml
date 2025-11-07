@@ -8,8 +8,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
-      ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
-      ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
+      # Build connection strings from provided POSTGRES_* values (or defaults)
+      # IMPORTANT: Use container port 5432, not host-mapped port (e.g., 5433)
+      ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=${POSTGRES_HOST:-postgres};Port=5432;Database=${POSTGRES_DB:-ktp_db};Username=${POSTGRES_USER:-ktp};Password=${POSTGRES_PASSWORD:-ktp_pwd}}
+      ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=${POSTGRES_HOST:-postgres};Port=5432;Database=${POSTGRES_DB:-ktp_db};Username=${POSTGRES_USER:-ktp};Password=${POSTGRES_PASSWORD:-ktp_pwd}}
       Pricing__FeedUrl: ${PRICING_FEED_URL:-https://canlipiyasalar.haremaltin.com/tmp/altin.json}
       Pricing__LanguageParam: ${PRICING_LANGUAGE_PARAM:-tr}
       Jwt__Key: ${JWT_KEY:-insecure-dev-key-change-me-please-very-long-0123456789abcdef}
@@ -137,6 +139,3 @@ volumes:
     name: ktp_backups_prelive
   ktp_dataprotection:
     name: ktp_dataprotection_prelive
-
-
-
