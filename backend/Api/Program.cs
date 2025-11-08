@@ -128,6 +128,8 @@ using (var scope = app.Services.CreateScope())
         // System settings
         await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"SystemSettings\" (\"Id\" uuid PRIMARY KEY, \"KeyName\" varchar(100) NOT NULL, \"Value\" varchar(100) NOT NULL, \"UpdatedAt\" timestamptz NOT NULL DEFAULT now());");
         await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS IX_SystemSettings_KeyName ON \"SystemSettings\" (\"KeyName\");");
+        // Enlarge Value column to store JSON configs (idempotent)
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"SystemSettings\" ALTER COLUMN \"Value\" TYPE text;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"Status\" integer NOT NULL DEFAULT 0;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
@@ -1285,6 +1287,76 @@ app.MapPut("/api/settings/calc", async (UpdateCalcSettingsRequest req, KtpDbCont
     return Results.NoContent();
 }).RequireAuthorization("AdminOnly");
 
+// Karat difference visualization settings (ranges + alert threshold)
+app.MapGet("/api/settings/karat", async (KtpDbContext db) =>
+{
+    var s = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(x => x.KeyName == "KaratDiffConfig");
+    if (s is null || string.IsNullOrWhiteSpace(s.Value))
+    {
+        var def = new KaratDiffSettings
+        {
+            ranges = new[]
+            {
+                new KaratRange(100, 300, "#FFF9C4"), // soft yellow
+                new KaratRange(300, 500, "#FFCC80"), // orange
+                new KaratRange(500, 700, "#EF9A9A"), // light red
+                new KaratRange(700, 1000, "#D32F2F"), // deep red
+            },
+            alertThreshold = 1000
+        };
+        return Results.Ok(def);
+    }
+    try
+    {
+        var cfg = System.Text.Json.JsonSerializer.Deserialize<KaratDiffSettings>(s.Value) ?? new KaratDiffSettings();
+        cfg.ranges = cfg.ranges?.Where(r => r.min < r.max && !string.IsNullOrWhiteSpace(r.colorHex)).ToArray() ?? Array.Empty<KaratRange>();
+        return Results.Ok(cfg);
+    }
+    catch
+    {
+        var def = new KaratDiffSettings
+        {
+            ranges = new[]
+            {
+                new KaratRange(100, 300, "#FFF9C4"),
+                new KaratRange(300, 500, "#FFCC80"),
+                new KaratRange(500, 700, "#EF9A9A"),
+                new KaratRange(700, 1000, "#D32F2F"),
+            },
+            alertThreshold = 1000
+        };
+        return Results.Ok(def);
+    }
+}).RequireAuthorization();
+
+app.MapPut("/api/settings/karat", async (UpdateKaratSettingsRequest req, KtpDbContext db) =>
+{
+    if (req.ranges is null || req.ranges.Length == 0)
+        return Results.BadRequest(new { error = "ranges boş olamaz" });
+    foreach (var r in req.ranges)
+    {
+        if (r.min < 0 || r.max <= r.min) return Results.BadRequest(new { error = "Aralıklar geçersiz" });
+        if (string.IsNullOrWhiteSpace(r.colorHex) || !r.colorHex.StartsWith('#') || (r.colorHex.Length != 7))
+            return Results.BadRequest(new { error = "Renk hex #RRGGBB olmalıdır" });
+    }
+    if (req.alertThreshold < 0) return Results.BadRequest(new { error = "alertThreshold >= 0 olmalıdır" });
+
+    var json = System.Text.Json.JsonSerializer.Serialize(new KaratDiffSettings { ranges = req.ranges, alertThreshold = req.alertThreshold });
+    var set = await db.SystemSettings.FirstOrDefaultAsync(x => x.KeyName == "KaratDiffConfig");
+    if (set is null)
+    {
+        set = new SystemSetting { Id = Guid.NewGuid(), KeyName = "KaratDiffConfig", Value = json, UpdatedAt = DateTime.UtcNow };
+        db.SystemSettings.Add(set);
+    }
+    else
+    {
+        set.Value = json;
+        set.UpdatedAt = DateTime.UtcNow;
+    }
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization("AdminOnly");
+
 // Reset password (admin only)
 app.MapPut("/api/users/{id:guid}/password", async (Guid id, ResetPasswordRequest req, KtpDbContext db) =>
 {
@@ -1462,6 +1534,14 @@ public record CreateUserRequest(string Email, string Password, Role Role);
 public record ResetPasswordRequest(string Password);
 public record UpdateInvoiceStatusRequest(bool Kesildi);
 public record FinalizeRequest(decimal UrunFiyati);
+
+public record KaratRange(double min, double max, string colorHex);
+public record KaratDiffSettings
+{
+    public KaratRange[] ranges { get; set; } = Array.Empty<KaratRange>();
+    public double alertThreshold { get; set; } = 1000;
+}
+public record UpdateKaratSettingsRequest(KaratRange[] ranges, double alertThreshold);
 
 
 

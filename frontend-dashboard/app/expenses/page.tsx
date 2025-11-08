@@ -87,6 +87,7 @@ export default function ExpensesPage() {
     try {
       await api.setExpenseStatus(exp.id, !(exp.kesildi ?? false))
       setData((prev) => (prev ? prev.map(x => x.id === exp.id ? { ...x, kesildi: !(exp.kesildi ?? false) } : x) : prev))
+      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
     } catch {
       setError('Durum güncellenemedi')
     }
@@ -104,6 +105,7 @@ export default function ExpensesPage() {
       await api.finalizeExpense(selected.id)
       setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, urunFiyati: x.tutar } : x) : prev)
       closeModal(); setEnterTick(t => t + 1)
+      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
     } catch { setError('Gider kesilemedi') }
   }
 
