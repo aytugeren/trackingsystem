@@ -1,1 +1,0 @@
-                        <button className="text-xs underline" onClick={() => copy('urun', String(urunFiyati))}>{copied === 'urun' ? 'Kopyalandý' : 'Kopyala'}</button>

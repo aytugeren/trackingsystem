@@ -92,6 +92,7 @@ export default function InvoicesPage() {
     try {
       await api.setInvoiceStatus(inv.id, !(inv.kesildi ?? false))
       setData((prev) => (prev ? prev.map(x => x.id === inv.id ? { ...x, kesildi: !(inv.kesildi ?? false) } : x) : prev))
+      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
     } catch {
       setError('Durum güncellenemedi')
     }
@@ -115,6 +116,7 @@ export default function InvoicesPage() {
       setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, urunFiyati: x.tutar } : x) : prev)
       closeModal()
       setEnterTick(t => t + 1) // trigger reload to get computed fields
+      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
     } catch {
       setError('Fatura kesilemedi')
     }

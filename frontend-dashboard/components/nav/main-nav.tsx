@@ -47,6 +47,16 @@ export function MainNav({ onNavigate }: { onNavigate?: () => void }) {
           </Link>
         )
       })}
+      {role==='Yonetici' && (
+        <Link
+          href="/settings/karat"
+          onClick={onNavigate}
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent"
+        >
+          <IconHome width={18} height={18} />
+          Karat Ayarları
+        </Link>
+      )}
     </nav>
   )
 }

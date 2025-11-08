@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MainNav } from '@/components/nav/main-nav'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
+import GlobalKaratAlert from '@/components/global-karat-alert'
 import { IconMenu } from '@/components/ui/icons'
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
@@ -66,9 +67,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+        <GlobalKaratAlert />
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
     </div>
   )
 }
-
