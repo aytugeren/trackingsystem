@@ -36,12 +36,16 @@ public class CreateExpenseHandler : ICreateExpenseHandler
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" | ", errors));
 
+        var nameUpper = command.Dto.MusteriAdSoyad;
+        if (!string.IsNullOrWhiteSpace(nameUpper))
+            nameUpper = nameUpper.Trim().ToUpper(CultureInfo.GetCultureInfo("tr-TR"));
+
         var entity = new Expense
         {
             Id = Guid.NewGuid(),
             Tarih = command.Dto.Tarih,
             SiraNo = command.Dto.SiraNo,
-            MusteriAdSoyad = command.Dto.MusteriAdSoyad,
+            MusteriAdSoyad = nameUpper,
             TCKN = command.Dto.TCKN,
             Tutar = command.Dto.Tutar,
             AltinAyar = command.Dto.AltinAyar,
@@ -62,8 +66,9 @@ public class CreateExpenseHandler : ICreateExpenseHandler
                 var json = await resp.Content.ReadAsStringAsync(cancellationToken);
                 if (TryParseAltin(json, out var alis, out var satis, out var srcTime))
                 {
-                    var setting = await _market.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", cancellationToken)
-                                  ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
+                    var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
+                    var setting = await _market.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, cancellationToken)
+                                  ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
                     var finalSatis = satis + setting.MarginSell;
                     finalSatisFromLive = finalSatis;
                     sourceTimeFromLive = srcTime;
@@ -103,7 +108,10 @@ public class CreateExpenseHandler : ICreateExpenseHandler
                 .FirstOrDefaultAsync(cancellationToken);
             if (latestStored is not null)
             {
-                entity.AltinSatisFiyati = latestStored.FinalSatis;
+                var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
+                var setting = await _market.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, cancellationToken)
+                              ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
+                entity.AltinSatisFiyati = latestStored.Satis + setting.MarginSell;
                 sourceTimeFromLive = latestStored.SourceTime;
             }
         }

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type Expense, type Invoice } from '@/lib/api'
 
-export default function GlobalKaratAlert() {
+export default function GlobalKaratAlertFixed() {
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
   const [expenses, setExpenses] = useState<Expense[] | null>(null)
   const [cfg, setCfg] = useState<{ alertThreshold: number } | null>(null)
@@ -55,12 +55,19 @@ export default function GlobalKaratAlert() {
     return { diff22: Math.max(0, inv22-exp22), diff24: Math.max(0, inv24-exp24) }
   }, [invoices, expenses, monthKey])
 
-  const show = cfg && (diffs.diff22 > (cfg.alertThreshold||0) || diffs.diff24 > (cfg.alertThreshold||0))
+  const thr = cfg?.alertThreshold || 0
+  const trig22 = diffs.diff22 > thr
+  const trig24 = diffs.diff24 > thr
+  const show = trig22 || trig24
   if (!show) return null
+  const parts: string[] = []
+  if (trig22) parts.push(`22 Ayar (${diffs.diff22.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} gr)`)
+  if (trig24) parts.push(`24 Ayar (${diffs.diff24.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} gr)`)
+  const which = parts.join(' ve ')
   return (
     <div className="border-b bg-amber-100 border-amber-200 dark:bg-amber-950 dark:border-amber-900">
       <div className="px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
-        DÝKKAT! Faturalanan altýn ile gider altýný arasýnda fark var. Gider kesiniz.
+        Dikkat! {which} icin faturalanan altin ile gider altini arasinda fark var. Gider kesiniz.
       </div>
     </div>
   )

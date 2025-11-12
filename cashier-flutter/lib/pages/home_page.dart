@@ -21,6 +21,12 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   PricingCurrent? _pricing;
   bool _loadingPricing = true;
+  // Global karat alert state
+  bool _hideAlert = false;
+  double _diff22 = 0;
+  double _diff24 = 0;
+  double _alertThreshold = 1000;
+  bool _loadingAlert = true;
 
   // Invoice form state
   final invName = TextEditingController();
@@ -54,6 +60,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _refreshPricing();
+    _refreshKaratAlert();
   }
 
   Future<void> _refreshPricing() async {
@@ -64,6 +71,57 @@ class _HomePageState extends State<HomePage> {
       _pricing = p;
       _loadingPricing = false;
     });
+  }
+
+  Future<void> _refreshKaratAlert() async {
+    setState(() { _loadingAlert = true; });
+    try {
+      // Load karat settings
+      final cfg = await widget.api.getJson('/api/settings/karat');
+      final thr = (cfg['alertThreshold'] as num?)?.toDouble() ?? 1000.0;
+      // Load latest invoices/expenses page
+      final inv = await widget.api.getJson('/api/invoices', query: { 'page': 1, 'pageSize': 500 });
+      final exp = await widget.api.getJson('/api/expenses', query: { 'page': 1, 'pageSize': 500 });
+      final itemsInv = (inv['items'] as List?) ?? const [];
+      final itemsExp = (exp['items'] as List?) ?? const [];
+      final now = DateTime.now();
+      final monthKey = '${now.year.toString().padLeft(4,'0')}-${now.month.toString().padLeft(2,'0')}';
+      double inv22 = 0, inv24 = 0, exp22 = 0, exp24 = 0;
+      int toAyar(dynamic v) {
+        if (v == 22 || v == 'Ayar22') return 22;
+        if (v == 24 || v == 'Ayar24') return 24;
+        return 0;
+      }
+      bool startsWithMonth(String? t) => t != null && t.startsWith(monthKey);
+      for (final it in itemsInv) {
+        final m = it as Map<String, dynamic>;
+        if ((m['kesildi'] == true) && startsWithMonth(m['tarih'] as String?)) {
+          final ayar = toAyar(m['altinAyar']);
+          final g = (m['gramDegeri'] as num?)?.toDouble() ?? 0;
+          if (ayar == 22) inv22 += g; else if (ayar == 24) inv24 += g;
+        }
+      }
+      for (final it in itemsExp) {
+        final m = it as Map<String, dynamic>;
+        if ((m['kesildi'] == true) && startsWithMonth(m['tarih'] as String?)) {
+          final ayar = toAyar(m['altinAyar']);
+          final g = (m['gramDegeri'] as num?)?.toDouble() ?? 0;
+          if (ayar == 22) exp22 += g; else if (ayar == 24) exp24 += g;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _alertThreshold = thr;
+        _diff22 = (inv22 - exp22);
+        _diff24 = (inv24 - exp24);
+        if (_diff22 < 0) _diff22 = 0;
+        if (_diff24 < 0) _diff24 = 0;
+        _loadingAlert = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() { _loadingAlert = false; });
+    }
   }
 
   @override
@@ -118,6 +176,8 @@ class _HomePageState extends State<HomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildGlobalKaratAlert(),
+                      const SizedBox(height: 12),
                       _buildPricingCard(),
                       const SizedBox(height: 12),
                       _invoiceFormTab(),
@@ -129,6 +189,8 @@ class _HomePageState extends State<HomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildGlobalKaratAlert(),
+                      const SizedBox(height: 12),
                       _buildPricingCard(),
                       const SizedBox(height: 12),
                       _expenseFormTab(),
@@ -160,6 +222,47 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildGlobalKaratAlert() {
+    if (_hideAlert) return const SizedBox.shrink();
+    if (_loadingAlert) return const SizedBox.shrink();
+    final trig22 = _diff22 > _alertThreshold;
+    final trig24 = _diff24 > _alertThreshold;
+    if (!trig22 && !trig24) return const SizedBox.shrink();
+    final parts = <String>[];
+    if (trig22) parts.add('22 Ayar (${_fmtNumber(_diff22)} gr)');
+    if (trig24) parts.add('24 Ayar (${_fmtNumber(_diff24)} gr)');
+    final which = parts.join(' ve ');
+    return Card(
+      color: Colors.amber[100],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.amber.shade200)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.amber),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Dikkat! $which için faturalanan altın ile gider altını arasında fark var. Gider kesiniz.',
+                style: const TextStyle(color: Colors.black87, fontSize: 13),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Gizle',
+              onPressed: () => setState(() => _hideAlert = true),
+              icon: const Icon(Icons.close, size: 18),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fmtNumber(double v) {
+    try { return NumberFormat.decimalPattern('tr_TR').format(v); } catch (_) { return v.toStringAsFixed(2); }
+  }
+
   // --- Tabs ---
   Widget _invoiceFormTab() {
     return Card(
@@ -182,7 +285,12 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             const SizedBox(height: 8),
-            TextField(controller: invName, decoration: const InputDecoration(labelText: 'Ad Soyad')),
+            TextField(
+              controller: invName,
+              decoration: const InputDecoration(labelText: 'Ad Soyad'),
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: const [TurkishUppercaseTextFormatter()],
+            ),
             const SizedBox(height: 8),
             TextField(
               controller: invTckn,
@@ -244,7 +352,12 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             const SizedBox(height: 8),
-            TextField(controller: expName, decoration: const InputDecoration(labelText: 'Ad Soyad')),
+            TextField(
+              controller: expName,
+              decoration: const InputDecoration(labelText: 'Ad Soyad'),
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: const [TurkishUppercaseTextFormatter()],
+            ),
             const SizedBox(height: 8),
             TextField(controller: expTckn,decoration: const InputDecoration(labelText: 'TCKN (11 hane)'),keyboardType: TextInputType.number,inputFormatters: [FilteringTextInputFormatter.digitsOnly,LengthLimitingTextInputFormatter(11),],),
             const SizedBox(height: 8),
@@ -564,3 +677,29 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
   }
 }
 
+class TurkishUppercaseTextFormatter extends TextInputFormatter {
+  const TurkishUppercaseTextFormatter();
+
+  String _trUpper(String s) {
+    final buf = StringBuffer();
+    for (final ch in s.split('')) {
+      if (ch == 'i') {
+        buf.write('İ');
+      } else if (ch == 'ı') {
+        buf.write('I');
+      } else {
+        buf.write(ch.toUpperCase());
+      }
+    }
+    return buf.toString();
+  }
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final up = _trUpper(newValue.text);
+    final sel = newValue.selection;
+    final offset = sel.isValid ? sel.baseOffset : up.length;
+    final safeOffset = offset.clamp(0, up.length);
+    return TextEditingValue(text: up, selection: TextSelection.collapsed(offset: safeOffset));
+  }
+}

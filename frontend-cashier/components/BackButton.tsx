@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useRouter } from 'next/navigation'
 
 export default function BackButton({ label = 'Geri Dön' }: { label?: string }) {
@@ -15,4 +15,3 @@ export default function BackButton({ label = 'Geri Dön' }: { label?: string }) 
     </button>
   )
 }
-

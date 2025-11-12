@@ -18,14 +18,11 @@ export default function Page() {
         <Link href="/leave">
           <button className="secondary" style={{ width: '100%' }}>İzin İste</button>
         </Link>
-        <Link href="/pricing/display">
+        <Link href="/pricing/gold">
           <button className="secondary" style={{ width: '100%' }}>Altın Fiyatları</button>
         </Link>
-        <Link href="/pricing/settings">
-          <button className="secondary" style={{ width: '100%' }}>Fiyat Ayarları</button>
-        </Link>
+        {/* Fiyat Ayarları yönetim ekranına taşındı */}
       </div>
     </main>
   )
 }
-

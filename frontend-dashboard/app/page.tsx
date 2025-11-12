@@ -1,6 +1,7 @@
-"use client"
+﻿"use client"
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import type { Dispatch, SetStateAction } from 'react'
 import { api, toDateOnlyString, type Expense, type Invoice } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,12 +13,18 @@ export default function HomePage() {
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
   const [expenses, setExpenses] = useState<Expense[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  
+  const [showFullscreen, setShowFullscreen] = useState(false)
   const [period, setPeriod] = useState<'daily' | 'monthly' | 'yearly'>('daily')
   // Monthly multi-select support (max 3 months)
   const __now0 = new Date()
   const __defaultMonth = `${__now0.getFullYear()}-${String(__now0.getMonth() + 1).padStart(2, '0')}`
   const [selectedMonths, setSelectedMonths] = useState<string[]>([__defaultMonth])
   const [karatCfg, setKaratCfg] = useState<{ ranges: { min: number; max: number; colorHex: string }[]; alertThreshold: number } | null>(null)
+  
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => { try { document.body.style.overflow = showFullscreen ? 'hidden' : '' } catch {} return () => { try { document.body.style.overflow = '' } catch {} } }, [showFullscreen])
 
   useEffect(() => {
     let mounted = true
@@ -36,27 +43,43 @@ export default function HomePage() {
     load()
     return () => { mounted = false }
   }, [])
+  // Auto-refresh while fullscreen overlay is open (every 10s)
+  useEffect(() => {
+    if (!showFullscreen) return
+    let alive = true
+    const fetchNow = async () => {
+      try {
+        const [inv, exp] = await Promise.all([api.listAllInvoices(), api.listAllExpenses()])
+        if (!alive) return
+        setInvoices(inv)
+        setExpenses(exp)
+      } catch {}
+    }
+    fetchNow()
+    const h = setInterval(fetchNow, 10000)
+    return () => { alive = false; clearInterval(h) }
+  }, [showFullscreen])
 
   const now = new Date()
   const todayKey = toDateOnlyString(now)
   const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const yearKey = `${now.getFullYear()}-`
 
-  const matchByPeriod = (d: string) => {
+  const matchByPeriod = useCallback((d: string) => {
     switch (period) {
       case 'yearly': return d.startsWith(yearKey)
       case 'monthly': return d.startsWith(monthKey)
       default: return d.startsWith(todayKey)
     }
-  }
+  }, [period, todayKey, monthKey, yearKey])
 
-  const { income, outgo, net } = useMemo(() => {
+    const { income, outgo, net } = useMemo(() => {
     const invs = (invoices || []).filter((x) => matchByPeriod(x.tarih))
     const exps = (expenses || []).filter((x) => matchByPeriod(x.tarih))
     const incomeSum = invs.reduce((a, b) => a + Number(b.tutar), 0)
     const outgoSum = exps.reduce((a, b) => a + Number(b.tutar), 0)
     return { income: incomeSum, outgo: outgoSum, net: incomeSum - outgoSum }
-  }, [invoices, expenses, period, todayKey, monthKey, yearKey])
+  }, [invoices, expenses, matchByPeriod])
 
   const detailed = useMemo(() => {
     const invs = (invoices || []).filter((x) => matchByPeriod(x.tarih))
@@ -66,7 +89,7 @@ export default function HomePage() {
     const pendingInv = invs.filter((x) => !(x.kesildi ?? false)).length
     const pendingExp = exps.filter((x) => !(x.kesildi ?? false)).length
     return { invGrams, expGrams, pendingInv, pendingExp }
-  }, [invoices, expenses, period, todayKey, monthKey, yearKey])
+  }, [invoices, expenses, matchByPeriod])
 
   const cashierStats = useMemo(() => {
     const invs = (invoices || []).filter((x) => matchByPeriod(x.tarih) && (x.kesildi ?? false))
@@ -85,17 +108,27 @@ export default function HomePage() {
       map.set(key, cur)
     }
     return Array.from(map.entries()).sort((a, b) => (b[1].invoice + b[1].expense) - (a[1].invoice + a[1].expense))
-  }, [invoices, expenses, period, todayKey, monthKey, yearKey])
+  }, [invoices, expenses, matchByPeriod])
+  
+  function openFullscreen() {
+    setShowFullscreen(true)
+    try {
+      const el: any = document.documentElement
+      if (el && el.requestFullscreen && !document.fullscreenElement) {
+        el.requestFullscreen().catch(() => {})
+      }
+    } catch {}
+  }
 
   // Helpers for monthly multi-select filtering
-  const matchByMonths = (dateStr: string) => {
+  const matchByMonths = useCallback((dateStr: string) => {
     if (period !== 'monthly') return matchByPeriod(dateStr)
     const months = (selectedMonths && selectedMonths.length > 0) ? selectedMonths : [monthKey]
     return months.some((m) => dateStr.startsWith(m))
-  }
+  }, [period, selectedMonths, monthKey, matchByPeriod])
 
   // 22/24 ayar özetleri (sadece kesilmiş işlemler)
-  const karatSummary = useMemo(() => {
+    const karatSummary = useMemo(() => {
     const invs = (invoices || []).filter((x) => matchByMonths(x.tarih) && (x.kesildi ?? false))
     const exps = (expenses || []).filter((x) => matchByMonths(x.tarih) && (x.kesildi ?? false))
     const toAyarNum = (v: Invoice['altinAyar'] | Expense['altinAyar']): 22 | 24 | null => {
@@ -115,9 +148,7 @@ export default function HomePage() {
       else if (a === 24) exp24 += Number(e.gramDegeri ?? 0)
     }
     return { inv22, inv24, exp22, exp24 }
-  }, [invoices, expenses, period, selectedMonths, todayKey, monthKey, yearKey])
-
-  // Load karat settings
+  }, [invoices, expenses, matchByMonths])  // Load karat settings
   useEffect(() => {
     let mounted = true
     async function loadKarat() {
@@ -164,7 +195,9 @@ export default function HomePage() {
             <h1 className="text-2xl font-semibold tracking-tight">Yönetim Paneli</h1>
             <p className="text-sm text-muted-foreground">Fatura ve giderlerinizi kolayca görüntüleyin.</p>
           </div>
-          <div className="flex flex-col gap-3 items-end">
+          <div className="flex flex-col gap-3 items-end">            <div>
+              <Button className="h-10" variant="outline" onClick={openFullscreen}>Tam Ekran</Button>
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Dönem:</span>
               <button className={`px-3 py-2 rounded border ${period==='daily'?'bg-black text-white':'bg-white'}`} onClick={() => setPeriod('daily')}>Günlük</button>
@@ -297,7 +330,36 @@ export default function HomePage() {
             </Card>
           ))}
         </div>
-      </section>
+      </section>      {mounted && showFullscreen && createPortal((
+        <div
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black text-white"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowFullscreen(false)}
+        >
+          <div className="absolute top-6 right-6">
+            <Button variant="outline" className="bg-white text-black" onClick={(e) => { e.stopPropagation(); setShowFullscreen(false); try { if (document.fullscreenElement) document.exitFullscreen().catch(()=>{}) } catch {} }}>Kapat</Button>
+          </div>
+          <div className="relative flex flex-col items-center gap-10 px-6 text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-4">
+              <span className="text-6xl animate-pulse">💎</span>
+              <h2 className="text-4xl font-extrabold tracking-tight">Eren Kuyumculuk</h2>
+            </div>
+            <div className="grid gap-8 sm:grid-cols-2 w-full max-w-4xl">
+              <div className="rounded-xl bg-white/10 backdrop-blur p-8 shadow-lg border border-white/20">
+                <div className="text-sm text-white/70 mb-2">Bekleyen Fatura</div>
+                <div className="text-6xl font-bold tabular-nums">{(invoices || []).filter(x => !(x.kesildi ?? false)).length.toLocaleString('tr-TR')}</div>
+              </div>
+              <div className="rounded-xl bg-white/10 backdrop-blur p-8 shadow-lg border border-white/20">
+                <div className="text-sm text-white/70 mb-2">Bekleyen Gider</div>
+                <div className="text-6xl font-bold tabular-nums">{(expenses || []).filter(x => !(x.kesildi ?? false)).length.toLocaleString('tr-TR')}</div>
+              </div>
+            </div>
+            <div className="text-white/50 text-sm">Ekrana dokunarak çıkabilirsiniz • 10 sn&#39;de bir güncellenir</div>
+          </div>
+        </div>
+      ), document.body)}
+
     </div>
   )
 }
@@ -362,3 +424,30 @@ function SummaryCard({ title, value, error, emoji }: { title: string; value: num
     </Card>
   )
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

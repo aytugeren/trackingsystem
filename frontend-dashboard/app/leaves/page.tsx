@@ -1,5 +1,5 @@
-"use client"
-import { useEffect, useMemo, useState } from 'react'
+﻿"use client"
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { listLeavesAdmin, updateLeaveStatus, listLeaveSummary, setUserLeaveAllowance, updateUserPermissions, type Leave, type LeaveSummaryItem } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,9 +14,9 @@ export default function LeavesAdminPage() {
   const [summary, setSummary] = useState<{ year: number; items: LeaveSummaryItem[] } | null>(null)
   const [year, setYear] = useState<number>(new Date().getFullYear())
   const [error, setError] = useState<string>('')
-  const [role, setRole] = useState<string | null>(null)
+  const [perms, setPerms] = useState<{ canAccessLeavesAdmin?: boolean } | null>(null)
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setError('')
       const [ls, sm] = await Promise.all([
@@ -26,12 +26,12 @@ export default function LeavesAdminPage() {
       setLeaves(ls)
       setSummary(sm)
     } catch (e) { setError('Veri yüklenemedi') }
-  }
+  }, [from, to, year])
 
   useEffect(() => {
-    try { setRole(localStorage.getItem('ktp_role')) } catch {}
+    ;(async () => { try { const base = process.env.NEXT_PUBLIC_API_BASE || ''; const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''; const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (res.ok) setPerms(await res.json()) } catch {} })()
     load()
-  }, [year])
+  }, [year, load])
 
   const byStatus = useMemo(() => {
     const map: Record<string, Leave[]> = { Pending: [], Approved: [], Rejected: [] }
@@ -39,7 +39,7 @@ export default function LeavesAdminPage() {
     return map
   }, [leaves])
 
-  if (role !== 'Yonetici') {
+  if (!perms?.canAccessLeavesAdmin) {
     return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
   }
 
@@ -189,3 +189,6 @@ function SummaryTable({ data, onSetAllowance }: { data: LeaveSummaryItem[]; onSe
     </div>
   )
 }
+
+
+
