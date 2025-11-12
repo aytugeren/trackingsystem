@@ -9,6 +9,7 @@ export default function LogoutButton() {
       localStorage.removeItem('ktp_c_role')
       localStorage.removeItem('ktp_c_email')
       document.cookie = 'ktp_c_token=; Max-Age=0; Path=/'
+      try { window.dispatchEvent(new CustomEvent('ktp:auth-changed')) } catch {}
     } finally {
       router.replace('/login')
     }
@@ -17,4 +18,3 @@ export default function LogoutButton() {
     <button onClick={logout} className="secondary" style={{ float: 'right' }}>Çıkış</button>
   )
 }
-

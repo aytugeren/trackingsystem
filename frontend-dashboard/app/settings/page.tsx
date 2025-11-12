@@ -13,6 +13,9 @@ type CalcSettings = {
   taxRate: number
 }
 
+type KaratRange = { min: number; max: number; colorHex: string }
+type KaratDiffSettings = { ranges: KaratRange[]; alertThreshold: number }
+
 async function getMilyem(): Promise<number> {
   const base = process.env.NEXT_PUBLIC_API_BASE || ''
   const res = await fetch(`${base}/api/settings/milyem`, { cache: 'no-store', headers: authHeaders() })
@@ -53,6 +56,20 @@ async function saveCalcSettings(s: CalcSettings): Promise<void> {
   if (!res.ok) throw new Error('Ayarlar kaydedilemedi')
 }
 
+async function getKaratSettings(): Promise<KaratDiffSettings> {
+  const base = process.env.NEXT_PUBLIC_API_BASE || ''
+  const res = await fetch(`${base}/api/settings/karat`, { cache: 'no-store', headers: authHeaders() })
+  if (!res.ok) throw new Error('Karat ayarları alınamadı')
+  const j = await res.json()
+  return { ranges: (j.ranges || []), alertThreshold: Number(j.alertThreshold ?? 1000) }
+}
+
+async function saveKaratSettings(s: KaratDiffSettings): Promise<void> {
+  const base = process.env.NEXT_PUBLIC_API_BASE || ''
+  const res = await fetch(`${base}/api/settings/karat`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(s) })
+  if (!res.ok) throw new Error('Karat ayarları kaydedilemedi')
+}
+
 function authHeaders(): HeadersInit {
   try {
     const token = localStorage.getItem('ktp_token') || ''
@@ -61,7 +78,7 @@ function authHeaders(): HeadersInit {
 }
 
 export default function SettingsPage() {
-  const [role, setRole] = useState<string | null>(null)
+  const [perms, setPerms] = useState<{ canManageSettings?: boolean; canManageKarat?: boolean } | null>(null)
   const [milyem, setMilyemState] = useState<number>(1000)
   const [calc, setCalc] = useState<CalcSettings>({
     defaultKariHesapla: true,
@@ -74,9 +91,15 @@ export default function SettingsPage() {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [karat, setKarat] = useState<KaratDiffSettings>({ ranges: [
+    { min: 100, max: 300, colorHex: '#FFF9C4' },
+    { min: 300, max: 500, colorHex: '#FFCC80' },
+    { min: 500, max: 700, colorHex: '#EF9A9A' },
+    { min: 700, max: 1000, colorHex: '#D32F2F' },
+  ], alertThreshold: 1000 })
 
   useEffect(() => {
-    try { setRole(localStorage.getItem('ktp_role')) } catch {}
+    ;(async () => { try { const base = process.env.NEXT_PUBLIC_API_BASE || ''; const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''; const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (res.ok) setPerms(await res.json()) } catch {} })()
     ;(async () => {
       try {
         setError('')
@@ -85,11 +108,13 @@ export default function SettingsPage() {
         setMilyemState(v)
         const c = await getCalcSettings()
         setCalc(c)
+        const k = await getKaratSettings()
+        setKarat(k)
       } catch { setError('Yüklenemedi') } finally { setLoading(false) }
     })()
   }, [])
 
-  if (role !== 'Yonetici') return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
+  if (!perms?.canManageSettings) return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
 
   return (
     <Card>
@@ -158,4 +183,3 @@ export default function SettingsPage() {
     </Card>
   )
 }
-

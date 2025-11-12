@@ -1,4 +1,5 @@
 import './globals.css'
+import GlobalKaratAlert from '../components/GlobalKaratAlert'
 
 export const metadata = {
   title: 'Kuyumculuk - Kasiyer',
@@ -14,9 +15,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>
+        <GlobalKaratAlert />
         {children}
       </body>
     </html>
   )
 }
-

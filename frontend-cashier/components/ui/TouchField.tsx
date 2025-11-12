@@ -15,9 +15,10 @@ type Props = {
   readOnly?: boolean
   disabled?: boolean
   error?: string
+  upperCaseTr?: boolean
 }
 
-export default function TouchField({ label, type = 'text', value, placeholder, onChange, inputMode, pattern, maxLength, name, onFocus, readOnly, disabled, error }: Props) {
+export default function TouchField({ label, type = 'text', value, placeholder, onChange, inputMode, pattern, maxLength, name, onFocus, readOnly, disabled, error, upperCaseTr }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <label style={{ fontWeight: 600 }}>{label}</label>
@@ -32,14 +33,18 @@ export default function TouchField({ label, type = 'text', value, placeholder, o
         onFocus={onFocus}
         readOnly={readOnly}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          const v = e.target.value
+          onChange(upperCaseTr ? v.toLocaleUpperCase('tr-TR') : v)
+        }}
         style={{
           minHeight: '56px',
           borderRadius: 10,
           border: `2px solid ${error ? '#b3261e' : '#ddd'}`,
           padding: '12px 14px',
           fontSize: 18,
-          background: disabled ? '#f3f3f3' : '#fff'
+          background: disabled ? '#f3f3f3' : '#fff',
+          textTransform: upperCaseTr ? 'uppercase' as const : undefined
         }}
       />
       {error && (

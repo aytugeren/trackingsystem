@@ -354,7 +354,7 @@ function InvoiceNewInner() {
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TouchField label="Tarih" type="date" value={date} onChange={setDate} />
-        <TouchField label="Ad Soyad" value={fullName} onChange={setFullName} onFocus={() => setActiveKeypad(null)} />
+        <TouchField label="Ad Soyad" value={fullName} onChange={setFullName} onFocus={() => setActiveKeypad(null)} upperCaseTr />
         {/* Doğum yılı alanı kaldırıldı */}
         <TouchField label="TCKN" value={tckn} onChange={(v) => setTckn(v.replace(/[^0-9]/g, '').slice(0, 11))} inputMode="numeric" pattern="\d*" maxLength={11} onFocus={() => setActiveKeypad(null)} error={tcknError} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

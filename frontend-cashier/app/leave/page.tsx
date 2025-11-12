@@ -252,9 +252,9 @@ function Calendar({ month, leaves }: { month: Date; leaves: Leave[] }) {
 
   function color(d: Date): string | null {
     const has = leaves.filter((l) => new Date(l.from) <= d && d <= new Date(l.to))
-    if (has.some((h) => h.status === "Approved")) return "#22c55e33"
-    if (has.some((h) => h.status === "Pending")) return "#f59e0b33"
-    if (has.some((h) => h.status === "Rejected")) return "#ef444433"
+    if (has.some((h) => h.status === "Approved")) return "#22c55e33" // green
+    if (has.some((h) => h.status === "Pending")) return "#f59e0b33" // yellow
+    // Rejected is not marked on the calendar
     return null
   }
 
