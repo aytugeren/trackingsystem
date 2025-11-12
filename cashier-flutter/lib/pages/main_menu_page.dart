@@ -3,6 +3,7 @@ import '../api/api_client.dart';
 import 'home_page.dart';
 import 'gold_price_screen.dart';
 import 'profile_page.dart';
+import 'leave_request_fixed.dart';
 
 class MainMenuPage extends StatelessWidget {
   final ApiClient api;
@@ -106,9 +107,9 @@ class MainMenuPage extends StatelessWidget {
   }
 }
 
-class LeaveRequestPage extends StatelessWidget {
+class _OldLeaveRequestPage extends StatelessWidget {
   final ApiClient api;
-  const LeaveRequestPage({super.key, required this.api});
+  const _OldLeaveRequestPage({super.key, required this.api});
 
   @override
   Widget build(BuildContext context) {
@@ -120,3 +121,4 @@ class LeaveRequestPage extends StatelessWidget {
     );
   }
 }
+

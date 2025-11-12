@@ -1,7 +1,7 @@
-﻿﻿"use client"
+﻿"use client"
 import { t } from '@/lib/i18n'
 import { useEffect, useMemo, useState } from 'react'
-import { api, type Invoice } from '@/lib/api'
+import { api, type Invoice, formatDateTimeTr } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,8 @@ export default function InvoicesPage() {
   const r2 = (n: number) => Math.round(n * 100) / 100
   const [data, setData] = useState<Invoice[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [canCancel, setCanCancel] = useState(false)
+  const [canToggle, setCanToggle] = useState(false)
   const [filters, setFilters] = useState<Filters>({ method: 'all', q: '' })
   const [page, setPage] = useState(1)
   const [pageSize] = useState(20)
@@ -36,13 +38,13 @@ export default function InvoicesPage() {
   const [copied, setCopied] = useState<string | null>(null)
   async function copy(key: string, text: string) {
     try {
-      await navigator.clipboard.writeText(text)
+      const s = (text ?? '').toString().trim()
+      const forClipboard = /^-?\d+\.\d+$/.test(s) ? s.replace(/\./g, ',') : s
+      await navigator.clipboard.writeText(forClipboard)
       setCopied(key)
       setTimeout(() => setCopied(null), 1500)
     } catch {}
   }
-
-  // Load from API (pagination + lazy load)
   useEffect(() => {
     let mounted = true
     async function load() {
@@ -66,6 +68,21 @@ export default function InvoicesPage() {
   useEffect(() => {
     const h = setInterval(() => setNowTick(t => t + 1), 1000)
     return () => clearInterval(h)
+  }, [])
+
+  // Load minimal permissions for current user
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE || ''
+        const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''
+        const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        if (!mounted) return
+        if (res.ok) { const j = await res.json(); setCanCancel(Boolean(j?.canCancelInvoice) || String(j?.role) === 'Yonetici'); setCanToggle(Boolean(j?.canToggleKesildi) || String(j?.role) === 'Yonetici') }
+      } catch {}
+    })()
+    return () => { mounted = false }
   }, [])
 
   const filtered = useMemo(() => {
@@ -218,7 +235,7 @@ export default function InvoicesPage() {
                       : (recentlyFinalized ? 'bg-green-600 text-white' : undefined)
                     return (
                     <TR key={x.id} className={rowClass}>
-                      <TD>{x.tarih}</TD>
+                      <TD>{formatDateTimeTr(x.finalizedAt ?? x.tarih)}</TD>
                       <TD>{x.siraNo}</TD>
                       <TD>{x.musteriAdSoyad || '-'}</TD>
                       <TD>{x.tckn || '-'}</TD>
@@ -227,9 +244,13 @@ export default function InvoicesPage() {
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
                       <TD className="space-x-2">
-                        <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</button>
+                        {canToggle ? (
+                          <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</button>
+                        ) : (
+                          <span className="inline-block border rounded px-2 py-1 text-sm select-none cursor-default">{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</span>
+                        )}
                         <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Fatura Bilgileri</button>
-                        {!x.kesildi && (
+                        {canCancel && !x.kesildi && (
                           <button className="border rounded px-2 py-1 text-sm text-red-600" onClick={() => cancelInvoice(x)}>İptal Et</button>
                         )}
                       </TD>
@@ -253,7 +274,7 @@ export default function InvoicesPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div>İsim Soyisim: <b>{selected.musteriAdSoyad || '-'}</b></div>
                         {selected.musteriAdSoyad ? (
-                          <button className="p-1" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>
+                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>
                             {copied === 'musteri' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                           </button>
                         ) : null}
@@ -261,7 +282,7 @@ export default function InvoicesPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
                         {selected.tckn ? (
-                          <button className="p-1" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
+                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
                             {copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                           </button>
                         ) : null}
@@ -271,7 +292,7 @@ export default function InvoicesPage() {
                       <div className="pt-2">Ürün Fiyatı</div>
                       <div className="flex items-center gap-2">
                         <Input value={String(selected.tutar || 0)} readOnly placeholder="0,00" />
-                        <button className="p-1" title={copied === 'urun' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('urun', String(selected.tutar || 0))}>
+                        <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'urun' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('urun', String(selected.tutar || 0))}>
                           {copied === 'urun' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                         </button>
                       </div>
@@ -308,73 +329,56 @@ export default function InvoicesPage() {
 
                         return (
                           <div className="mt-2 space-y-1">
-                            <div>
-                              Saf Altın Değeri:{" "}
-                              <b>{saf.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
-                            </div>
-                            <div>
-                              Yeni Ürün Fiyatı:{" "}
-                              <b>{yeni.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
-                            </div>
-                            <div>
-                              Gram Değeri: <b>{gram.toLocaleString("tr-TR")}</b>
-                            </div>
-                            <div>
-                              İşçilik (KDV’siz):{" "}
-                              <b>{isc.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
-                            </div>
-
-                            <div className="flex gap-2 pt-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                Saf Altın Değeri: <b>{saf.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
+                              </div>
                               <button
-                                className="p-1"
+                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
                                 title={copied === "saf" ? "Kopyalandı" : "Saf Altın Değeri kopyala"}
                                 aria-label="Saf Altın Değeri"
                                 onClick={() => copy("saf", String(saf))}
                               >
-                                {copied === "saf" ? (
-                                  <IconCheck width={14} height={14} />
-                                ) : (
-                                  <IconCopy width={14} height={14} />
-                                )}
+                                {copied === "saf" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                               </button>
-
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                Yeni Ürün Fiyatı: <b>{yeni.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
+                              </div>
                               <button
-                                className="p-1"
+                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
                                 title={copied === "yeni" ? "Kopyalandı" : "Yeni Ürün Fiyatı kopyala"}
                                 aria-label="Yeni Ürün Fiyatı"
                                 onClick={() => copy("yeni", String(yeni))}
                               >
-                                {copied === "yeni" ? (
-                                  <IconCheck width={14} height={14} />
-                                ) : (
-                                  <IconCopy width={14} height={14} />
-                                )}
+                                {copied === "yeni" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                               </button>
-
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                Gram Değeri: <b>{gram.toLocaleString("tr-TR")}</b>
+                              </div>
                               <button
-                                className="p-1"
+                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
                                 title={copied === "gram" ? "Kopyalandı" : "Gram Değeri kopyala"}
                                 aria-label="Gram Değeri"
                                 onClick={() => copy("gram", String(gram))}
                               >
-                                {copied === "gram" ? (
-                                  <IconCheck width={14} height={14} />
-                                ) : (
-                                  <IconCopy width={14} height={14} />
-                                )}
+                                {copied === "gram" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                               </button>
-
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                İşçilik (KDV&apos;siz): <b>{isc.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
+                              </div>
                               <button
-                                className="p-1"
+                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
                                 title={copied === "iscilik" ? "Kopyalandı" : "İşçilik kopyala"}
-                                aria-label="İşçilik (KDV'siz)"
+                                aria-label="İşçilik (KDV&apos;siz)"
                                 onClick={() => copy("iscilik", String(isc))}
                               >
-                                {copied === "iscilik" ? (
-                                  <IconCheck width={14} height={14} />
-                                ) : (
-                                  <IconCopy width={14} height={14} />
-                                )}
+                                {copied === "iscilik" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                               </button>
                             </div>
                           </div>
@@ -407,6 +411,7 @@ export default function InvoicesPage() {
     </div>
   )
 }
+
 
 
 

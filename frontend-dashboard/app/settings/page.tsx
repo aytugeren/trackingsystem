@@ -78,7 +78,7 @@ function authHeaders(): HeadersInit {
 }
 
 export default function SettingsPage() {
-  const [role, setRole] = useState<string | null>(null)
+  const [perms, setPerms] = useState<{ canManageSettings?: boolean; canManageKarat?: boolean } | null>(null)
   const [milyem, setMilyemState] = useState<number>(1000)
   const [calc, setCalc] = useState<CalcSettings>({
     defaultKariHesapla: true,
@@ -99,7 +99,7 @@ export default function SettingsPage() {
   ], alertThreshold: 1000 })
 
   useEffect(() => {
-    try { setRole(localStorage.getItem('ktp_role')) } catch {}
+    ;(async () => { try { const base = process.env.NEXT_PUBLIC_API_BASE || ''; const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''; const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (res.ok) setPerms(await res.json()) } catch {} })()
     ;(async () => {
       try {
         setError('')
@@ -114,7 +114,7 @@ export default function SettingsPage() {
     })()
   }, [])
 
-  if (role !== 'Yonetici') return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
+  if (!perms?.canManageSettings) return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
 
   return (
     <Card>

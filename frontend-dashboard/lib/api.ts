@@ -206,25 +206,58 @@ export function toDateOnlyString(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+// Formats a date/time string to DD-MM-YYYY HH:mm for TR locale.
+// Accepts ISO strings or yyyy-MM-dd. Falls back gracefully if invalid.
+export function formatDateTimeTr(input?: string | null): string {
+  if (!input) return ''
+  try {
+    const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(input)
+    const d = isDateOnly ? new Date(`${input}T00:00:00`) : new Date(input)
+    if (isNaN(d.getTime())) return String(input)
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const HH = String(d.getHours()).padStart(2, '0')
+    const min = String(d.getMinutes()).padStart(2, '0')
+    return `${dd}-${mm}-${yyyy} ${HH}:${min}`
+  } catch {
+    return String(input)
+  }
+}
+
 
 
 
 
 
 // Roles
-export type RoleDef = { id: string; name: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }
+export type RoleDef = {
+  id: string
+  name: string
+  canCancelInvoice: boolean
+  canToggleKesildi: boolean
+  canAccessLeavesAdmin: boolean
+  canManageSettings: boolean
+  canManageCashier: boolean
+  canManageKarat: boolean
+  canUseInvoices: boolean
+  canUseExpenses: boolean
+  canViewReports: boolean
+  leaveAllowanceDays?: number | null
+  workingDayHours?: number | null
+}
 export async function listRoles(): Promise<RoleDef[]> {
   const url = `${API_BASE}/api/roles`
   const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
   if (!res.ok) throw new Error('Roller yüklenemedi')
   return res.json()
 }
-export async function createRole(body: { name: string; canCancelInvoice?: boolean; canAccessLeavesAdmin?: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }): Promise<void> {
+export async function createRole(body: { name: string; canCancelInvoice?: boolean; canToggleKesildi?: boolean; canAccessLeavesAdmin?: boolean; canManageSettings?: boolean; canManageCashier?: boolean; canManageKarat?: boolean; canUseInvoices?: boolean; canUseExpenses?: boolean; canViewReports?: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }): Promise<void> {
   const url = `${API_BASE}/api/roles`
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
   if (!res.ok) throw new Error('Rol oluşturulamadı')
 }
-export async function updateRole(id: string, body: Partial<{ name: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; leaveAllowanceDays: number | null; workingDayHours: number | null }>): Promise<void> {
+export async function updateRole(id: string, body: Partial<{ name: string; canCancelInvoice: boolean; canToggleKesildi: boolean; canAccessLeavesAdmin: boolean; canManageSettings: boolean; canManageCashier: boolean; canManageKarat: boolean; canUseInvoices: boolean; canUseExpenses: boolean; canViewReports: boolean; leaveAllowanceDays: number | null; workingDayHours: number | null }>): Promise<void> {
   const url = `${API_BASE}/api/roles/${id}`
   const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
   if (!res.ok) throw new Error('Rol güncellenemedi')

@@ -28,7 +28,7 @@ async function saveKaratSettings(s: KaratDiffSettings): Promise<void> {
 }
 
 export default function KaratSettingsPage() {
-  const [role, setRole] = useState<string | null>(null)
+  const [perms, setPerms] = useState<{ canManageKarat?: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [karat, setKarat] = useState<KaratDiffSettings>({ ranges: [
@@ -39,7 +39,7 @@ export default function KaratSettingsPage() {
   ], alertThreshold: 1000 })
 
   useEffect(() => {
-    try { setRole(localStorage.getItem('ktp_role')) } catch {}
+    ;(async () => { try { const base = process.env.NEXT_PUBLIC_API_BASE || ''; const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''; const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (res.ok) setPerms(await res.json()) } catch {} })()
     ;(async () => {
       try {
         setError(''); setLoading(true)
@@ -49,7 +49,7 @@ export default function KaratSettingsPage() {
     })()
   }, [])
 
-  if (role !== 'Yonetici') return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
+  if (!perms?.canManageKarat) return <p className="text-sm text-muted-foreground">Bu sayfa için yetkiniz yok.</p>
 
   return (
     <Card>

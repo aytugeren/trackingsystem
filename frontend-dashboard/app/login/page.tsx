@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
@@ -20,12 +20,17 @@ export default function LoginPage() {
     } catch {}
   }, [router])
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
     setError(null)
     try {
-      const resp = await api.login(email, password)
+      const form = e.currentTarget as HTMLFormElement;
+      const emailEl = form.querySelector('#email') as HTMLInputElement | null;
+      const passEl = form.querySelector('#password') as HTMLInputElement | null;
+      const emailVal = (email && email.length > 0) ? email : (emailEl?.value || '');
+      const passwordVal = (password && password.length > 0) ? password : (passEl?.value || '');
+      const resp = await api.login(emailVal, passwordVal)
       localStorage.setItem('ktp_token', resp.token)
       localStorage.setItem('ktp_role', resp.role)
       localStorage.setItem('ktp_email', resp.email)
@@ -38,6 +43,19 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
+
+  // Capture potential autofill values shortly after mount
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const emailEl = document.getElementById('email') as HTMLInputElement | null
+        const passEl = document.getElementById('password') as HTMLInputElement | null
+        if (emailEl && emailEl.value && !email) setEmail(emailEl.value)
+        if (passEl && passEl.value && !password) setPassword(passEl.value)
+      } catch {}
+    }, 300)
+    return () => clearTimeout(t)
+  }, [email, password])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
@@ -63,3 +81,4 @@ export default function LoginPage() {
     </div>
   )
 }
+

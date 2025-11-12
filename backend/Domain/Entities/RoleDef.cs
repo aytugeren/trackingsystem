@@ -7,8 +7,14 @@ public class RoleDef
 
     // Permission presets
     public bool CanCancelInvoice { get; set; }
+    public bool CanToggleKesildi { get; set; }
     public bool CanAccessLeavesAdmin { get; set; }
+    public bool CanManageSettings { get; set; }
+    public bool CanManageCashier { get; set; }
+    public bool CanManageKarat { get; set; }
+    public bool CanUseInvoices { get; set; }
+    public bool CanUseExpenses { get; set; }
+    public bool CanViewReports { get; set; }
     public int? LeaveAllowanceDays { get; set; }
     public double? WorkingDayHours { get; set; }
 }
-
