@@ -15,6 +15,7 @@ public class RoleDef
     public bool CanUseInvoices { get; set; }
     public bool CanUseExpenses { get; set; }
     public bool CanViewReports { get; set; }
+    public bool CanPrintLabels { get; set; }
     public int? LeaveAllowanceDays { get; set; }
     public double? WorkingDayHours { get; set; }
 }

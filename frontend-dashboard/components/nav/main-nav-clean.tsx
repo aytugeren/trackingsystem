@@ -16,8 +16,8 @@ const baseItems: NavItem[] = [
 
 export function MainNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
-  const [role, setRole] = useState<string | null>(null)
-  const [perms, setPerms] = useState<{ canAccessLeavesAdmin?: boolean; canManageSettings?: boolean; canManageCashier?: boolean; canManageKarat?: boolean; canUseInvoices?: boolean; canUseExpenses?: boolean; canViewReports?: boolean } | null>(null)
+const [role, setRole] = useState<string | null>(null)
+const [perms, setPerms] = useState<{ canAccessLeavesAdmin?: boolean; canManageSettings?: boolean; canManageCashier?: boolean; canManageKarat?: boolean; canUseInvoices?: boolean; canUseExpenses?: boolean; canViewReports?: boolean; canPrintLabels?: boolean } | null>(null)
 
   useEffect(() => {
     try { setRole(localStorage.getItem('ktp_role')) } catch {}
@@ -43,10 +43,11 @@ export function MainNav({ onNavigate }: { onNavigate?: () => void }) {
 
   const items: NavItem[] = [
     ...baseItems.filter(it => {
-      if (it.href === '/' && perms && perms.canViewReports === false) return false
-      if (it.href === '/invoices' && perms && perms.canUseInvoices === false) return false
-      if (it.href === '/expenses' && perms && perms.canUseExpenses === false) return false
-      if (it.href === '/reports' && perms && perms.canViewReports === false) return false
+    if (it.href === '/' && perms && perms.canViewReports === false) return false
+    if (it.href === '/invoices' && perms && perms.canUseInvoices === false) return false
+    if (it.href === '/expenses' && perms && perms.canUseExpenses === false) return false
+    if (it.href === '/reports' && perms && perms.canViewReports === false) return false
+    if (it.href === '/etiket-basma' && perms && perms.canPrintLabels === false) return false
       return true
     }),
     ...adminItems
