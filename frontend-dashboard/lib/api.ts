@@ -184,7 +184,7 @@ export async function setUserLeaveAllowance(userId: string, days: number) {
   if (!res.ok) throw new Error('İzin hakkı güncellenemedi')
 }
 
-export type UserWithPermissions = { id: string; email: string; role: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null; assignedRoleId?: string | null; customRoleName?: string | null }
+export type UserWithPermissions = { id: string; email: string; role: string; canCancelInvoice: boolean; canAccessLeavesAdmin: boolean; canPrintLabels: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null; assignedRoleId?: string | null; customRoleName?: string | null }
 export async function listUsersWithPermissions(): Promise<UserWithPermissions[]> {
   const url = `${API_BASE}/api/users/permissions`
   const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
@@ -243,6 +243,7 @@ export type RoleDef = {
   canUseInvoices: boolean
   canUseExpenses: boolean
   canViewReports: boolean
+  canPrintLabels: boolean
   leaveAllowanceDays?: number | null
   workingDayHours?: number | null
 }
@@ -252,12 +253,12 @@ export async function listRoles(): Promise<RoleDef[]> {
   if (!res.ok) throw new Error('Roller yüklenemedi')
   return res.json()
 }
-export async function createRole(body: { name: string; canCancelInvoice?: boolean; canToggleKesildi?: boolean; canAccessLeavesAdmin?: boolean; canManageSettings?: boolean; canManageCashier?: boolean; canManageKarat?: boolean; canUseInvoices?: boolean; canUseExpenses?: boolean; canViewReports?: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }): Promise<void> {
+export async function createRole(body: { name: string; canCancelInvoice?: boolean; canToggleKesildi?: boolean; canAccessLeavesAdmin?: boolean; canManageSettings?: boolean; canManageCashier?: boolean; canManageKarat?: boolean; canUseInvoices?: boolean; canUseExpenses?: boolean; canViewReports?: boolean; canPrintLabels?: boolean; leaveAllowanceDays?: number | null; workingDayHours?: number | null }): Promise<void> {
   const url = `${API_BASE}/api/roles`
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
   if (!res.ok) throw new Error('Rol oluşturulamadı')
 }
-export async function updateRole(id: string, body: Partial<{ name: string; canCancelInvoice: boolean; canToggleKesildi: boolean; canAccessLeavesAdmin: boolean; canManageSettings: boolean; canManageCashier: boolean; canManageKarat: boolean; canUseInvoices: boolean; canUseExpenses: boolean; canViewReports: boolean; leaveAllowanceDays: number | null; workingDayHours: number | null }>): Promise<void> {
+export async function updateRole(id: string, body: Partial<{ name: string; canCancelInvoice: boolean; canToggleKesildi: boolean; canAccessLeavesAdmin: boolean; canManageSettings: boolean; canManageCashier: boolean; canManageKarat: boolean; canUseInvoices: boolean; canUseExpenses: boolean; canViewReports: boolean; canPrintLabels: boolean; leaveAllowanceDays: number | null; workingDayHours: number | null }>): Promise<void> {
   const url = `${API_BASE}/api/roles/${id}`
   const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
   if (!res.ok) throw new Error('Rol güncellenemedi')
