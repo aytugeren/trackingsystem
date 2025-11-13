@@ -32,11 +32,11 @@ public static class PrintEndpoints
                     ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                     ?? http.User.FindFirst("sub")?.Value;
                 if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
-                var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, ct);
-                if (u?.CanPrintLabels is Guid rid)
+                var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
+                if (u?.AssignedRoleId is Guid rid)
                 {
-                    var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid, ct);
-                    if (r?.CanUseInvoices != true) return Results.Forbid();
+                    var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid, cancellationToken);
+                    if (r?.CanPrintLabels != true) return Results.Forbid();
                 }
                 else return Results.Forbid();
             }
