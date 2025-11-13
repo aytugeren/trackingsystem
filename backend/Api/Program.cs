@@ -1,5 +1,5 @@
-ï»¿using KuyumculukTakipProgrami.Api.Endpoints;
 using KuyumculukTakipProgrami.Api.Services;
+using KuyumculukTakipProgrami.Api;
 using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
@@ -20,6 +20,8 @@ using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.Caching.Memory;
 using System.Net.Mime;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -352,7 +354,7 @@ app.MapPost("/api/invoices/{id:guid}/finalize", async (Guid id, KtpDbContext db,
     inv.GramDegeri = gram;
     inv.Iscilik = iscilik;
     inv.FinalizedAt = DateTime.UtcNow;
-    // Kesildi durumu kasiyerden deÄŸil, sadece dashboarddan deÄŸiÅŸtirilecek
+    // Kesildi durumu kasiyerden deðil, sadece dashboarddan deðiþtirilecek
     await db.SaveChangesAsync();
     return Results.Ok(new { inv.Id, inv.SafAltinDegeri, inv.UrunFiyati, inv.YeniUrunFiyati, inv.GramDegeri, inv.Iscilik, inv.Kesildi });
 }).WithTags("Invoices").RequireAuthorization();
@@ -527,7 +529,7 @@ app.MapPost("/api/expenses/{id:guid}/finalize", async (Guid id, KtpDbContext db)
     exp.GramDegeri = gram;
     exp.Iscilik = iscilik;
     exp.FinalizedAt = DateTime.UtcNow;
-    // Kesildi durumu kasiyerden deÄŸil, sadece dashboarddan deÄŸiÅŸtirilecek
+    // Kesildi durumu kasiyerden deðil, sadece dashboarddan deðiþtirilecek
     await db.SaveChangesAsync();
     return Results.Ok(new { exp.Id, exp.SafAltinDegeri, exp.UrunFiyati, exp.YeniUrunFiyati, exp.GramDegeri, exp.Iscilik, exp.Kesildi });
 }).WithTags("Expenses").RequireAuthorization();
@@ -804,7 +806,7 @@ app.MapDelete("/api/invoices/{id:guid}", async (Guid id, KtpDbContext db, HttpCo
     var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
     // Idempotent delete: if not found, treat as already deleted
     if (inv is null) return Results.NoContent();
-    if (inv.Kesildi) return Results.BadRequest(new { error = "KesilmiÅŸ kayÄ±t silinemez" });
+    if (inv.Kesildi) return Results.BadRequest(new { error = "Kesilmiþ kayýt silinemez" });
     // Ownership check (only creator can delete)
     var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
     Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
@@ -825,7 +827,7 @@ app.MapDelete("/api/expenses/{id:guid}", async (Guid id, KtpDbContext db, HttpCo
     var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
     // Idempotent delete: if not found, treat as already deleted
     if (exp is null) return Results.NoContent();
-    if (exp.Kesildi) return Results.BadRequest(new { error = "KesilmiÅŸ kayÄ±t silinemez" });
+    if (exp.Kesildi) return Results.BadRequest(new { error = "Kesilmiþ kayýt silinemez" });
     var sub = http.User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
     Guid? currentUserId = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
     if (currentUserId is null)
@@ -891,11 +893,11 @@ app.MapPost("/api/pricing/refresh", async (IHttpClientFactory httpFactory, IConf
     var lang = cfg["Pricing:LanguageParam"] ?? "tr";
     var client = httpFactory.CreateClient();
     var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
-    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ulaÅŸÄ±lmÄ±yor", statusCode: 502);
+    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ulaþýlmýyor", statusCode: 502);
     var json = await resp.Content.ReadAsStringAsync(ct);
 
     if (!TryParseAltin(json, out var alis, out var satis, out var sourceTime))
-        return Results.Problem("ALTIN verisi bulunamadÄ±", statusCode: 422);
+        return Results.Problem("ALTIN verisi bulunamadý", statusCode: 422);
 
     var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
                   ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
@@ -969,14 +971,14 @@ app.MapGet("/api/leaves", async (string? from, string? to, KtpDbContext db, Http
     if (!string.IsNullOrWhiteSpace(from))
     {
         if (DateTime.TryParse(from, out var fdt)) fromDo = DateOnly.FromDateTime(fdt);
-        else if (!DateOnly.TryParse(from, out fromDo)) return Results.BadRequest(new { error = "GeÃ§ersiz from" });
+        else if (!DateOnly.TryParse(from, out fromDo)) return Results.BadRequest(new { error = "Geçersiz from" });
     }
     else fromDo = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(-1));
 
     if (!string.IsNullOrWhiteSpace(to))
     {
         if (DateTime.TryParse(to, out var tdt)) toDo = DateOnly.FromDateTime(tdt);
-        else if (!DateOnly.TryParse(to, out toDo)) return Results.BadRequest(new { error = "GeÃ§ersiz to" });
+        else if (!DateOnly.TryParse(to, out toDo)) return Results.BadRequest(new { error = "Geçersiz to" });
     }
     else toDo = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
 
@@ -1004,10 +1006,10 @@ app.MapPost("/api/leaves", async (LeaveCreateRequest req, KtpDbContext db, HttpC
         return Results.BadRequest(new { error = "from ve to zorunludur" });
     DateOnly from;
     DateOnly to;
-    if (DateTime.TryParse(req.from, out var fromDt)) from = DateOnly.FromDateTime(fromDt); else if (!DateOnly.TryParse(req.from, out from)) return Results.BadRequest(new { error = "GeÃ§ersiz from" });
-    if (DateTime.TryParse(req.to, out var toDt)) to = DateOnly.FromDateTime(toDt); else if (!DateOnly.TryParse(req.to, out to)) return Results.BadRequest(new { error = "GeÃ§ersiz to" });
+    if (DateTime.TryParse(req.from, out var fromDt)) from = DateOnly.FromDateTime(fromDt); else if (!DateOnly.TryParse(req.from, out from)) return Results.BadRequest(new { error = "Geçersiz from" });
+    if (DateTime.TryParse(req.to, out var toDt)) to = DateOnly.FromDateTime(toDt); else if (!DateOnly.TryParse(req.to, out to)) return Results.BadRequest(new { error = "Geçersiz to" });
     if (to < from)
-        return Results.BadRequest(new { error = "BitiÅŸ tarihi baÅŸlangÄ±Ã§tan Ã¶nce olamaz" });
+        return Results.BadRequest(new { error = "Bitiþ tarihi baþlangýçtan önce olamaz" });
 
     var userIdStr = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
         ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
@@ -1022,20 +1024,20 @@ app.MapPost("/api/leaves", async (LeaveCreateRequest req, KtpDbContext db, HttpC
     TimeOnly? toTime = null;
     if (!string.IsNullOrWhiteSpace(req.fromTime))
     {
-        if (!TimeOnly.TryParse(req.fromTime, out var ft)) return Results.BadRequest(new { error = "GeÃ§ersiz fromTime" });
+        if (!TimeOnly.TryParse(req.fromTime, out var ft)) return Results.BadRequest(new { error = "Geçersiz fromTime" });
         fromTime = ft;
     }
     if (!string.IsNullOrWhiteSpace(req.toTime))
     {
-        if (!TimeOnly.TryParse(req.toTime, out var tt)) return Results.BadRequest(new { error = "GeÃ§ersiz toTime" });
+        if (!TimeOnly.TryParse(req.toTime, out var tt)) return Results.BadRequest(new { error = "Geçersiz toTime" });
         toTime = tt;
     }
     if (fromTime.HasValue || toTime.HasValue)
     {
-        // Saat aralÄ±ÄŸÄ± sadece tek gÃ¼n iÃ§in desteklenir
-        if (from != to) return Results.BadRequest(new { error = "Saatli izin sadece tek gÃ¼n iÃ§in geÃ§erlidir" });
+        // Saat aralýðý sadece tek gün için desteklenir
+        if (from != to) return Results.BadRequest(new { error = "Saatli izin sadece tek gün için geçerlidir" });
         if (!fromTime.HasValue || !toTime.HasValue || toTime.Value <= fromTime.Value)
-            return Results.BadRequest(new { error = "GeÃ§ersiz saat aralÄ±ÄŸÄ±" });
+            return Results.BadRequest(new { error = "Geçersiz saat aralýðý" });
     }
 
     var entity = new Leave
@@ -1074,7 +1076,7 @@ app.MapPut("/api/leaves/{id:guid}/status", async (Guid id, UpdateLeaveStatusRequ
         else return Results.Forbid();
     }
     if (!Enum.TryParse<LeaveStatus>(req.status, true, out var status))
-        return Results.BadRequest(new { error = "GeÃ§ersiz status" });
+        return Results.BadRequest(new { error = "Geçersiz status" });
     var entity = await db.Leaves.FirstOrDefaultAsync(l => l.Id == id);
     if (entity is null) return Results.NotFound();
     entity.Status = status;
@@ -1093,7 +1095,7 @@ app.MapGet("/api/leaves/summary", async (int? year, KtpDbContext db) =>
         .Where(l => l.Status == LeaveStatus.Approved && l.To >= from && l.From <= to)
         .Select(l => new { l.UserId, l.From, l.To, l.FromTime, l.ToTime })
         .ToListAsync();
-    const double workingDayHours = 8.0; // Saat bazlÄ± kesinti iÃ§in 1 gÃ¼n = 8 saat varsayÄ±mÄ±
+    const double workingDayHours = 8.0; // Saat bazlý kesinti için 1 gün = 8 saat varsayýmý
     var used = approved
         .GroupBy(a => a.UserId)
         .ToDictionary(
@@ -1117,7 +1119,7 @@ app.MapGet("/api/leaves/summary", async (int? year, KtpDbContext db) =>
 // Admin: set user allowance
 app.MapPut("/api/users/{id:guid}/leave-allowance", async (Guid id, UpdateLeaveAllowanceRequest req, KtpDbContext db, HttpContext http) =>
 {
-    if (req.days < 0 || req.days > 365) return Results.BadRequest(new { error = "GeÃ§ersiz gÃ¼n" });
+    if (req.days < 0 || req.days > 365) return Results.BadRequest(new { error = "Geçersiz gün" });
     var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
     if (user is null) return Results.NotFound();
     user.LeaveAllowanceDays = req.days;
@@ -1144,9 +1146,9 @@ app.MapPost("/api/users", async (CreateUserRequest req, KtpDbContext db, HttpCon
     }
     var email = (req.Email ?? string.Empty).Trim();
     if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(req.Password))
-        return Results.BadRequest(new { error = "Email ve ÅŸifre gereklidir" });
+        return Results.BadRequest(new { error = "Email ve þifre gereklidir" });
     var exists = await db.Users.AnyAsync(x => x.Email.ToLower() == email.ToLower());
-    if (exists) return Results.Conflict(new { error = "Email zaten kayÄ±tlÄ±" });
+    if (exists) return Results.Conflict(new { error = "Email zaten kayýtlý" });
     var user = new User
     {
         Id = Guid.NewGuid(),
@@ -1284,9 +1286,9 @@ app.MapPost("/api/roles", async (RoleCreateRequest req, KtpDbContext db, HttpCon
         else return Results.Forbid();
     }
     var name = (req.name ?? string.Empty).Trim();
-    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Rol adÄ± zorunludur" });
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Rol adý zorunludur" });
     var exists = await db.Roles.AnyAsync(r => r.Name.ToLower() == name.ToLower());
-    if (exists) return Results.Conflict(new { error = "Rol adÄ± zaten var" });
+    if (exists) return Results.Conflict(new { error = "Rol adý zaten var" });
         var role = new RoleDef
         {
             Id = Guid.NewGuid(), Name = name,
@@ -1333,7 +1335,7 @@ app.MapPut("/api/roles/{id:guid}", async (Guid id, RoleUpdateRequest req, KtpDbC
         if (!string.Equals(role.Name, name, StringComparison.Ordinal))
         {
             var exists = await db.Roles.AnyAsync(r => r.Id != id && r.Name.ToLower() == name.ToLower());
-            if (exists) return Results.Conflict(new { error = "Rol adÄ± zaten var" });
+            if (exists) return Results.Conflict(new { error = "Rol adý zaten var" });
             role.Name = name;
         }
     }
@@ -1400,7 +1402,7 @@ app.MapPut("/api/users/{id:guid}/assign-role", async (Guid id, AssignRoleRequest
     if (req.roleId.HasValue)
     {
         var role = await db.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == req.roleId.Value);
-        if (role is null) return Results.NotFound(new { error = "Rol bulunamadÄ±" });
+        if (role is null) return Results.NotFound(new { error = "Rol bulunamadý" });
         user.AssignedRoleId = role.Id;
         user.CustomRoleName = role.Name;
         // Keep allowance sync for convenience
@@ -1498,14 +1500,14 @@ app.MapPut("/api/users/{id:guid}/permissions", async (Guid id, UpdateUserPermiss
     return Results.NoContent();
 }).RequireAuthorization();
 
-// Settings: Milyem OranÄ±
+// Settings: Milyem Oraný
 app.MapGet("/api/settings/milyem", async (KtpDbContext db) =>
 {
-    // KÃ¢r milyemi (â€°). If not set, default 0 (no markup).
+    // Kâr milyemi (‰). If not set, default 0 (no markup).
     var setting = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(x => x.KeyName == "KarMilyemi");
     if (setting is null)
         setting = await db.SystemSettings.AsNoTracking().FirstOrDefaultAsync(x => x.KeyName == "MilyemOrani"); // backward compat
-    var val = 0.0; // default kar milyemi: 0â€°
+    var val = 0.0; // default kar milyemi: 0‰
     if (setting != null && double.TryParse(setting.Value, out var parsed)) val = parsed;
     return Results.Ok(new { value = val });
 }).RequireAuthorization();
@@ -1526,8 +1528,8 @@ app.MapPut("/api/settings/milyem", async (UpdateMilyemRequest req, KtpDbContext 
         }
         else return Results.Forbid();
     }
-    // KÃ¢r milyemi (â€°): 0..5000 aralÄ±ÄŸÄ±na izin ver (0..500%).
-    if (req.value < 0 || req.value > 5000) return Results.BadRequest(new { error = "GeÃ§ersiz deÄŸer" });
+    // Kâr milyemi (‰): 0..5000 aralýðýna izin ver (0..500%).
+    if (req.value < 0 || req.value > 5000) return Results.BadRequest(new { error = "Geçersiz deðer" });
     var setting = await db.SystemSettings.FirstOrDefaultAsync(x => x.KeyName == "KarMilyemi");
     if (setting is null)
     {
@@ -1586,12 +1588,12 @@ app.MapPut("/api/settings/calc", async (UpdateCalcSettingsRequest req, KtpDbCont
     }
     // basic validation
     if (req.decimalPrecision < 0 || req.decimalPrecision > 6)
-        return Results.BadRequest(new { error = "decimalPrecision 0..6 olmalÄ±dÄ±r" });
+        return Results.BadRequest(new { error = "decimalPrecision 0..6 olmalýdýr" });
     var okTypes = new[] { "basic", "withMargin", "custom" };
     if (!okTypes.Contains(req.karMilyemFormulaType))
-        return Results.BadRequest(new { error = "GeÃ§ersiz karMilyemFormulaType" });
+        return Results.BadRequest(new { error = "Geçersiz karMilyemFormulaType" });
     if (req.taxRate < 0 || req.taxRate > 100)
-        return Results.BadRequest(new { error = "taxRate 0..100 olmalÄ±dÄ±r" });
+        return Results.BadRequest(new { error = "taxRate 0..100 olmalýdýr" });
 
     void Upsert(string key, string value)
     {
@@ -1685,14 +1687,14 @@ app.MapPut("/api/settings/karat", async (UpdateKaratSettingsRequest req, KtpDbCo
         else return Results.Forbid();
     }
     if (req.ranges is null || req.ranges.Length == 0)
-        return Results.BadRequest(new { error = "ranges boÅŸ olamaz" });
+        return Results.BadRequest(new { error = "ranges boþ olamaz" });
     foreach (var r in req.ranges)
     {
-        if (r.min < 0 || r.max <= r.min) return Results.BadRequest(new { error = "AralÄ±klar geÃ§ersiz" });
+        if (r.min < 0 || r.max <= r.min) return Results.BadRequest(new { error = "Aralýklar geçersiz" });
         if (string.IsNullOrWhiteSpace(r.colorHex) || !r.colorHex.StartsWith('#') || (r.colorHex.Length != 7))
-            return Results.BadRequest(new { error = "Renk hex #RRGGBB olmalÄ±dÄ±r" });
+            return Results.BadRequest(new { error = "Renk hex #RRGGBB olmalýdýr" });
     }
-    if (req.alertThreshold < 0) return Results.BadRequest(new { error = "alertThreshold >= 0 olmalÄ±dÄ±r" });
+    if (req.alertThreshold < 0) return Results.BadRequest(new { error = "alertThreshold >= 0 olmalýdýr" });
 
     var json = System.Text.Json.JsonSerializer.Serialize(new KaratDiffSettings { ranges = req.ranges, alertThreshold = req.alertThreshold });
     var set = await db.SystemSettings.FirstOrDefaultAsync(x => x.KeyName == "KaratDiffConfig");
@@ -1761,8 +1763,8 @@ app.MapPut("/api/users/{id:guid}/password", async (Guid id, ResetPasswordRequest
 app.MapPost("/api/users/bootstrap", async (CreateUserRequest req, KtpDbContext db) =>
 {
     var any = await db.Users.AnyAsync();
-    if (any) return Results.BadRequest(new { error = "KullanÄ±cÄ±lar zaten mevcut" });
-    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "Ä°lk kullanÄ±cÄ± YÃ¶netici olmalÄ±" });
+    if (any) return Results.BadRequest(new { error = "Kullanýcýlar zaten mevcut" });
+    if (req.Role != Role.Yonetici) return Results.BadRequest(new { error = "Ýlk kullanýcý Yönetici olmalý" });
     var user = new User
     {
         Id = Guid.NewGuid(),
@@ -1775,7 +1777,49 @@ app.MapPost("/api/users/bootstrap", async (CreateUserRequest req, KtpDbContext d
     return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Email, role = user.Role.ToString() });
 });
 
-app.MapPrintEndpoints();
+app.MapPost("/print/multi", async (PrintMultiRequest request, IPrintQueueService queueService, CancellationToken cancellationToken) =>
+
+{
+
+    var sourceValues = request.Values ?? new List<string>();
+
+    var payload = sourceValues
+
+        .Select(v => v.Trim())
+
+        .Where(v => !string.IsNullOrWhiteSpace(v))
+
+        .ToList();
+
+
+
+    if (payload.Count == 0)
+
+    {
+
+        return Results.BadRequest(new { message = "En az bir gramaj deðeri giriniz." });
+
+    }
+
+
+
+    var zpls = payload.Select(ZplTemplate.Build);
+
+    await queueService.EnqueueAsync(zpls, cancellationToken);
+
+    return Results.Ok(new { count = payload.Count });
+
+})
+
+.WithName("PrintMultiLabels")
+
+.Accepts<PrintMultiRequest>(MediaTypeNames.Application.Json)
+
+.Produces(StatusCodes.Status200OK)
+
+.Produces(StatusCodes.Status400BadRequest);
+
+
 
 
 
@@ -1796,7 +1840,7 @@ static bool TryParseAltin(string json, out decimal alis, out decimal satis, out 
         var ci = CultureInfo.InvariantCulture;
         alis = decimal.Parse(alisStr, ci);
         satis = decimal.Parse(satisStr, ci);
-        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye Ã§evir.
+        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye çevir.
         if (!DateTime.TryParseExact(
                 tarihStr,
                 "dd-MM-yyyy HH:mm:ss",
@@ -1962,6 +2006,7 @@ public record KaratDiffSettings
 }
 public record UpdateKaratSettingsRequest(KaratRange[] ranges, double alertThreshold);
 
+public record PrintMultiRequest([property: Required] List<string> Values);
 
 
 
