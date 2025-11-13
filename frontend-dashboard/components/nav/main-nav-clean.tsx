@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
-import { IconExpense, IconHome, IconInvoice } from '@/components/ui/icons'
+import { IconExpense, IconHome, IconInvoice, IconTag } from '@/components/ui/icons'
 
 type NavItem = { href: string; label: string; icon: (p: { width?: number; height?: number }) => JSX.Element }
 
@@ -11,6 +11,7 @@ const baseItems: NavItem[] = [
   { href: '/invoices', label: 'Faturalar', icon: IconInvoice },
   { href: '/expenses', label: 'Giderler', icon: IconExpense },
   { href: '/reports', label: 'Raporlar', icon: IconHome },
+  { href: '/etiket-basma', label: 'Etiket Basma', icon: IconTag },
 ]
 
 export function MainNav({ onNavigate }: { onNavigate?: () => void }) {

@@ -50,3 +50,12 @@ export function IconCheck(props: React.SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+export function IconTag(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <path d="M4 7v10a3 3 0 0 0 3 3h5l8-8-8-8H7a3 3 0 0 0-3 3z" />
+      <path d="M9 7h.01" />
+    </svg>
+  )
+}
