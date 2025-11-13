@@ -16,8 +16,7 @@ public static class PrintEndpoints
     public static IEndpointRouteBuilder MapPrintEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/print")
-            .WithTags("Etiket Basma")
-            .RequireAuthorization();
+            .WithTags("Etiket Basma");
 
         group.MapPost("/multi", async (PrintMultiRequest request, IPrintQueueService queueService, CancellationToken cancellationToken) =>
         {
