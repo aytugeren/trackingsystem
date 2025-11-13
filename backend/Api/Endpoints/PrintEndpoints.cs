@@ -63,6 +63,7 @@ public static class PrintEndpoints
             var role = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid);
             if (role?.CanPrintLabels == true) return true;
         }
+        if (user?.Role == Role.Yonetici) return true;
         return false;
     }
 
