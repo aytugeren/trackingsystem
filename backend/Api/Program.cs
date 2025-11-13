@@ -1,4 +1,6 @@
-﻿using KuyumculukTakipProgrami.Application;
+﻿using KuyumculukTakipProgrami.Api.Endpoints;
+using KuyumculukTakipProgrami.Api.Services;
+using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +8,7 @@ using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Domain.Entities.Market;
 using System.Globalization;
+using System.Threading;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -27,6 +30,7 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<IPrintQueueService, PrintQueueService>();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -114,6 +118,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<KtpDbContext>();
     var marketDb = scope.ServiceProvider.GetRequiredService<MarketDbContext>();
+    var printQueueService = scope.ServiceProvider.GetRequiredService<IPrintQueueService>();
     try
     {
         db.Database.Migrate();
@@ -198,6 +203,7 @@ using (var scope = app.Services.CreateScope())
             db.Expenses.RemoveRange(demoExpenses);
             await db.SaveChangesAsync();
         }
+        await printQueueService.EnsureSchemaAsync(CancellationToken.None);
         // Ensure default admin user exists (idempotent)
         var adminEmail = seedAdminEmail;
         var existingAdmin = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == adminEmail.ToLower());
@@ -1763,6 +1769,10 @@ app.MapPost("/api/users/bootstrap", async (CreateUserRequest req, KtpDbContext d
     await db.SaveChangesAsync();
     return Results.Created($"/api/users/{user.Id}", new { user.Id, user.Email, role = user.Role.ToString() });
 });
+
+app.MapPrintEndpoints();
+
+
 
 app.Run();
 
