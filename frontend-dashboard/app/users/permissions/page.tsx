@@ -74,6 +74,7 @@ function UserRow({ user, roles, onAssign }: { user: UserWithPermissions; roles: 
     if (r.canUseInvoices) flags.push('Fatura')
     if (r.canUseExpenses) flags.push('Gider')
     if (r.canViewReports) flags.push('Raporlar')
+    if (r.canPrintLabels) flags.push('Etiket')
     return flags.length ? flags.join(', ') : 'Yetki yok'
   })()
   return (

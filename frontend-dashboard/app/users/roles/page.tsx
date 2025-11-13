@@ -45,21 +45,22 @@ export default function RolesPage() {
             <div className="overflow-x-auto">
               <table className="min-w-[920px] w-full text-sm">
                 <thead>
-                  <tr className="text-left">
-                    <th className="p-2">Ad</th>
-                    <th className="p-2">İptal</th>
-                    <th className="p-2">Kesildi</th>
-                    <th className="p-2">İzin Yönetimi</th>
-                    <th className="p-2">Ayar Yönetimi</th>
-                    <th className="p-2">Kasiyer Yönetimi</th>
-                    <th className="p-2">Karat</th>
-                    <th className="p-2">Fatura</th>
-                    <th className="p-2">Gider</th>
-                    <th className="p-2">Rapor</th>
-                    <th className="p-2">Yıllık Hak</th>
-                    <th className="p-2">Gün/Saat</th>
-                    <th className="p-2">İşlem</th>
-                  </tr>
+            <tr className="text-left">
+              <th className="p-2">Ad</th>
+              <th className="p-2">İptal</th>
+              <th className="p-2">Kesildi</th>
+              <th className="p-2">İzin Yönetimi</th>
+              <th className="p-2">Ayar Yönetimi</th>
+              <th className="p-2">Kasiyer Yönetimi</th>
+              <th className="p-2">Karat</th>
+              <th className="p-2">Fatura</th>
+              <th className="p-2">Gider</th>
+              <th className="p-2">Rapor</th>
+              <th className="p-2">Etiket</th>
+              <th className="p-2">Yıllık Hak</th>
+              <th className="p-2">Gün/Saat</th>
+              <th className="p-2">İşlem</th>
+            </tr>
                 </thead>
                 <tbody>
                   {roles.map(r => (
@@ -91,6 +92,7 @@ function NewRoleForm({ onCreated }: { onCreated: () => Promise<void> }) {
   const [canUseInvoices, setCanUseInvoices] = useState(false)
   const [canUseExpenses, setCanUseExpenses] = useState(false)
   const [canViewReports, setCanViewReports] = useState(false)
+  const [canPrintLabels, setCanPrintLabels] = useState(false)
   const [leaveAllowanceDays, setLeaveAllowanceDays] = useState<number | ''>('')
   const [workingDayHours, setWorkingDayHours] = useState<number | ''>('')
   const [busy, setBusy] = useState(false)
@@ -109,6 +111,7 @@ function NewRoleForm({ onCreated }: { onCreated: () => Promise<void> }) {
       <label className="flex items-center gap-2"><input type="checkbox" checked={canUseInvoices} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanUseInvoices(e.target.checked)} /> Fatura</label>
       <label className="flex items-center gap-2"><input type="checkbox" checked={canUseExpenses} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanUseExpenses(e.target.checked)} /> Gider</label>
       <label className="flex items-center gap-2"><input type="checkbox" checked={canViewReports} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanViewReports(e.target.checked)} /> Rapor</label>
+      <label className="flex items-center gap-2"><input type="checkbox" checked={canPrintLabels} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanPrintLabels(e.target.checked)} /> Etiket</label>
       <div className="flex items-center gap-2">
         <span>Yıllık Hak</span>
         <input type="number" value={leaveAllowanceDays} onChange={(e: ChangeEvent<HTMLInputElement>) => setLeaveAllowanceDays(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="border rounded px-3 py-2 w-24" />
@@ -117,7 +120,7 @@ function NewRoleForm({ onCreated }: { onCreated: () => Promise<void> }) {
         <span>Gün/Saat</span>
         <input type="number" step="0.1" value={workingDayHours} onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkingDayHours(e.target.value === '' ? '' : parseFloat(e.target.value))} className="border rounded px-3 py-2 w-24" />
       </div>
-      <Button disabled={busy || !name.trim()} onClick={async () => { setBusy(true); await createRole({ name: name.trim(), canCancelInvoice, canToggleKesildi, canAccessLeavesAdmin, canManageSettings, canManageCashier, canManageKarat, canUseInvoices, canUseExpenses, canViewReports, leaveAllowanceDays: leaveAllowanceDays === '' ? null : leaveAllowanceDays, workingDayHours: workingDayHours === '' ? null : workingDayHours }); setName(''); setCanCancelInvoice(false); setCanToggleKesildi(false); setCanAccessLeavesAdmin(false); setCanManageSettings(false); setCanManageCashier(false); setCanManageKarat(false); setCanUseInvoices(false); setCanUseExpenses(false); setCanViewReports(false); setLeaveAllowanceDays(''); setWorkingDayHours(''); await onCreated(); setBusy(false) }}>Ekle</Button>
+        <Button disabled={busy || !name.trim()} onClick={async () => { setBusy(true); await createRole({ name: name.trim(), canCancelInvoice, canToggleKesildi, canAccessLeavesAdmin, canManageSettings, canManageCashier, canManageKarat, canUseInvoices, canUseExpenses, canViewReports, canPrintLabels, leaveAllowanceDays: leaveAllowanceDays === '' ? null : leaveAllowanceDays, workingDayHours: workingDayHours === '' ? null : workingDayHours }); setName(''); setCanCancelInvoice(false); setCanToggleKesildi(false); setCanAccessLeavesAdmin(false); setCanManageSettings(false); setCanManageCashier(false); setCanManageKarat(false); setCanUseInvoices(false); setCanUseExpenses(false); setCanViewReports(false); setCanPrintLabels(false); setLeaveAllowanceDays(''); setWorkingDayHours(''); await onCreated(); setBusy(false) }}>Ekle</Button>
     </div>
   )
 }
@@ -133,6 +136,7 @@ function RoleRow({ role, onChange, onDelete }: { role: RoleDef; onChange: (patch
   const [canUseInvoices, setCanUseInvoices] = useState(role.canUseInvoices)
   const [canUseExpenses, setCanUseExpenses] = useState(role.canUseExpenses)
   const [canViewReports, setCanViewReports] = useState(role.canViewReports)
+  const [canPrintLabels, setCanPrintLabels] = useState(role.canPrintLabels)
   const [leaveAllowanceDays, setLeaveAllowanceDays] = useState<number | ''>(role.leaveAllowanceDays ?? '')
   const [workingDayHours, setWorkingDayHours] = useState<number | ''>(role.workingDayHours ?? '')
   const [busy, setBusy] = useState(false)
@@ -148,13 +152,13 @@ function RoleRow({ role, onChange, onDelete }: { role: RoleDef; onChange: (patch
       <td className="p-2"><input type="checkbox" checked={canUseInvoices} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanUseInvoices(e.target.checked)} /></td>
       <td className="p-2"><input type="checkbox" checked={canUseExpenses} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanUseExpenses(e.target.checked)} /></td>
       <td className="p-2"><input type="checkbox" checked={canViewReports} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanViewReports(e.target.checked)} /></td>
+      <td className="p-2"><input type="checkbox" checked={canPrintLabels} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanPrintLabels(e.target.checked)} /></td>
       <td className="p-2"><input type="number" className="w-24 border rounded px-2 py-1" value={leaveAllowanceDays} onChange={(e: ChangeEvent<HTMLInputElement>) => setLeaveAllowanceDays(e.target.value === '' ? '' : parseInt(e.target.value, 10))} /></td>
       <td className="p-2"><input type="number" step="0.1" className="w-24 border rounded px-2 py-1" value={workingDayHours} onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkingDayHours(e.target.value === '' ? '' : parseFloat(e.target.value))} /></td>
       <td className="p-2 flex gap-2">
-        <Button size="sm" disabled={busy} onClick={async () => { setBusy(true); await onChange({ name, canCancelInvoice, canToggleKesildi, canAccessLeavesAdmin, canManageSettings, canManageCashier, canManageKarat, canUseInvoices, canUseExpenses, canViewReports, leaveAllowanceDays: leaveAllowanceDays === '' ? null : leaveAllowanceDays, workingDayHours: workingDayHours === '' ? null : workingDayHours }); setBusy(false) }}>Kaydet</Button>
+        <Button size="sm" disabled={busy} onClick={async () => { setBusy(true); await onChange({ name, canCancelInvoice, canToggleKesildi, canAccessLeavesAdmin, canManageSettings, canManageCashier, canManageKarat, canUseInvoices, canUseExpenses, canViewReports, canPrintLabels, leaveAllowanceDays: leaveAllowanceDays === '' ? null : leaveAllowanceDays, workingDayHours: workingDayHours === '' ? null : workingDayHours }); setBusy(false) }}>Kaydet</Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); await onDelete(); setBusy(false) }}>Sil</Button>
       </td>
     </tr>
   )
 }
-

@@ -139,7 +139,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
         // Roles and custom role assignment
-        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Roles\" (\"Id\" uuid PRIMARY KEY, \"Name\" varchar(200) NOT NULL UNIQUE, \"CanCancelInvoice\" boolean NOT NULL DEFAULT false, \"CanToggleKesildi\" boolean NOT NULL DEFAULT false, \"CanAccessLeavesAdmin\" boolean NOT NULL DEFAULT false, \"CanManageSettings\" boolean NOT NULL DEFAULT false, \"CanManageCashier\" boolean NOT NULL DEFAULT false, \"CanManageKarat\" boolean NOT NULL DEFAULT false, \"CanUseInvoices\" boolean NOT NULL DEFAULT false, \"CanUseExpenses\" boolean NOT NULL DEFAULT false, \"CanViewReports\" boolean NOT NULL DEFAULT false, \"LeaveAllowanceDays\" integer NULL, \"WorkingDayHours\" double precision NULL);");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Roles\" (\"Id\" uuid PRIMARY KEY, \"Name\" varchar(200) NOT NULL UNIQUE, \"CanCancelInvoice\" boolean NOT NULL DEFAULT false, \"CanToggleKesildi\" boolean NOT NULL DEFAULT false, \"CanAccessLeavesAdmin\" boolean NOT NULL DEFAULT false, \"CanManageSettings\" boolean NOT NULL DEFAULT false, \"CanManageCashier\" boolean NOT NULL DEFAULT false, \"CanManageKarat\" boolean NOT NULL DEFAULT false, \"CanUseInvoices\" boolean NOT NULL DEFAULT false, \"CanUseExpenses\" boolean NOT NULL DEFAULT false, \"CanViewReports\" boolean NOT NULL DEFAULT false, \"CanPrintLabels\" boolean NOT NULL DEFAULT false, \"LeaveAllowanceDays\" integer NULL, \"WorkingDayHours\" double precision NULL);");
         // add missing columns idempotently (in case table existed)
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Roles\" ADD COLUMN IF NOT EXISTS \"CanToggleKesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Roles\" ADD COLUMN IF NOT EXISTS \"CanManageSettings\" boolean NOT NULL DEFAULT false;");
@@ -148,6 +148,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Roles\" ADD COLUMN IF NOT EXISTS \"CanUseInvoices\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Roles\" ADD COLUMN IF NOT EXISTS \"CanUseExpenses\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Roles\" ADD COLUMN IF NOT EXISTS \"CanViewReports\" boolean NOT NULL DEFAULT false;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Roles\" ADD COLUMN IF NOT EXISTS \"CanPrintLabels\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"AssignedRoleId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"CustomRoleName\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
@@ -1244,7 +1245,7 @@ app.MapGet("/api/roles", async (KtpDbContext db, HttpContext http) =>
         }
         else return Results.Forbid();
     }
-    var list = await db.Roles.AsNoTracking()
+        var list = await db.Roles.AsNoTracking()
         .OrderBy(r => r.Name)
         .Select(r => new {
             id = r.Id, name = r.Name,
@@ -1257,6 +1258,7 @@ app.MapGet("/api/roles", async (KtpDbContext db, HttpContext http) =>
             canUseInvoices = r.CanUseInvoices,
             canUseExpenses = r.CanUseExpenses,
             canViewReports = r.CanViewReports,
+            canPrintLabels = r.CanPrintLabels,
             leaveAllowanceDays = r.LeaveAllowanceDays,
             workingDayHours = r.WorkingDayHours
         })
@@ -1285,21 +1287,22 @@ app.MapPost("/api/roles", async (RoleCreateRequest req, KtpDbContext db, HttpCon
     if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Rol adı zorunludur" });
     var exists = await db.Roles.AnyAsync(r => r.Name.ToLower() == name.ToLower());
     if (exists) return Results.Conflict(new { error = "Rol adı zaten var" });
-    var role = new RoleDef
-    {
-        Id = Guid.NewGuid(), Name = name,
-        CanCancelInvoice = req.canCancelInvoice ?? false,
-        CanToggleKesildi = req.canToggleKesildi ?? false,
-        CanAccessLeavesAdmin = req.canAccessLeavesAdmin ?? false,
-        CanManageSettings = req.canManageSettings ?? false,
-        CanManageCashier = req.canManageCashier ?? false,
-        CanManageKarat = req.canManageKarat ?? false,
-        CanUseInvoices = req.canUseInvoices ?? false,
-        CanUseExpenses = req.canUseExpenses ?? false,
-        CanViewReports = req.canViewReports ?? false,
-        LeaveAllowanceDays = req.leaveAllowanceDays,
-        WorkingDayHours = req.workingDayHours
-    };
+        var role = new RoleDef
+        {
+            Id = Guid.NewGuid(), Name = name,
+            CanCancelInvoice = req.canCancelInvoice ?? false,
+            CanToggleKesildi = req.canToggleKesildi ?? false,
+            CanAccessLeavesAdmin = req.canAccessLeavesAdmin ?? false,
+            CanManageSettings = req.canManageSettings ?? false,
+            CanManageCashier = req.canManageCashier ?? false,
+            CanManageKarat = req.canManageKarat ?? false,
+            CanUseInvoices = req.canUseInvoices ?? false,
+            CanUseExpenses = req.canUseExpenses ?? false,
+            CanViewReports = req.canViewReports ?? false,
+            CanPrintLabels = req.canPrintLabels ?? false,
+            LeaveAllowanceDays = req.leaveAllowanceDays,
+            WorkingDayHours = req.workingDayHours
+        };
     db.Roles.Add(role);
     await db.SaveChangesAsync();
     return Results.Created($"/api/roles/{role.Id}", new { id = role.Id });
@@ -1343,6 +1346,7 @@ app.MapPut("/api/roles/{id:guid}", async (Guid id, RoleUpdateRequest req, KtpDbC
     if (req.canUseInvoices.HasValue) role.CanUseInvoices = req.canUseInvoices.Value;
     if (req.canUseExpenses.HasValue) role.CanUseExpenses = req.canUseExpenses.Value;
     if (req.canViewReports.HasValue) role.CanViewReports = req.canViewReports.Value;
+    if (req.canPrintLabels.HasValue) role.CanPrintLabels = req.canPrintLabels.Value;
     if (req.leaveAllowanceDays.HasValue) role.LeaveAllowanceDays = req.leaveAllowanceDays.Value;
     if (req.workingDayHours.HasValue) role.WorkingDayHours = req.workingDayHours.Value;
     await db.SaveChangesAsync();
@@ -1716,11 +1720,11 @@ app.MapGet("/api/me/permissions", async (HttpContext http, KtpDbContext db) =>
     var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid);
     if (u is null) return Results.NotFound();
     var isAdmin = u.Role == Role.Yonetici;
-    bool canCancel = false, canToggle = false, canLeaves = false, canManageSettings = false, canManageCashier = false, canManageKarat = false, canUseInv = false, canUseExp = false, canViewReports = false;
+    bool canCancel = false, canToggle = false, canLeaves = false, canManageSettings = false, canManageCashier = false, canManageKarat = false, canUseInv = false, canUseExp = false, canViewReports = false, canPrintLabels = false;
     string displayRole = u.CustomRoleName ?? u.Role.ToString();
     if (isAdmin)
     {
-        canCancel = canToggle = canLeaves = canManageSettings = canManageCashier = canManageKarat = canUseInv = canUseExp = canViewReports = true;
+        canCancel = canToggle = canLeaves = canManageSettings = canManageCashier = canManageKarat = canUseInv = canUseExp = canViewReports = canPrintLabels = true;
     }
     else if (u.AssignedRoleId is Guid rid)
     {
@@ -1736,9 +1740,10 @@ app.MapGet("/api/me/permissions", async (HttpContext http, KtpDbContext db) =>
             canUseInv = r.CanUseInvoices;
             canUseExp = r.CanUseExpenses;
             canViewReports = r.CanViewReports;
+            canPrintLabels = r.CanPrintLabels;
         }
     }
-    return Results.Ok(new { role = displayRole, canCancelInvoice = canCancel, canToggleKesildi = canToggle, canAccessLeavesAdmin = canLeaves, canManageSettings, canManageCashier, canManageKarat, canUseInvoices = canUseInv, canUseExpenses = canUseExp, canViewReports });
+    return Results.Ok(new { role = displayRole, canCancelInvoice = canCancel, canToggleKesildi = canToggle, canAccessLeavesAdmin = canLeaves, canManageSettings, canManageCashier, canManageKarat, canUseInvoices = canUseInv, canUseExpenses = canUseExp, canViewReports, canPrintLabels });
 }).RequireAuthorization();
 
 // Reset password (admin only)
@@ -1914,6 +1919,7 @@ public record RoleCreateRequest(
     bool? canUseInvoices,
     bool? canUseExpenses,
     bool? canViewReports,
+    bool? canPrintLabels,
     int? leaveAllowanceDays,
     double? workingDayHours);
 public record RoleUpdateRequest(
@@ -1927,6 +1933,7 @@ public record RoleUpdateRequest(
     bool? canUseInvoices,
     bool? canUseExpenses,
     bool? canViewReports,
+    bool? canPrintLabels,
     int? leaveAllowanceDays,
     double? workingDayHours);
 public record AssignRoleRequest(Guid? roleId);

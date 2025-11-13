@@ -18,6 +18,9 @@ export async function printLabels(values: string[]): Promise<PrintLabelsResponse
 
   if (!res.ok) {
     const body = await res.text()
+    if (res.status === 403) {
+      throw new Error(body || 'Etiket yazdırma yetkiniz bulunmamaktadır.')
+    }
     throw new Error(body || 'Etiket yazdırma isteği başarısız oldu.')
   }
 
@@ -27,4 +30,3 @@ export async function printLabels(values: string[]): Promise<PrintLabelsResponse
 
   return { count: values.length }
 }
-
