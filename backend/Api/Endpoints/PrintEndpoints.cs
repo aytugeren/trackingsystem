@@ -26,7 +26,20 @@ public static class PrintEndpoints
 
         group.MapPost("/multi", async (PrintMultiRequest request, IPrintQueueService queueService, HttpContext http, KtpDbContext db, CancellationToken cancellationToken) =>
         {
-            if (!await HasEtiketPermissionAsync(http, db)) return Results.Forbid();
+            if (!http.User.IsInRole(Role.Yonetici.ToString()))
+            {
+                var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                    ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? http.User.FindFirst("sub")?.Value;
+                if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+                var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, ct);
+                if (u?.CanPrintLabels is Guid rid)
+                {
+                    var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid, ct);
+                    if (r?.CanUseInvoices != true) return Results.Forbid();
+                }
+                else return Results.Forbid();
+            }
             var sourceValues = request.Values ?? new List<string>();
             var payload = sourceValues
                 .Select(v => v.Trim())
