@@ -112,6 +112,29 @@ Insert a row that contains this payload to test the printer:
 
 Set `MachineName` to the host where you run PrintAgent, or leave it `NULL` to allow any machine to print it.
 
-## Optional: Windows Service conversion
+## Running as a Windows Service
 
-Currently the app hosts a console lifetime. To convert it into a Windows Service later, replace `.UseConsoleLifetime()` with `.UseWindowsService()` inside `Program.cs` and consider installing it with `sc.exe` or `New-Service`.
+The host now registers `UseWindowsService()`, so you can install the published agent directly as a Windows Service.
+
+1. Publish a release build so the service has all dependencies beside the EXE:
+
+   ```bash
+   dotnet publish PrintAgent/PrintAgent.csproj -c Release -o ./PrintAgent/bin/Release/net8.0/publish
+   ```
+
+2. Install the service (adjust the `binPath` to the published folder on the target machine):
+
+   ```powershell
+   sc.exe create PrintAgent binPath= "C:\Path\To\PrintAgent\bin\Release\net8.0\publish\PrintAgent.exe" start= auto
+   sc.exe description PrintAgent "PrintAgent background worker for the zebra printer queue."
+   sc.exe start PrintAgent
+   ```
+
+   Alternatively use `New-Service` if you prefer PowerShell syntax.
+
+3. The service loads `appsettings.json` from the executable directory (`AppContext.BaseDirectory`), so keep the published settings beside the EXE.
+
+## Log dosyasi
+
+`PrintAgent` streams every step to `logs/printagent.log` inside the publish folder. Startup logs include the resolved PostgreSQL host/port/database/user, the machine filter, and each operation (opening connections, ensuring schema, querying/marking jobs, etc.). If `sc.exe start` times out or fails, open or tail this file to see the exact exception and the ordered steps that preceded it.
+

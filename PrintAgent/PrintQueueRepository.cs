@@ -23,6 +23,15 @@ namespace PrintAgent;
             ?? throw new InvalidOperationException("ConnectionStrings:Default is missing.");
         _machineName = options.Value.MachineName ?? Environment.MachineName;
         _logger = logger;
+        var connectionInfo = new NpgsqlConnectionStringBuilder(_connectionString);
+        _logger.LogInformation("Database configuration: Host={Host}, Port={Port}, Database={Database}, User={Username}, TrustServerCertificate={TrustServerCertificate}, ApplicationName={ApplicationName}.",
+            connectionInfo.Host,
+            connectionInfo.Port,
+            connectionInfo.Database,
+            connectionInfo.Username,
+            connectionInfo.TrustServerCertificate,
+            connectionInfo.ApplicationName);
+        _logger.LogInformation("Machine filter resolved to {MachineName}.", _machineName);
     }
 
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken)
@@ -41,7 +50,9 @@ CREATE TABLE IF NOT EXISTS PrintQueue (
 ALTER TABLE PrintQueue
 ADD COLUMN IF NOT EXISTS MachineName VARCHAR(50) NULL;";
 
+        _logger.LogInformation("Ensuring PrintQueue schema exists (Machine filter: {MachineName}).", _machineName);
         await using var connection = CreateConnection();
+        _logger.LogInformation("Opening database connection to ensure schema.");
         await connection.OpenAsync(cancellationToken);
         await connection.ExecuteAsync(createTableSql);
         await connection.ExecuteAsync(addMachineNameColumnSql);
@@ -57,7 +68,9 @@ WHERE IsPrinted = 0
 ORDER BY Id ASC
 LIMIT 1;";
 
+        _logger.LogInformation("Requesting next job from queue (Machine filter: {MachineName}).", _machineName);
         await using var connection = CreateConnection();
+        _logger.LogInformation("Opening database connection to fetch job.");
         await connection.OpenAsync(cancellationToken);
         try
         {
@@ -76,6 +89,7 @@ LIMIT 1;";
 SET IsPrinted = 1, PrintedAt = NOW()
 WHERE Id = @Id;";
 
+        _logger.LogInformation("Opening database connection to mark job {JobId} as printed.", jobId);
         await using var connection = CreateConnection();
         await connection.OpenAsync(cancellationToken);
         await connection.ExecuteAsync(sql, new { Id = jobId });
