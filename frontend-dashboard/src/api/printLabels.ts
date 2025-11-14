@@ -1,4 +1,4 @@
-const PRINT_BASE = process.env.NEXT_PUBLIC_PRINT_BASE ?? 'http://localhost:8080'
+const PRINT_BASE = (process.env.NEXT_PUBLIC_API_BASE || '')
 
 export type PrintLabelsResponse = { count: number }
 
