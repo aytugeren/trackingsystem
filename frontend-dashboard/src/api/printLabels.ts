@@ -1,4 +1,4 @@
-const PRINT_BASE = (process.env.API_REWRITE_TARGET ?? 'http://localhost:8080')
+const PRINT_BASE = process.env.API_REWRITE_TARGET ?? 'http://api:8080'
 
 export type PrintLabelsResponse = { count: number }
 
