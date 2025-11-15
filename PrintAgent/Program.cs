@@ -11,21 +11,20 @@ namespace PrintAgent;
 
 internal static class Program
 {
-    private static Task Main(string[] args)
+    private static async Task Main(string[] args)
     {
         var logsDirectory = Path.Combine(AppContext.BaseDirectory, "logs");
         Directory.CreateDirectory(logsDirectory);
         var logFilePath = Path.Combine(logsDirectory, "printagent.log");
 
-        var builder = Host.CreateDefaultBuilder(args)
-            .UseWindowsService()
+        var host = Host.CreateDefaultBuilder(args)
+            .UseWindowsService() // sadece bu yeterli
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
                 logging.AddConsole();
                 logging.AddProvider(new FileLoggerProvider(logFilePath, LogLevel.Debug));
             })
-            .ConfigureHostConfiguration(config => config.SetBasePath(AppContext.BaseDirectory))
             .ConfigureAppConfiguration((context, config) =>
             {
                 config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
@@ -36,8 +35,9 @@ internal static class Program
                 services.AddSingleton<PrintQueueRepository>();
                 services.AddSingleton<ZebraPrinter>();
                 services.AddHostedService<PrintAgentWorker>();
-            });
+            })
+            .Build();
 
-        return builder.RunConsoleAsync();
+        await host.RunAsync();
     }
 }
