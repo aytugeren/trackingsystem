@@ -12,6 +12,7 @@
     <PackageReference Include="Npgsql" Version="7.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
     <PackageReference Include="RawPrint" Version="0.5.0" />
   </ItemGroup>
 

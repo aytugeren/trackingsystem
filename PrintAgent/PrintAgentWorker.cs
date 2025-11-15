@@ -13,6 +13,7 @@ public sealed class PrintAgentWorker : BackgroundService
     private readonly ZebraPrinter _printer;
     private readonly ILogger<PrintAgentWorker> _logger;
     private readonly AgentSettings _settings;
+    private bool _schemaEnsured = false;
 
     public PrintAgentWorker(
         PrintQueueRepository repository,
@@ -26,39 +27,35 @@ public sealed class PrintAgentWorker : BackgroundService
         _settings = options.Value;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+   protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var machine = Environment.MachineName;
         _logger.LogInformation("PrintAgent started on machine {MachineName}.", machine);
         var delay = TimeSpan.FromMilliseconds(_settings.PollIntervalMs <= 0 ? 2000 : _settings.PollIntervalMs);
 
-        await _repository.EnsureSchemaAsync(stoppingToken);
+        bool schemaEnsured = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation("Checking queue...");
             try
             {
-                var job = await _repository.GetNextJobAsync(stoppingToken);
-                if (job is null)
+                if (!schemaEnsured)
                 {
-                    _logger.LogDebug("No pending jobs for {MachineName}. Sleeping for {Delay} ms.", machine, delay.TotalMilliseconds);
+                    await _repository.EnsureSchemaAsync(stoppingToken);
+                    schemaEnsured = true;
                 }
-                else
+
+                var job = await _repository.GetNextJobAsync(stoppingToken);
+
+                if (job != null)
                 {
-                    _logger.LogInformation("Printing job {JobId}...", job.Id);
                     _printer.PrintZpl(job.Zpl ?? string.Empty);
                     await _repository.MarkAsPrintedAsync(job.Id, stoppingToken);
-                    _logger.LogInformation("Printed job {JobId} successfully.", job.Id);
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                // Shutdown requested, swallow.
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process a print job. Retrying after delay.");
+                _logger.LogError(ex, "Error in worker loop");
             }
 
             await Task.Delay(delay, stoppingToken);
