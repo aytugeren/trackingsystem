@@ -1900,6 +1900,15 @@ CREATE TABLE IF NOT EXISTS market.""GoldFeedAlerts"" (
     ""CreatedAt"" timestamptz NOT NULL,
     ""ResolvedAt"" timestamptz NULL
 );
+CREATE TABLE IF NOT EXISTS market.""GoldFeedEntries"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""Payload"" text NOT NULL,
+    ""MetaTarih"" varchar(100),
+    ""Language"" varchar(16),
+    ""FetchedAt"" timestamptz NOT NULL,
+    ""SourceTime"" timestamptz
+);
+CREATE INDEX IF NOT EXISTS IX_GoldFeedEntries_FetchedAt ON market.""GoldFeedEntries"" (""FetchedAt"");
 CREATE TABLE IF NOT EXISTS market.""InvoiceGoldSnapshots"" (
     ""Id"" uuid NOT NULL PRIMARY KEY,
     ""InvoiceId"" uuid NOT NULL UNIQUE,
