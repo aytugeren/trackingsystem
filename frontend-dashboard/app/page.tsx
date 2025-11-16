@@ -189,27 +189,53 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8">
-      <section className="rounded-xl border bg-white p-6 shadow-sm">
+      <section className="rounded-xl border bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))] p-6 shadow-sm transition-colors duration-200">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Yönetim Paneli</h1>
             <p className="text-sm text-muted-foreground">Fatura ve giderlerinizi kolayca görüntüleyin.</p>
           </div>
           <div className="flex flex-col gap-3 items-end">            <div>
-              <Button className="h-10" variant="outline" onClick={openFullscreen}>Tam Ekran</Button>
+            <Button
+              className="h-10 tracking-tight text-[color:hsl(var(--card-foreground))] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))]"
+              variant="outline"
+              onClick={openFullscreen}
+            >
+              Tam Ekran
+            </Button>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Dönem:</span>
-              <button className={`px-3 py-2 rounded border ${period==='daily'?'bg-black text-white':'bg-white'}`} onClick={() => setPeriod('daily')}>Günlük</button>
-              <button className={`px-3 py-2 rounded border ${period==='monthly'?'bg-black text-white':'bg-white'}`} onClick={() => setPeriod('monthly')}>Aylık</button>
-              <button className={`px-3 py-2 rounded border ${period==='yearly'?'bg-black text-white':'bg-white'}`} onClick={() => setPeriod('yearly')}>Yıllık</button>
+              <button
+                className={`px-3 py-2 rounded border ${period === 'daily' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+                onClick={() => setPeriod('daily')}
+              >
+                Günlük
+              </button>
+              <button
+                className={`px-3 py-2 rounded border ${period === 'monthly' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+                onClick={() => setPeriod('monthly')}
+              >
+                Aylık
+              </button>
+              <button
+                className={`px-3 py-2 rounded border ${period === 'yearly' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+                onClick={() => setPeriod('yearly')}
+              >
+                Yıllık
+              </button>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <Link href="/invoices">
-                <Button className="w-full h-12 text-base">Faturalar</Button>
+                <Button className="h-6 tracking-tight text-[color:hsl(var(--card-foreground))] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))]">Faturalar</Button>
               </Link>
               <Link href="/expenses">
-                <Button className="w-full h-12 text-base" variant="outline">Giderler</Button>
+                <Button
+                  className="h-6 tracking-tight text-[color:hsl(var(--card-foreground))] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))]"
+                  variant="outline"
+                >
+                  Giderler
+                </Button>
               </Link>
             </div>
           </div>
@@ -385,16 +411,19 @@ function MonthMultiSelect({ selectedMonths, setSelectedMonths }: { selectedMonth
   const isDisabled = (k: string) => !selectedMonths.includes(k) && selectedMonths.length >= 3
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {items.map((m) => (
-        <button
-          key={m.key}
-          title={m.label}
-          className={`px-2 py-1 rounded border text-sm ${selectedMonths.includes(m.key) ? 'bg-black text-white' : 'bg-white'} ${isDisabled(m.key) ? 'opacity-50 cursor-not-allowed' : ''}`}
-          onClick={() => !isDisabled(m.key) && toggle(m.key)}
-        >
-          {m.key}
-        </button>
-      ))}
+      {items.map((m) => {
+        const active = selectedMonths.includes(m.key)
+        return (
+          <button
+            key={m.key}
+            title={m.label}
+            className={`px-2 py-1 rounded border text-sm ${active ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'} ${isDisabled(m.key) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            onClick={() => !isDisabled(m.key) && toggle(m.key)}
+          >
+            {m.key}
+          </button>
+        )
+      })}
       <span className="text-xs text-muted-foreground">(En fazla 3 ay seçilebilir)</span>
     </div>
   )
@@ -424,19 +453,6 @@ function SummaryCard({ title, value, error, emoji }: { title: string; value: num
     </Card>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

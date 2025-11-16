@@ -41,8 +41,8 @@ export default function GoldPricesPage() {
       if (!sRes.ok) throw new Error('Ayarlar alinamadi')
       const calc = (await sRes.json()) as CalcSettings
 
-      // Load Harem Altin feed directly
-      const feedUrl = 'https://canlipiyasalar.haremaltin.com/tmp/altin.json?dil_kodu=tr'
+      // Load feed cached by the backend
+      const feedUrl = `${apiBase.replace(/\/$/, '')}/api/pricing/feed`
       const fRes = await fetch(feedUrl, { cache: 'no-store' })
       if (!fRes.ok) throw new Error('Fiyat verisine ulasilamadi')
       const j = await fRes.json()
