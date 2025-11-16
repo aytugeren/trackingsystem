@@ -128,7 +128,7 @@ export default function SettingsPage() {
             <div className="flex items-end gap-3">
               <div className="flex flex-col">
                 <label className="text-sm text-muted-foreground">Kâr Milyemi (‰) — örn: 25 → +%2.5 satış</label>
-                <input type="number" value={milyem} onChange={e => setMilyemState(parseFloat(e.target.value || '0'))} className="border rounded px-3 py-2 w-40" />
+                <input type="number" value={milyem} onChange={e => setMilyemState(parseFloat(e.target.value || '0'))} className="border rounded px-3 py-2 w-40 text-slate-900" />
               </div>
               <Button onClick={async () => { await setMilyem(milyem); if (typeof window !== 'undefined') alert('Milyem kaydedildi') }}>Kaydet</Button>
             </div>
@@ -141,17 +141,17 @@ export default function SettingsPage() {
 
               <div className="flex items-center gap-2">
                 <label className="w-40">Ek Kâr Oranı (%)</label>
-                <input type="number" step="0.01" value={calc.karMargin} onChange={e => setCalc({ ...calc, karMargin: parseFloat(e.target.value || '0') })} className="border rounded px-3 py-2 w-32" />
+                <input type="number" step="0.01" value={calc.karMargin} onChange={e => setCalc({ ...calc, karMargin: parseFloat(e.target.value || '0') })} className="border rounded px-3 py-2 w-32 text-slate-900" />
               </div>
 
               <div className="flex items-center gap-2">
                 <label className="w-40">Virgül Basamak</label>
-                <input type="number" value={calc.decimalPrecision} onChange={e => setCalc({ ...calc, decimalPrecision: parseInt(e.target.value || '0') })} className="border rounded px-3 py-2 w-24" />
+                <input type="number" value={calc.decimalPrecision} onChange={e => setCalc({ ...calc, decimalPrecision: parseInt(e.target.value || '0') })} className="border rounded px-3 py-2 w-24 text-slate-900" />
               </div>
 
               <div className="flex items-center gap-2">
                 <label className="w-40">Formül Tipi</label>
-                <select value={calc.karMilyemFormulaType} onChange={e => setCalc({ ...calc, karMilyemFormulaType: e.target.value as CalcSettings['karMilyemFormulaType'] })} className="border rounded px-3 py-2 w-40">
+                <select value={calc.karMilyemFormulaType} onChange={e => setCalc({ ...calc, karMilyemFormulaType: e.target.value as CalcSettings['karMilyemFormulaType'] })} className="border rounded px-3 py-2 w-40 text-slate-900">
                   <option value="basic">basic</option>
                   <option value="withMargin">withMargin</option>
                   <option value="custom">custom</option>
@@ -170,7 +170,7 @@ export default function SettingsPage() {
 
               <div className="flex items-center gap-2">
                 <label className="w-40">KDV Oranı (%)</label>
-                <input type="number" step="0.01" value={calc.taxRate} disabled={!calc.includeTax} onChange={e => setCalc({ ...calc, taxRate: parseFloat(e.target.value || '0') })} className="border rounded px-3 py-2 w-32" />
+                <input type="number" step="0.01" value={calc.taxRate} disabled={!calc.includeTax} onChange={e => setCalc({ ...calc, taxRate: parseFloat(e.target.value || '0') })} className="border rounded px-3 py-2 w-32 text-slate-900" />
               </div>
             </div>
 

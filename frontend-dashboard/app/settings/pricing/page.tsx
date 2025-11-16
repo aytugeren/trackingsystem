@@ -65,13 +65,13 @@ export default function PricingSettingsPage() {
                   <label className="w-40">Alış Marj (TL)</label>
                   <input type="number" step="0.01" value={ps22.marginBuy}
                          onChange={e => setPs22({ ...ps22, marginBuy: parseFloat(e.target.value || '0') })}
-                         className="border rounded px-3 py-2 w-32" />
+                         className="border rounded px-3 py-2 w-32 text-slate-900" />
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="w-40">Satış Marj (TL)</label>
                   <input type="number" step="0.01" value={ps22.marginSell}
                          onChange={e => setPs22({ ...ps22, marginSell: parseFloat(e.target.value || '0') })}
-                         className="border rounded px-3 py-2 w-32" />
+                         className="border rounded px-3 py-2 w-32 text-slate-900" />
                 </div>
               </div>
               <div className="space-y-3">
@@ -80,13 +80,13 @@ export default function PricingSettingsPage() {
                   <label className="w-40">Alış Marj (TL)</label>
                   <input type="number" step="0.01" value={ps24.marginBuy}
                          onChange={e => setPs24({ ...ps24, marginBuy: parseFloat(e.target.value || '0') })}
-                         className="border rounded px-3 py-2 w-32" />
+                         className="border rounded px-3 py-2 w-32 text-slate-900" />
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="w-40">Satış Marj (TL)</label>
                   <input type="number" step="0.01" value={ps24.marginSell}
                          onChange={e => setPs24({ ...ps24, marginSell: parseFloat(e.target.value || '0') })}
-                         className="border rounded px-3 py-2 w-32" />
+                         className="border rounded px-3 py-2 w-32 text-slate-900" />
                 </div>
               </div>
             </div>
@@ -102,4 +102,3 @@ export default function PricingSettingsPage() {
     </Card>
   )
 }
-

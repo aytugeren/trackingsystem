@@ -36,6 +36,7 @@ export type Expense = {
   finalizedAt?: string | null
   kesildi?: boolean
   kasiyerAdSoyad?: string | null
+  odemeSekli: number | 'Havale' | 'KrediKarti'
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''

@@ -83,7 +83,7 @@ function UserRow({ user, roles, onAssign }: { user: UserWithPermissions; roles: 
       <td className="p-2">{user.customRoleName || user.role}</td>
       <td className="p-2">
         <div className="flex items-center gap-2">
-          <select className="border rounded px-2 py-1" value={roleSel || ''} onChange={e => setRoleSel(e.target.value || null)}>
+          <select className="border rounded px-2 py-1 text-slate-900" value={roleSel || ''} onChange={e => setRoleSel(e.target.value || null)}>
             <option value="">(Yok)</option>
             {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>

@@ -931,6 +931,42 @@ app.MapPost("/api/pricing/refresh", async (IHttpClientFactory httpFactory, IConf
     });
 }).WithTags("Pricing");
 
+app.MapGet("/api/pricing/feed", async (MarketDbContext mdb, CancellationToken ct) =>
+{
+    var entry = await mdb.GoldFeedEntries
+        .AsNoTracking()
+        .OrderByDescending(x => x.FetchedAt)
+        .FirstOrDefaultAsync(ct);
+    if (entry is null || string.IsNullOrWhiteSpace(entry.Payload))
+    {
+        return Results.Problem("Fiyat beslemesi bulunamadi", statusCode: 404);
+    }
+
+    return Results.Content(entry.Payload, "application/json; charset=utf-8");
+}).WithTags("Pricing");
+
+app.MapGet("/api/pricing/status", async (MarketDbContext mdb, CancellationToken ct) =>
+{
+    var alert = await mdb.GoldFeedAlerts
+        .AsNoTracking()
+        .Where(x => x.ResolvedAt == null)
+        .OrderByDescending(x => x.CreatedAt)
+        .FirstOrDefaultAsync(ct);
+    var latest = await mdb.PriceRecords
+        .AsNoTracking()
+        .Where(x => x.Code == "ALTIN")
+        .OrderByDescending(x => x.SourceTime)
+        .ThenByDescending(x => x.CreatedAt)
+        .FirstOrDefaultAsync(ct);
+    return Results.Ok(new
+    {
+        hasAlert = alert is not null,
+        message = alert?.Message ?? "Şu anda fiyatlar güncel.",
+        sourceTime = latest?.SourceTime,
+        fetchedAt = latest?.CreatedAt
+    });
+}).WithTags("Pricing");
+
 app.MapGet("/api/pricing/{code}/latest", async (string code, MarketDbContext mdb, CancellationToken ct) =>
 {
     code = code.ToUpperInvariant();
@@ -1857,6 +1893,13 @@ CREATE TABLE IF NOT EXISTS market.""PriceRecords"" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS IX_PriceSettings_Code ON market.""PriceSettings"" (""Code"");
 CREATE UNIQUE INDEX IF NOT EXISTS IX_PriceRecords_Code_SourceTime ON market.""PriceRecords"" (""Code"", ""SourceTime"");
+CREATE TABLE IF NOT EXISTS market.""GoldFeedAlerts"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""Message"" text NOT NULL,
+    ""Level"" varchar(32) NOT NULL,
+    ""CreatedAt"" timestamptz NOT NULL,
+    ""ResolvedAt"" timestamptz NULL
+);
 CREATE TABLE IF NOT EXISTS market.""InvoiceGoldSnapshots"" (
     ""Id"" uuid NOT NULL PRIMARY KEY,
     ""InvoiceId"" uuid NOT NULL UNIQUE,
@@ -1985,7 +2028,6 @@ public record KaratDiffSettings
 public record UpdateKaratSettingsRequest(KaratRange[] ranges, double alertThreshold);
 
 public record PrintMultiRequest([property: Required] List<string> Values);
-
 
 
 

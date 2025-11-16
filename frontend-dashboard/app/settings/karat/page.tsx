@@ -62,7 +62,7 @@ export default function KaratSettingsPage() {
           <div className="space-y-6">
             <div className="flex items-center gap-2">
               <label className="w-64">Uyarı Eşiği (gr)</label>
-              <input type="number" value={karat.alertThreshold} onChange={e => setKarat({ ...karat, alertThreshold: parseFloat(e.target.value || '0') })} className="border rounded px-3 py-2 w-40" />
+              <input type="number" value={karat.alertThreshold} onChange={e => setKarat({ ...karat, alertThreshold: parseFloat(e.target.value || '0') })} className="border rounded px-3 py-2 w-40 text-slate-900" />
             </div>
             <div className="space-y-2">
               <div className="text-sm text-muted-foreground">Aralıklar (min ≤ fark &lt; max) ve renk (#RRGGBB):</div>
@@ -73,19 +73,19 @@ export default function KaratSettingsPage() {
                     <input type="number" value={r.min} onChange={e => {
                       const v = parseFloat(e.target.value || '0');
                       setKarat({ ...karat, ranges: karat.ranges.map((x, i) => i === idx ? { ...x, min: v } : x) })
-                    }} className="border rounded px-3 py-2 w-28" />
+                    }} className="border rounded px-3 py-2 w-28 text-slate-900" />
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="w-20">Max</label>
                     <input type="number" value={r.max} onChange={e => {
                       const v = parseFloat(e.target.value || '0');
                       setKarat({ ...karat, ranges: karat.ranges.map((x, i) => i === idx ? { ...x, max: v } : x) })
-                    }} className="border rounded px-3 py-2 w-28" />
+                    }} className="border rounded px-3 py-2 w-28 text-slate-900" />
                   </div>
                   <div className="flex items-center gap-2 col-span-2">
                     <label className="w-20">Renk</label>
-                    <input type="text" value={r.colorHex} onChange={e => setKarat({ ...karat, ranges: karat.ranges.map((x, i) => i === idx ? { ...x, colorHex: e.target.value } : x) })} className="border rounded px-3 py-2 w-40" placeholder="#RRGGBB" />
-                    <input type="color" value={/^#[0-9A-Fa-f]{6}$/.test(r.colorHex) ? r.colorHex : '#FFFFFF'} onChange={e => setKarat({ ...karat, ranges: karat.ranges.map((x, i) => i === idx ? { ...x, colorHex: e.target.value } : x) })} className="w-10 h-10 border rounded" />
+                    <input type="text" value={r.colorHex} onChange={e => setKarat({ ...karat, ranges: karat.ranges.map((x, i) => i === idx ? { ...x, colorHex: e.target.value } : x) })} className="border rounded px-3 py-2 w-40 text-slate-900" placeholder="#RRGGBB" />
+                    <input type="color" value={/^#[0-9A-Fa-f]{6}$/.test(r.colorHex) ? r.colorHex : '#FFFFFF'} onChange={e => setKarat({ ...karat, ranges: karat.ranges.map((x, i) => i === idx ? { ...x, colorHex: e.target.value } : x) })} className="w-10 h-10 border rounded text-slate-900" />
                     <Button variant="outline" onClick={() => setKarat({ ...karat, ranges: karat.ranges.filter((_, i) => i !== idx) })}>Sil</Button>
                   </div>
                 </div>

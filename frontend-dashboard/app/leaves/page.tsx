@@ -54,17 +54,17 @@ export default function LeavesAdminPage() {
             <div className="flex gap-2 items-end">
               <div className="flex flex-col">
                 <label className="text-sm text-muted-foreground">Başlangıç</label>
-                <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border rounded px-2 py-1" />
+                <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="border rounded px-2 py-1 text-slate-900" />
               </div>
               <div className="flex flex-col">
                 <label className="text-sm text-muted-foreground">Bitiş</label>
-                <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border rounded px-2 py-1" />
+                <input type="date" value={to} onChange={e => setTo(e.target.value)} className="border rounded px-2 py-1 text-slate-900" />
               </div>
               <Button onClick={load}>Filtrele</Button>
             </div>
             <div className="flex gap-2 items-center">
               <label className="text-sm">Yıl:</label>
-              <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value||`${new Date().getFullYear()}`,10))} className="w-24 border rounded px-2 py-1" />
+              <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value||`${new Date().getFullYear()}`,10))} className="w-24 border rounded px-2 py-1 text-slate-900" />
             </div>
           </div>
           {error && <p className="text-red-600 mt-2">{error}</p>}
@@ -178,7 +178,7 @@ function SummaryTable({ data, onSetAllowance }: { data: LeaveSummaryItem[]; onSe
               </td>
               <td className="p-2">
                 <div className="flex gap-2 items-center">
-                  <input type="number" className="w-24 border rounded px-2 py-1" value={editing[x.userId] ?? (x.allowanceDays ?? 14)} onChange={(e) => setEditing({ ...editing, [x.userId]: parseInt(e.target.value || '0', 10) })} />
+                  <input type="number" className="w-24 border rounded px-2 py-1 text-slate-900" value={editing[x.userId] ?? (x.allowanceDays ?? 14)} onChange={(e) => setEditing({ ...editing, [x.userId]: parseInt(e.target.value || '0', 10) })} />
                   <Button size="sm" onClick={async () => { const v = editing[x.userId] ?? (x.allowanceDays ?? 14); await onSetAllowance(x.userId, v); }}>Kaydet</Button>
                 </div>
               </td>
@@ -189,6 +189,5 @@ function SummaryTable({ data, onSetAllowance }: { data: LeaveSummaryItem[]; onSe
     </div>
   )
 }
-
 
 

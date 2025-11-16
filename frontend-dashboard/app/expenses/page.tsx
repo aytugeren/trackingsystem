@@ -32,8 +32,9 @@ export default function ExpensesPage() {
   const [nowTick, setNowTick] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Expense | null>(null)
-  const [urunFiyati, setUrunFiyati] = useState<string>('')
+  const [urunFiyati, setUrunFiyati] = useState<string>('') 
   const [copied, setCopied] = useState<string | null>(null)
+  const [pricingAlert, setPricingAlert] = useState<string | null>(null)
   async function copy(key: string, text: string) {
     try {
       const s = (text ?? '').toString().trim()
@@ -67,6 +68,36 @@ export default function ExpensesPage() {
   useEffect(() => {
     const h = setInterval(() => setNowTick(t => t + 1), 1000)
     return () => clearInterval(h)
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    async function loadPricingAlert() {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE || ''
+        const res = await fetch(`${base}/api/pricing/status`, { cache: 'no-store' })
+        if (!mounted) return
+        if (!res.ok) {
+          setPricingAlert('Şu anda güncel fiyatları çekilemiyor.')
+          return
+        }
+        const json = await res.json()
+        if (json?.hasAlert) {
+          setPricingAlert(json?.message || 'Şu anda güncel fiyatları çekilemiyor.')
+        } else {
+          setPricingAlert(null)
+        }
+      } catch {
+        if (!mounted) return
+        setPricingAlert('Şu anda güncel fiyatları çekilemiyor.')
+      }
+    }
+    loadPricingAlert()
+    const timer = setInterval(loadPricingAlert, 30000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
   }, [])
 
   // Load minimal permissions for current user
@@ -105,41 +136,40 @@ export default function ExpensesPage() {
   async function toggleStatus(exp: Expense) {
     try {
       await api.setExpenseStatus(exp.id, !(exp.kesildi ?? false))
-      setData((prev) => (prev ? prev.map(x => x.id === exp.id ? { ...x, kesildi: !(exp.kesildi ?? false) } : x) : prev))
+      setData((prev) => prev ? prev.map(x => x.id === exp.id ? { ...x, kesildi: !(exp.kesildi ?? false) } : x) : prev)
+      setSelected((prev) => prev && prev.id === exp.id ? { ...prev, kesildi: !(exp.kesildi ?? false) } : prev)
       try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
     } catch {
       setError('Durum güncellenemedi')
     }
   }
-
   function openFinalize(exp: Expense) {
     setSelected(exp)
     setUrunFiyati(String(exp.tutar))
     setModalOpen(true)
   }
   function closeModal() { setModalOpen(false); setSelected(null); setUrunFiyati('') }
-  async function finalize() {
-    if (!selected) return
-    try {
-      await api.finalizeExpense(selected.id)
-      setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, urunFiyati: x.tutar } : x) : prev)
-      closeModal(); setEnterTick(t => t + 1)
-      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
-    } catch { setError('Gider kesilemedi') }
-  }
-
   async function cancelExpense(exp: Expense) {
-    if (!exp || exp.kesildi) return
+    if (!exp || exp.kesildi) return false
     const ok = typeof window !== 'undefined' ? window.confirm('Bu gideri iptal edip veritabanından silmek istiyor musunuz?') : true
-    if (!ok) return
+    if (!ok) return false
     try {
       await api.deleteExpense(exp.id)
       setData(prev => prev ? prev.filter(x => x.id !== exp.id) : prev)
-    } catch { setError('Gider silinemedi') }
+      return true
+    } catch {
+      setError('Gider silinemedi')
+      return false
+    }
   }
 
   return (
     <div className="space-y-4">
+      {pricingAlert && (
+        <div className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+          ⚠️ {pricingAlert}
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>{t("filters.expense")}</CardTitle>
@@ -193,8 +223,8 @@ export default function ExpensesPage() {
                     <TH>Kasiyer</TH>
                     <TH>Ayar</TH>
                     <TH>Has Altın</TH>
-                    <TH>İşlem</TH>
                     <TH className="text-right">Tutar</TH>
+                    <TH>İşlem</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -209,6 +239,7 @@ export default function ExpensesPage() {
                     const rowClass = pending
                       ? 'bg-red-600 text-white'
                       : (recentlyFinalized ? 'bg-green-600 text-white' : undefined)
+                    const statusColor = x.kesildi ? 'bg-emerald-500' : 'bg-rose-500'
                     return (
                     <TR key={x.id} className={rowClass}>
                       <TD>{formatDateTimeTr(x.finalizedAt ?? x.tarih)}</TD>
@@ -218,18 +249,11 @@ export default function ExpensesPage() {
                       <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
                       <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
-                      <TD className="space-x-2">
-                        {canToggle ? (
-                          <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</button>
-                        ) : (
-                          <span className="inline-block border rounded px-2 py-1 text-sm select-none cursor-default">{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</span>
-                        )}
-                        <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>{t("btn.info.expense")}</button>
-                        {canCancel && !x.kesildi && (
-                          <button className="border rounded px-2 py-1 text-sm text-red-600" onClick={() => cancelExpense(x)}>İptal Et</button>
-                        )}
-                      </TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
+                      <TD>
+                        <span className={`h-2 w-2 rounded-full ${statusColor}`}></span>
+                        <Button variant="outline" size="sm" onClick={() => openFinalize(x)}>{t("btn.info.expense")}</Button>
+                      </TD>
                     </TR>
                   )})}
                 </TBody>
@@ -237,7 +261,7 @@ export default function ExpensesPage() {
 
               {modalOpen && selected && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                  <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
+                <div className="bg-white text-slate-900 rounded shadow p-4 w-full max-w-lg space-y-3 dark:bg-slate-900 dark:text-white">
                     <h3 className="text-lg font-semibold">{t("btn.info.expense")}</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between gap-2">
@@ -261,10 +285,13 @@ export default function ExpensesPage() {
                         ) : null}
                       </div>
                       <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
-                      <div className="pt-2">Ürün Fiyatı</div>
-                      <div className="flex items-center gap-2">
-                        <Input value={urunFiyati} readOnly placeholder="0,00" />
-                        <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'urun' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('urun', String(urunFiyati))}>{copied === 'urun' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>Ürün Fiyatı: <b>{selected.tutar.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b></div>
+                        {selected.tutar ? (
+                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tutar' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tutar', String(selected.tutar || 0))}>
+                            {copied === 'tutar' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                          </button>
+                        ) : null}
                       </div>
                       {(() => {
                         const r2 = (n: number) => Math.round(n * 100) / 100
@@ -317,9 +344,29 @@ export default function ExpensesPage() {
                         )
                       })()}
                     </div>
-                    <div className="flex justify-end gap-2 pt-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>
-                      <Button onClick={() => { /* 3. parti entegrasyon için daha sonra */ }}>{'Gönder'}</Button>
+                      {canToggle && selected && (
+                        <Button
+                          onClick={async () => {
+                            await toggleStatus(selected)
+                            closeModal()
+                          }}
+                        >
+                          {selected.kesildi ? 'Geri Al' : 'Gönder'}
+                        </Button>
+                      )}
+                      {canCancel && selected && (
+                        <Button
+                          variant="default"
+                          onClick={async () => {
+                            const ok = await cancelExpense(selected)
+                            if (ok) closeModal()
+                          }}
+                        >
+                          İptal Et
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -36,6 +36,7 @@ export default function InvoicesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Invoice | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [pricingAlert, setPricingAlert] = useState<string | null>(null)
   async function copy(key: string, text: string) {
     try {
       const s = (text ?? '').toString().trim()
@@ -85,6 +86,36 @@ export default function InvoicesPage() {
     return () => { mounted = false }
   }, [])
 
+  useEffect(() => {
+    let mounted = true
+    async function loadPricingAlert() {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE || ''
+        const res = await fetch(`${base}/api/pricing/status`, { cache: 'no-store' })
+        if (!mounted) return
+        if (!res.ok) {
+          setPricingAlert('Şu anda güncel fiyatları çekilemiyor.')
+          return
+        }
+        const json = await res.json()
+        if (json?.hasAlert) {
+          setPricingAlert(json?.message || 'Şu anda güncel fiyatları çekilemiyor.')
+        } else {
+          setPricingAlert(null)
+        }
+      } catch {
+        if (!mounted) return
+        setPricingAlert('Şu anda güncel fiyatları çekilemiyor.')
+      }
+    }
+    loadPricingAlert()
+    const timer = setInterval(loadPricingAlert, 30000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
+  }, [])
+
   const filtered = useMemo(() => {
     const all = (data || []).filter(x => showAll ? true : !(x.kesildi ?? false))
     return all.filter((x) => {
@@ -108,13 +139,13 @@ export default function InvoicesPage() {
   async function toggleStatus(inv: Invoice) {
     try {
       await api.setInvoiceStatus(inv.id, !(inv.kesildi ?? false))
-      setData((prev) => (prev ? prev.map(x => x.id === inv.id ? { ...x, kesildi: !(inv.kesildi ?? false) } : x) : prev))
+      setData((prev) => prev ? prev.map(x => x.id === inv.id ? { ...x, kesildi: !(inv.kesildi ?? false) } : x) : prev)
+      setSelected((prev) => prev && prev.id === inv.id ? { ...prev, kesildi: !(inv.kesildi ?? false) } : prev)
       try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
     } catch {
       setError('Durum güncellenemedi')
     }
   }
-
   function openFinalize(inv: Invoice) {
     setSelected(inv)
     setModalOpen(true)
@@ -125,29 +156,17 @@ export default function InvoicesPage() {
     setSelected(null)
   }
 
-  async function finalize() {
-    if (!selected) return
-    try {
-      await api.finalizeInvoice(selected.id)
-      // refetch page or optimistically mark as kesildi
-      setData(prev => prev ? prev.map(x => x.id === selected.id ? { ...x, urunFiyati: x.tutar } : x) : prev)
-      closeModal()
-      setEnterTick(t => t + 1) // trigger reload to get computed fields
-      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
-    } catch {
-      setError('Fatura kesilemedi')
-    }
-  }
-
   async function cancelInvoice(inv: Invoice) {
-    if (!inv || inv.kesildi) return
+    if (!inv || inv.kesildi) return false
     const ok = typeof window !== 'undefined' ? window.confirm('Bu faturayı iptal edip veritabanından silmek istiyor musunuz?') : true
-    if (!ok) return
+    if (!ok) return false
     try {
       await api.deleteInvoice(inv.id)
       setData(prev => prev ? prev.filter(x => x.id !== inv.id) : prev)
+      return true
     } catch {
       setError('Fatura silinemedi')
+      return false
     }
   }
 
@@ -155,6 +174,11 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-4">
+      {pricingAlert && (
+        <div className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+          ⚠️ {pricingAlert}
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Fatura Filtreleri</CardTitle>
@@ -233,6 +257,7 @@ export default function InvoicesPage() {
                     const rowClass = pending
                       ? 'bg-red-600 text-white'
                       : (recentlyFinalized ? 'bg-green-600 text-white' : undefined)
+                    const statusColor = x.kesildi ? 'bg-emerald-500' : 'bg-rose-500'
                     return (
                     <TR key={x.id} className={rowClass}>
                       <TD>{formatDateTimeTr(x.finalizedAt ?? x.tarih)}</TD>
@@ -243,16 +268,8 @@ export default function InvoicesPage() {
                       <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
-                      <TD className="space-x-2">
-                        {canToggle ? (
-                          <button className="border rounded px-2 py-1 text-sm" onClick={() => toggleStatus(x)}>{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</button>
-                        ) : (
-                          <span className="inline-block border rounded px-2 py-1 text-sm select-none cursor-default">{x.kesildi ? 'Kesildi' : (pending ? 'Onay Bekliyor' : 'Bekliyor')}</span>
-                        )}
-                        <button className="border rounded px-2 py-1 text-sm" onClick={() => openFinalize(x)}>Fatura Bilgileri</button>
-                        {canCancel && !x.kesildi && (
-                          <button className="border rounded px-2 py-1 text-sm text-red-600" onClick={() => cancelInvoice(x)}>İptal Et</button>
-                        )}
+                      <TD>
+                        <Button variant="outline" size="sm" onClick={() => openFinalize(x)}>Fatura Bilgileri</Button>
                       </TD>
                       <TD>
                         {(x.odemeSekli === 0 || (x.odemeSekli as any) === 'Havale') ? (
@@ -268,7 +285,7 @@ export default function InvoicesPage() {
 
               {modalOpen && selected && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                  <div className="bg-white rounded shadow p-4 w-full max-w-lg space-y-3">
+                <div className="bg-white text-slate-900 rounded shadow p-4 w-full max-w-lg space-y-3 dark:bg-slate-900 dark:text-white">
                     <h3 className="text-lg font-semibold">Fatura Bilgileri</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between gap-2">
@@ -289,12 +306,13 @@ export default function InvoicesPage() {
                       </div>
                       <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
                       <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
-                      <div className="pt-2">Ürün Fiyatı</div>
-                      <div className="flex items-center gap-2">
-                        <Input value={String(selected.tutar || 0)} readOnly placeholder="0,00" />
-                        <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'urun' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('urun', String(selected.tutar || 0))}>
-                          {copied === 'urun' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                        </button>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>Ürün Fiyatı: <b>{selected.tutar.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b></div>
+                        {selected.tutar ? (
+                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tutar' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tutar', String(selected.tutar || 0))}>
+                            {copied === 'tutar' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                          </button>
+                        ) : null}
                       </div>
                       {(() => {
                         const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -385,9 +403,29 @@ export default function InvoicesPage() {
                         );
                       })()}
                     </div>
-                    <div className="flex justify-end gap-2 pt-2">
-                      <Button variant="outline" onClick={closeModal}>Vazgeç</Button>
-                      <Button onClick={() => { /* 3. parti entegrasyon için daha sonra */ }}>{t("modal.send")}</Button>
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>
+                      {canToggle && selected && (
+                        <Button
+                          onClick={async () => {
+                            await toggleStatus(selected)
+                            closeModal()
+                          }}
+                        >
+                          {selected.kesildi ? 'Geri Al' : 'Gönder'}
+                        </Button>
+                      )}
+                      {canCancel && selected && (
+                        <Button
+                          variant="default"
+                          onClick={async () => {
+                            const ok = await cancelInvoice(selected)
+                            if (ok) closeModal()
+                          }}
+                        >
+                          İptal Et
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -411,10 +449,6 @@ export default function InvoicesPage() {
     </div>
   )
 }
-
-
-
-
 
 
 
