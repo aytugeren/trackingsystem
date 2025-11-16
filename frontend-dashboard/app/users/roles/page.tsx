@@ -100,7 +100,7 @@ function NewRoleForm({ onCreated }: { onCreated: () => Promise<void> }) {
     <div className="flex flex-wrap items-end gap-3">
       <div className="flex flex-col">
         <label className="text-sm text-muted-foreground">Rol Adı</label>
-        <input value={name} onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="border rounded px-3 py-2 w-56" placeholder="Rol Giriniz..." />
+        <input value={name} onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="border rounded px-3 py-2 w-56 text-slate-900" placeholder="Rol Giriniz..." />
       </div>
       <label className="flex items-center gap-2"><input type="checkbox" checked={canCancelInvoice} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanCancelInvoice(e.target.checked)} /> İptal</label>
       <label className="flex items-center gap-2"><input type="checkbox" checked={canToggleKesildi} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanToggleKesildi(e.target.checked)} /> Kesildi</label>
@@ -114,11 +114,11 @@ function NewRoleForm({ onCreated }: { onCreated: () => Promise<void> }) {
       <label className="flex items-center gap-2"><input type="checkbox" checked={canPrintLabels} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanPrintLabels(e.target.checked)} /> Etiket</label>
       <div className="flex items-center gap-2">
         <span>Yıllık Hak</span>
-        <input type="number" value={leaveAllowanceDays} onChange={(e: ChangeEvent<HTMLInputElement>) => setLeaveAllowanceDays(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="border rounded px-3 py-2 w-24" />
+        <input type="number" value={leaveAllowanceDays} onChange={(e: ChangeEvent<HTMLInputElement>) => setLeaveAllowanceDays(e.target.value === '' ? '' : parseInt(e.target.value, 10))} className="border rounded px-3 py-2 w-24 text-slate-900" />
       </div>
       <div className="flex items-center gap-2">
         <span>Gün/Saat</span>
-        <input type="number" step="0.1" value={workingDayHours} onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkingDayHours(e.target.value === '' ? '' : parseFloat(e.target.value))} className="border rounded px-3 py-2 w-24" />
+        <input type="number" step="0.1" value={workingDayHours} onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkingDayHours(e.target.value === '' ? '' : parseFloat(e.target.value))} className="border rounded px-3 py-2 w-24 text-slate-900" />
       </div>
         <Button disabled={busy || !name.trim()} onClick={async () => { setBusy(true); await createRole({ name: name.trim(), canCancelInvoice, canToggleKesildi, canAccessLeavesAdmin, canManageSettings, canManageCashier, canManageKarat, canUseInvoices, canUseExpenses, canViewReports, canPrintLabels, leaveAllowanceDays: leaveAllowanceDays === '' ? null : leaveAllowanceDays, workingDayHours: workingDayHours === '' ? null : workingDayHours }); setName(''); setCanCancelInvoice(false); setCanToggleKesildi(false); setCanAccessLeavesAdmin(false); setCanManageSettings(false); setCanManageCashier(false); setCanManageKarat(false); setCanUseInvoices(false); setCanUseExpenses(false); setCanViewReports(false); setCanPrintLabels(false); setLeaveAllowanceDays(''); setWorkingDayHours(''); await onCreated(); setBusy(false) }}>Ekle</Button>
     </div>
@@ -142,7 +142,7 @@ function RoleRow({ role, onChange, onDelete }: { role: RoleDef; onChange: (patch
   const [busy, setBusy] = useState(false)
   return (
     <tr className="border-t">
-      <td className="p-2"><input value={name} onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="border rounded px-2 py-1 w-56" /></td>
+      <td className="p-2"><input value={name} onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="border rounded px-2 py-1 w-56 text-slate-900" /></td>
       <td className="p-2"><input type="checkbox" checked={canCancelInvoice} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanCancelInvoice(e.target.checked)} /></td>
       <td className="p-2"><input type="checkbox" checked={canToggleKesildi} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanToggleKesildi(e.target.checked)} /></td>
       <td className="p-2"><input type="checkbox" checked={canAccessLeavesAdmin} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanAccessLeavesAdmin(e.target.checked)} /></td>
@@ -153,8 +153,8 @@ function RoleRow({ role, onChange, onDelete }: { role: RoleDef; onChange: (patch
       <td className="p-2"><input type="checkbox" checked={canUseExpenses} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanUseExpenses(e.target.checked)} /></td>
       <td className="p-2"><input type="checkbox" checked={canViewReports} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanViewReports(e.target.checked)} /></td>
       <td className="p-2"><input type="checkbox" checked={canPrintLabels} onChange={(e: ChangeEvent<HTMLInputElement>) => setCanPrintLabels(e.target.checked)} /></td>
-      <td className="p-2"><input type="number" className="w-24 border rounded px-2 py-1" value={leaveAllowanceDays} onChange={(e: ChangeEvent<HTMLInputElement>) => setLeaveAllowanceDays(e.target.value === '' ? '' : parseInt(e.target.value, 10))} /></td>
-      <td className="p-2"><input type="number" step="0.1" className="w-24 border rounded px-2 py-1" value={workingDayHours} onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkingDayHours(e.target.value === '' ? '' : parseFloat(e.target.value))} /></td>
+      <td className="p-2"><input type="number" className="w-24 border rounded px-2 py-1 text-slate-900" value={leaveAllowanceDays} onChange={(e: ChangeEvent<HTMLInputElement>) => setLeaveAllowanceDays(e.target.value === '' ? '' : parseInt(e.target.value, 10))} /></td>
+      <td className="p-2"><input type="number" step="0.1" className="w-24 border rounded px-2 py-1 text-slate-900" value={workingDayHours} onChange={(e: ChangeEvent<HTMLInputElement>) => setWorkingDayHours(e.target.value === '' ? '' : parseFloat(e.target.value))} /></td>
       <td className="p-2 flex gap-2">
         <Button size="sm" disabled={busy} onClick={async () => { setBusy(true); await onChange({ name, canCancelInvoice, canToggleKesildi, canAccessLeavesAdmin, canManageSettings, canManageCashier, canManageKarat, canUseInvoices, canUseExpenses, canViewReports, canPrintLabels, leaveAllowanceDays: leaveAllowanceDays === '' ? null : leaveAllowanceDays, workingDayHours: workingDayHours === '' ? null : workingDayHours }); setBusy(false) }}>Kaydet</Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); await onDelete(); setBusy(false) }}>Sil</Button>

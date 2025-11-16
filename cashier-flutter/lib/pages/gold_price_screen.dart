@@ -49,6 +49,7 @@ class _GoldPriceScreenState extends State<GoldPriceScreen>
   static const endpoint = 'https://canlipiyasalar.haremaltin.com/tmp/altin.json';
   Future<_GoldPayload>? _future;
   Timer? _timer;
+  String? _statusMessage;
 
   @override
   void initState() {
@@ -70,6 +71,7 @@ class _GoldPriceScreenState extends State<GoldPriceScreen>
   }
 
   Future<_GoldPayload> _load() async {
+    await _refreshStatus();
     final settingsSvc = SettingsService(widget.api);
     final milyem = await settingsSvc.getMilyem();
     final calc = await settingsSvc.getCalcSettings();
@@ -109,12 +111,41 @@ for (final e in data.entries) {
     return _GoldPayload(metaTarih: metaTarih, items: items, precision: calc.decimalPrecision);
   }
 
+  Future<void> _refreshStatus() async {
+    const warning = 'Şu anda güncel fiyatları çekilemiyor.';
+    try {
+      final status = await widget.api.getJson('/api/pricing/status');
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = status['hasAlert'] == true ? warning : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = warning;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(title: const Text('İstanbul Kapalıçarşı Fiyatları')),
-      body: RefreshIndicator(
+      body: Column(
+        children: [
+          if (_statusMessage != null)
+            Container(
+              width: double.infinity,
+              color: Colors.red.shade50,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Text(
+                _statusMessage!,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red),
+              ),
+            ),
+          Expanded(
+            child: RefreshIndicator(
         onRefresh: () async { setState(() { _future = _load(); }); await _future; },
         child: FutureBuilder<_GoldPayload>(
           future: _future,
@@ -252,6 +283,9 @@ for (final e in data.entries) {
           },
         ),
       ),
+    ),
+  ],
+),
     );
   }
 }
@@ -326,4 +360,3 @@ class _MarqueeState extends State<_Marquee> with SingleTickerProviderStateMixin 
     });
   }
 }
-
