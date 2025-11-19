@@ -1,6 +1,6 @@
 ﻿"use client"
 import { t } from '@/lib/i18n'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Expense, formatDateTimeTr } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,228 @@ type Filters = {
   start?: string
   end?: string
   q: string
+}
+
+const TURKISH_UNITS = ['sıfır', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz']
+const TURKISH_TENS = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan']
+const TURKISH_SCALES = ['', 'bin', 'milyon', 'milyar']
+
+function convertUnderThousand(value: number): string {
+  const parts: string[] = []
+  const hundreds = Math.floor(value / 100)
+  const tens = Math.floor((value % 100) / 10)
+  const ones = value % 10
+  if (hundreds) {
+    parts.push(hundreds === 1 ? 'yüz' : `${TURKISH_UNITS[hundreds]} yüz`)
+  }
+  if (tens) {
+    parts.push(TURKISH_TENS[tens])
+  }
+  if (ones) {
+    parts.push(TURKISH_UNITS[ones])
+  }
+  return parts.join(' ')
+}
+
+function convertNumberToTurkishWords(value: number): string {
+  if (!Number.isFinite(value)) return ''
+  if (value === 0) return 'sıfır'
+  const parts: string[] = []
+  let remaining = value
+  let scaleIndex = 0
+  while (remaining > 0) {
+    const chunk = remaining % 1000
+    if (chunk) {
+      const prefix = convertUnderThousand(chunk)
+      const scale = TURKISH_SCALES[scaleIndex]
+      let text = prefix
+      if (scale) {
+        if (scale === 'bin' && chunk === 1) {
+          text = 'bin'
+        } else {
+          text = [prefix, scale].filter(Boolean).join(' ')
+        }
+      }
+      parts.unshift(text)
+    }
+    remaining = Math.floor(remaining / 1000)
+    scaleIndex += 1
+  }
+  return parts.join(' ')
+}
+
+function toTurkishWords(value: number): string {
+  if (!Number.isFinite(value)) return ''
+  if (value < 0) return `eksi ${toTurkishWords(-value)}`
+  const integerPart = Math.floor(value)
+  const fraction = Math.round((value - integerPart) * 100)
+  const integerText = convertNumberToTurkishWords(integerPart) || 'sıfır'
+  const fractionText = fraction ? ` ${convertNumberToTurkishWords(fraction)} kuruş` : ''
+  return `${integerText} TL${fractionText}`
+}
+
+function normalizeAyar(value?: Expense['altinAyar']): 22 | 24 | null {
+  if (value === 22 || value === 'Ayar22') return 22
+  if (value === 24 || value === 'Ayar24') return 24
+  return null
+}
+
+function formatDayMonthYear(input?: string | null): string {
+  if (!input) return ''
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(input)
+  const parsed = dateOnly ? new Date(`${input}T00:00:00`) : new Date(input)
+  if (Number.isNaN(parsed.getTime())) return input
+  const dd = String(parsed.getDate()).padStart(2, '0')
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0')
+  const yyyy = parsed.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
+}
+
+type ExpensePreviewValues = {
+  no: string
+  tarih: string
+  tutar: string
+  tutar1: string
+  tutar2: string
+  isim: string
+  adres: string
+  vergi: string
+}
+
+function ExpensePreviewCard({ values }: { values: ExpensePreviewValues }) {
+  const objectRef = useRef<HTMLObjectElement | null>(null)
+  const applyValues = useCallback(() => {
+    const doc = objectRef.current?.contentDocument
+    if (!doc) return
+    const map: [string, string][] = [
+      ['field-tarih', values.tarih],
+      ['field-no', values.no],
+      ['field-tutar', values.tutar],
+      ['field-tutar1', values.tutar1],
+      ['field-tutar2', values.tutar2],
+      ['field-isim', values.isim],
+      ['field-adres', values.adres],
+      ['field-vergi', values.vergi]
+    ]
+    map.forEach(([id, text]) => {
+      const el = doc.getElementById(id)
+      if (el) el.textContent = text
+    })
+  }, [values])
+
+  useEffect(() => {
+    const obj = objectRef.current
+    if (!obj) return
+    const handleLoad = () => {
+      applyValues()
+    }
+    obj.addEventListener('load', handleLoad)
+    applyValues()
+    return () => {
+      obj.removeEventListener('load', handleLoad)
+    }
+  }, [applyValues])
+
+  return (
+    <>
+      <div className="gp-preview">
+        <object
+          ref={objectRef}
+          data="/eren-template.svg"
+          type="image/svg+xml"
+          aria-label="Gider pusulası önizlemesi"
+        />
+      </div>
+      <style jsx>{`
+        .gp-preview {
+          background: #f4f4f4;
+          padding: 20px;
+          display: flex;
+          justify-content: center;
+          align-items: flex-start;
+        }
+        .gp-preview object {
+          width: 148mm;
+          height: 210mm;
+          border: none;
+          background: #fff;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+        }
+      `}</style>
+    </>
+  )
+}
+
+function buildPrintHtml(values: ExpensePreviewValues): string {
+  const docData = JSON.stringify(values)
+  return `
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Gider Pusulası</title>
+  <style>
+    body {
+      margin: 0;
+      background: #ccc;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 20px;
+    }
+    object {
+      width: 148mm;
+      height: 210mm;
+      border: none;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <object id="gpTpl" data="/eren-template.svg" type="image/svg+xml"></object>
+  <script>
+    const docData = ${docData};
+    const fieldMap = [
+      ['field-tarih', 'tarih'],
+      ['field-no', 'no'],
+      ['field-tutar', 'tutar'],
+      ['field-tutar1', 'tutar1'],
+      ['field-tutar2', 'tutar2'],
+      ['field-isim', 'isim'],
+      ['field-adres', 'adres'],
+      ['field-vergi', 'vergi']
+    ];
+    const obj = document.getElementById('gpTpl');
+    function fill() {
+      const svg = obj?.contentDocument;
+      if (!svg) return;
+      fieldMap.forEach(([id, key]) => {
+        const el = svg.getElementById(id);
+        if (el) el.textContent = docData[key] ?? '';
+      });
+    }
+    obj?.addEventListener('load', () => {
+      fill();
+      setTimeout(() => {
+        window.print();
+        window.onafterprint = () => window.close();
+      }, 200);
+    });
+    fill();
+  </script>
+</body>
+</html>
+  `.trim();
+}
+
+function triggerPrint(values: ExpensePreviewValues) {
+  if (typeof window === 'undefined') return
+  const html = buildPrintHtml(values)
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) return
+  printWindow.document.open()
+  printWindow.document.write(html)
+  printWindow.document.close()
 }
 
 export default function ExpensesPage() {
@@ -35,6 +257,8 @@ export default function ExpensesPage() {
   const [urunFiyati, setUrunFiyati] = useState<string>('') 
   const [copied, setCopied] = useState<string | null>(null)
   const [pricingAlert, setPricingAlert] = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [customAmountWords, setCustomAmountWords] = useState('')
   async function copy(key: string, text: string) {
     try {
       const s = (text ?? '').toString().trim()
@@ -115,6 +339,15 @@ export default function ExpensesPage() {
     return () => { mounted = false }
   }, [])
 
+  useEffect(() => {
+    if (!selected) {
+      setCustomAmountWords('')
+      setPreviewOpen(false)
+      return
+    }
+    setCustomAmountWords(toTurkishWords(Number(selected.tutar || 0)))
+  }, [selected])
+
   const filtered = useMemo(() => {
     const all = (data || []).filter(x => showAll ? true : !(x.kesildi ?? false))
     return all.filter((x) => {
@@ -130,8 +363,42 @@ export default function ExpensesPage() {
     })
   }, [data, filters, showAll])
 
+  const expenseDetails = useMemo(() => {
+    if (!selected) return null
+    const ayarNumber = normalizeAyar(selected.altinAyar)
+    const has = Number(selected.altinSatisFiyati || 0)
+    const ay22 = ayarNumber === 22
+    const saf = r2(has * (ay22 ? 0.916 : 0.995))
+    const yeni = r2(Number(selected.tutar || 0) * (ay22 ? 0.99 : 0.998))
+    const gram = saf ? r2(yeni / saf) : 0
+    const altinHizmet = r2(gram * saf)
+    const iscilikKdvli = r2(r2(Number(selected.tutar || 0)) - altinHizmet)
+    const isc = r2(iscilikKdvli / 1.2)
+    return { saf, yeni, gram, isc, ayarNumber }
+  }, [selected])
+
   const total = useMemo(() => filtered.reduce((a, b) => a + Number(b.tutar), 0), [filtered])
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  const previewValues = useMemo(() => {
+    if (!selected) return null
+    const formattedDate = formatDayMonthYear(selected.finalizedAt ?? selected.tarih)
+    const ayarNum = expenseDetails?.ayarNumber ?? null
+    const gramValue = expenseDetails?.gram ?? 0
+    const goldDetail = (gramValue > 0 && ayarNum)
+      ? `${gramValue.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} gram ${ayarNum} ALTIN`
+      : '-----'
+    const amountWords = customAmountWords.trim() || '-----'
+    return {
+      no: String(selected.siraNo ?? 0).padStart(4, '0'),
+      tarih: formattedDate,
+      tutar: `# ${Number(selected.tutar || 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })} #`,
+      tutar1: amountWords,
+      tutar2: goldDetail,
+      isim: selected.musteriAdSoyad || '-',
+      adres: selected.kasiyerAdSoyad || 'SİLİVRİ',
+      vergi: selected.tckn || '-'
+    }
+  }, [selected, expenseDetails, customAmountWords])
 
   async function toggleStatus(exp: Expense) {
     try {
@@ -149,6 +416,17 @@ export default function ExpensesPage() {
     setModalOpen(true)
   }
   function closeModal() { setModalOpen(false); setSelected(null); setUrunFiyati('') }
+
+  async function handlePrimaryAction() {
+    if (!selected) return
+    if (selected.kesildi) {
+      await toggleStatus(selected)
+      closeModal()
+      return
+    }
+    setPreviewOpen(true)
+  }
+
   async function cancelExpense(exp: Expense) {
     if (!exp || exp.kesildi) return false
     const ok = typeof window !== 'undefined' ? window.confirm('Bu gideri iptal edip veritabanından silmek istiyor musunuz?') : true
@@ -161,6 +439,16 @@ export default function ExpensesPage() {
       setError('Gider silinemedi')
       return false
     }
+  }
+
+  async function handleConfirmPreviewSend() {
+    if (!selected) return
+    await toggleStatus(selected)
+    if (previewValues) {
+      triggerPrint(previewValues)
+    }
+    setPreviewOpen(false)
+    closeModal()
   }
 
   return (
@@ -293,66 +581,47 @@ export default function ExpensesPage() {
                           </button>
                         ) : null}
                       </div>
-                      {(() => {
-                        const r2 = (n: number) => Math.round(n * 100) / 100
-                        const has = Number(selected.altinSatisFiyati || 0)
-                        const ay22 = ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22')
-                        const rawSaf = has * (ay22 ? 0.916 : 0.995)
-                        const u = Number(selected.tutar || 0)
-                        const rawYeni = u * (ay22 ? 0.99 : 0.998)
-                        const saf = r2(rawSaf)
-                        const yeni = r2(rawYeni)
-                        const gram = saf ? r2(yeni / saf) : 0
-                        const altinHizmet = r2(gram * saf)
-                        const iscilikKdvli = r2(r2(u) - altinHizmet)
-                        const isc = r2(iscilikKdvli / 1.20)
-                        return (
-                          <div className="mt-2 space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div>Saf Altın Değeri: <b>{saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                              {saf ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'saf' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('saf', String(saf))}>
-                                  {copied === 'saf' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>Yeni Ürün Fiyatı: <b>{yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                              {yeni ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('yeni', String(yeni))}>
-                                  {copied === 'yeni' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>Gram Değeri: <b>{gram.toLocaleString('tr-TR')}</b></div>
-                              {gram ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'gram' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('gram', String(gram))}>
-                                  {copied === 'gram' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>İşçilik (KDV&apos;siz): <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                              {isc ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'isc' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('isc', String(isc))}>
-                                  {copied === 'isc' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
+                      {expenseDetails ? (
+                        <div className="mt-2 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>Saf Altın Değeri: <b>{expenseDetails.saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            {expenseDetails.saf ? (
+                              <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'saf' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('saf', String(expenseDetails.saf))}>
+                                {copied === 'saf' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                              </button>
+                            ) : null}
                           </div>
-                        )
-                      })()}
+                          <div className="flex items-center justify-between gap-2">
+                            <div>Yeni Ürün Fiyatı: <b>{expenseDetails.yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            {expenseDetails.yeni ? (
+                              <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('yeni', String(expenseDetails.yeni))}>
+                                {copied === 'yeni' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div>Gram Değeri: <b>{expenseDetails.gram.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</b></div>
+                            {expenseDetails.gram ? (
+                              <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'gram' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('gram', String(expenseDetails.gram))}>
+                                {copied === 'gram' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div>İşçilik (KDV&apos;siz): <b>{expenseDetails.isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                            {expenseDetails.isc ? (
+                              <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'isc' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('isc', String(expenseDetails.isc))}>
+                                {copied === 'isc' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>
                       {canToggle && selected && (
-                        <Button
-                          onClick={async () => {
-                            await toggleStatus(selected)
-                            closeModal()
-                          }}
-                        >
+                        <Button onClick={handlePrimaryAction}>
                           {selected.kesildi ? 'Geri Al' : 'Gönder'}
                         </Button>
                       )}
@@ -367,6 +636,31 @@ export default function ExpensesPage() {
                           İptal Et
                         </Button>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {previewOpen && selected && previewValues && (
+                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center px-4">
+                  <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white/95 p-5 shadow-2xl dark:bg-slate-900 dark:text-white">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">Gönderi Önizlemesi</h3>
+                      <Button variant="ghost" size="sm" onClick={() => setPreviewOpen(false)}>Kapat</Button>
+                    </div>
+                    <Label className="mt-3 text-sm text-muted-foreground">Tutar yazı ile</Label>
+                    <textarea
+                      className="mt-1 h-16 w-full rounded border border-border px-3 py-2 text-sm text-slate-900 focus:border-primary focus:outline-none dark:border-border dark:bg-slate-900 dark:text-white"
+                      rows={2}
+                      value={customAmountWords}
+                      onChange={(e) => setCustomAmountWords(e.target.value)}
+                    />
+                    <div className="mt-4">
+                      <ExpensePreviewCard values={previewValues} />
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                      <Button variant="outline" onClick={() => setPreviewOpen(false)}>Geri</Button>
+                      <Button onClick={handleConfirmPreviewSend}>Gönder ve Kaydet</Button>
                     </div>
                   </div>
                 </div>

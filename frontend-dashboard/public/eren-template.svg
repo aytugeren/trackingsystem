@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 595.5 842.25">
+
+  <!-- Arka plan -->
+  <image href="EREN.svg"
+         x="0" y="0"
+         width="595.5" height="842.25" />
+
+  <!-- DİNAMİK ALANLAR (EDGE İÇİN %100 HİZALANMIŞ) -->
+
+  <!-- Tarih -->
+  <text id="field-tarih"
+        data-field="tarih"
+        x="375" y="285"
+        font-family="Arial"
+        font-size="12"
+        fill="#000">
+    16/11/2025
+  </text>
+
+  <!-- Sıra No -->
+  <text id="field-no"
+        data-field="no"
+        x="405" y="320"
+        font-family="Arial"
+        font-size="12"
+        font-weight="bold"
+        fill="#000">
+    0012
+  </text>
+
+  <!-- Tutar yazısı 1 (Yukarıdaki uzun satır) -->
+  <text id="field-tutar"
+        data-field="tutar"
+        x="150" y="326"
+        font-family="Arial"
+        font-size="12"
+        fill="#000">
+    # 1 200 000 #
+  </text>
+
+  <!-- Tutar yazısı 1 (Yukarıdaki uzun satır) -->
+  <text id="field-tutar1"
+        data-field="tutar1"
+        x="200" y="375"
+        font-family="Arial"
+        font-size="12"
+        fill="#000">
+    BİR MİLYON İKİ YÜZ BİN
+  </text>
+
+  <!-- Tutar yazısı 2 -->
+  <text id="field-tutar2"
+        data-field="tutar2"
+        x="165" y="397"
+        font-family="Arial"
+        font-size="12"
+        fill="#000">
+    260,54 gram 24 ayar ALTIN
+  </text>
+
+  <!-- Parayı alan kişi -->
+  <text id="field-isim"
+        data-field="isim"
+        x="320" y="565"
+        font-family="Arial"
+        font-size="12"
+        font-weight="bold"
+        fill="#000">
+    AYTUĞ BURAK EREN
+  </text>
+
+  <!-- Adres -->
+  <text id="field-adres"
+        data-field="adres"
+        x="320" y="610"
+        font-family="Arial"
+        font-size="12"
+        fill="#000">
+    Silivri / İstanbul
+  </text>
+
+  <!-- Vergi No -->
+  <text id="field-vergi"
+        data-field="vergi"
+        x="320" y="655"
+        font-family="Arial"
+        font-size="12"
+        fill="#000">
+    15221400454
+  </text>
+
+</svg>
