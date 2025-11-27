@@ -38,6 +38,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
       final items = await LeaveService(widget.api).listLeaves(from: start, to: end);
       if (!mounted) return;
       setState(() => _leaves = items);
+    } catch (_) {
+      if (!mounted) return;
+      _show('İzin listesi alınamadı');
+      setState(() => _leaves = const []);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -183,6 +187,12 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
   void _show(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
 }
 
 Color _statusColor(String status) {
@@ -306,4 +316,3 @@ class _Calendar extends StatelessWidget {
     );
   }
 }
-

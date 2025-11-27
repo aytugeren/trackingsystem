@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -49,6 +49,9 @@ class _GoldPriceScreenState extends State<GoldPriceScreen>
   static const endpoint = 'https://canlipiyasalar.haremaltin.com/tmp/altin.json';
   Future<_GoldPayload>? _future;
   Timer? _timer;
+  final http.Client _client = http.Client();
+  bool _refreshing = false;
+  DateTime? _lastStatusCheck;
   String? _statusMessage;
 
   @override
@@ -56,62 +59,71 @@ class _GoldPriceScreenState extends State<GoldPriceScreen>
     super.initState();
     _future = _load();
     _timer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) {
-        setState(() {
-          _future = _load();
-        });
-      }
+      if (!mounted || _refreshing) return;
+      setState(() {
+        _future = _load();
+      });
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _client.close();
     super.dispose();
   }
 
   Future<_GoldPayload> _load() async {
-    await _refreshStatus();
-    final settingsSvc = SettingsService(widget.api);
-    final milyem = await settingsSvc.getMilyem();
-    final calc = await settingsSvc.getCalcSettings();
-    final resp = await http.get(Uri.parse(endpoint));
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw Exception('HTTP ${resp.statusCode}');
+    if (_refreshing) {
+      return _future ?? Future.error('Yenileme devam ediyor');
     }
-    final json = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-    final metaTarih = json['meta']?['tarih']?.toString() ?? '';
-    final data = (json['data'] as Map<String, dynamic>);
-    final items = <GoldItem>[];
-for (final e in data.entries) {
-  if (e.value is Map<String, dynamic>) {
-    final raw = GoldItem.fromJson(e.key, e.value as Map<String, dynamic>);
-    double satis = raw.satis;
+    _refreshing = true;
+    try {
+      await _refreshStatusIfNeeded();
+      final settingsSvc = SettingsService(widget.api);
+      final calc = await settingsSvc.getCalcSettings();
+      final resp = await _client.get(Uri.parse(endpoint)).timeout(const Duration(seconds: 10));
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw Exception('HTTP ${resp.statusCode}');
+      }
+      final json = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final metaTarih = json['meta']?['tarih']?.toString() ?? '';
+      final data = (json['data'] as Map<String, dynamic>);
+      final items = <GoldItem>[];
+      for (final e in data.entries) {
+        if (e.value is Map<String, dynamic>) {
+          final raw = GoldItem.fromJson(e.key, e.value as Map<String, dynamic>);
+          double satis = raw.satis;
 
-    if (calc.defaultKariHesapla) {
-      final margin = 1.0 + (calc.karMargin / 100.0);
-      satis *= margin;
+          if (calc.defaultKariHesapla) {
+            final margin = 1.0 + (calc.karMargin / 100.0);
+            satis *= margin;
+          }
+
+          if (calc.includeTax) {
+            satis *= (1.0 + (calc.taxRate / 100.0));
+          }
+
+          items.add(GoldItem(
+            code: raw.code,
+            alis: raw.alis,
+            satis: satis,
+            tarih: raw.tarih,
+            alisDir: raw.alisDir,
+            satisDir: raw.satisDir,
+          ));
+        }
+      }
+
+      return _GoldPayload(metaTarih: metaTarih, items: items, precision: calc.decimalPrecision);
+    } finally {
+      _refreshing = false;
     }
-
-    if (calc.includeTax) {
-      satis *= (1.0 + (calc.taxRate / 100.0));
-    }
-
-    items.add(GoldItem(
-      code: raw.code,
-      alis: raw.alis,
-      satis: satis,
-      tarih: raw.tarih,
-      alisDir: raw.alisDir,
-      satisDir: raw.satisDir,
-    ));
   }
-}
 
-    return _GoldPayload(metaTarih: metaTarih, items: items, precision: calc.decimalPrecision);
-  }
-
-  Future<void> _refreshStatus() async {
+  Future<void> _refreshStatusIfNeeded() async {
+    final now = DateTime.now();
+    if (_lastStatusCheck != null && now.difference(_lastStatusCheck!) < const Duration(minutes: 1)) return;
     const warning = 'Şu anda güncel fiyatları çekilemiyor.';
     try {
       final status = await widget.api.getJson('/api/pricing/status');
@@ -125,6 +137,7 @@ for (final e in data.entries) {
         _statusMessage = warning;
       });
     }
+    _lastStatusCheck = now;
   }
 
   @override
@@ -360,3 +373,5 @@ class _MarqueeState extends State<_Marquee> with SingleTickerProviderStateMixin 
     });
   }
 }
+
+

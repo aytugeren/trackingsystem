@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../api/auth_service.dart';
 
@@ -72,13 +72,18 @@ class _LoginPageState extends State<LoginPage> {
     try {
       await AuthService(widget.api).login(_email.text.trim(), _password.text);
       widget.onLoggedIn();
-    } catch (e) {
-      setState(() => _error = 'Giriş başarısızŸarÄ±sÄ±z. Bilgileri kontrol edin.');
+    } catch (_) {
+      setState(() => _error = 'Giriş başarısız. Bilgileri kontrol edin.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
 }
-
-
 

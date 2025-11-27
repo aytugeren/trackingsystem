@@ -8,8 +8,12 @@ class ApiClient {
   static const _defaultBase = String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:8080');
   final String baseUrl;
   String? _token;
+  final http.Client _client;
+  static const _timeout = Duration(seconds: 20);
 
-  ApiClient({String? baseUrl}) : baseUrl = (baseUrl ?? _defaultBase).replaceAll(RegExp(r'/+$'), '');
+  ApiClient({String? baseUrl, http.Client? client})
+      : baseUrl = (baseUrl ?? _defaultBase).replaceAll(RegExp(r'/+$'), ''),
+        _client = client ?? http.Client();
 
   Future<void> loadToken() async {
     final sp = await SharedPreferences.getInstance();
@@ -47,7 +51,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> postJson(String path, Map<String, dynamic> body, {Map<String, dynamic>? query}) async {
-    final resp = await http.post(_uri(path, query), headers: _headers(), body: jsonEncode(body));
+    final resp = await _client.post(_uri(path, query), headers: _headers(), body: jsonEncode(body)).timeout(_timeout);
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -55,7 +59,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getJson(String path, {Map<String, dynamic>? query}) async {
-    final resp = await http.get(_uri(path, query), headers: _headers());
+    final resp = await _client.get(_uri(path, query), headers: _headers()).timeout(_timeout);
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -63,15 +67,19 @@ class ApiClient {
   }
 
   Future<void> putJson(String path, Map<String, dynamic> body) async {
-    final resp = await http.put(_uri(path), headers: _headers(), body: jsonEncode(body));
+    final resp = await _client.put(_uri(path), headers: _headers(), body: jsonEncode(body)).timeout(_timeout);
     if (resp.statusCode >= 200 && resp.statusCode < 300) return;
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
 
   Future<void> delete(String path) async {
-    final resp = await http.delete(_uri(path), headers: _headers());
+    final resp = await _client.delete(_uri(path), headers: _headers()).timeout(_timeout);
     if (resp.statusCode >= 200 && resp.statusCode < 300) return;
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
+  }
+
+  void dispose() {
+    _client.close();
   }
 
   static Map<String, dynamic> _safeDecode(List<int> bytes) {

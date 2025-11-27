@@ -24,6 +24,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -31,22 +32,28 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final svc = ProfileService(widget.api);
       final me = await svc.getMe();
-      _me = me;
+      List<LeaveItem> leaves = const [];
       if (me?.email != null && me!.email!.isNotEmpty) {
         final now = DateTime.now();
         final start = DateTime(now.year, 1, 1);
         final end = DateTime(now.year, 12, 31);
         final all = await LeaveService(widget.api).listLeaves(from: start, to: end);
-        _myLeaves = all.where((l) => l.user == me.email).toList();
-      } else {
-        _myLeaves = const [];
+        leaves = all.where((l) => l.user == me.email).toList();
       }
-      setState(() {});
-    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _me = me;
+        _myLeaves = leaves;
+      });
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _error = 'Profil alınamadı';
+        _me = null;
+        _myLeaves = const [];
       });
     } finally {
+      if (!mounted) return;
       setState(() {
         _loading = false;
       });
@@ -85,7 +92,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             const SizedBox(height: 8),
                             _InfoRow(label: 'Rol', value: _me!.role ?? '-'),
                             const SizedBox(height: 8),
-                            _InfoRow(label: 'Yıllık İzin Hakkı (gün)', value: _me!.allowanceDays.toString()),
+                            _InfoRow(label: 'Yıllık izin hakkı (gün)', value: _me!.allowanceDays.toString()),
                             const SizedBox(height: 8),
                             _InfoRow(label: 'Kullanılan (gün)', value: _me!.usedDays.toStringAsFixed(2)),
                             const SizedBox(height: 8),
@@ -160,3 +167,4 @@ Color _statusColor(String status) {
       return Colors.amber;
   }
 }
+

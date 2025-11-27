@@ -80,8 +80,8 @@ class _HomePageState extends State<HomePage> {
       final cfg = await widget.api.getJson('/api/settings/karat');
       final thr = (cfg['alertThreshold'] as num?)?.toDouble() ?? 1000.0;
       // Load latest invoices/expenses page
-      final inv = await widget.api.getJson('/api/invoices', query: { 'page': 1, 'pageSize': 500 });
-      final exp = await widget.api.getJson('/api/expenses', query: { 'page': 1, 'pageSize': 500 });
+      final inv = await widget.api.getJson('/api/invoices', query: { 'page': 1, 'pageSize': 200 });
+      final exp = await widget.api.getJson('/api/expenses', query: { 'page': 1, 'pageSize': 200 });
       final itemsInv = (inv['items'] as List?) ?? const [];
       final itemsExp = (exp['items'] as List?) ?? const [];
       final now = DateTime.now();
@@ -156,7 +156,7 @@ class _HomePageState extends State<HomePage> {
                 IconButton(
                   onPressed: () async {
                     await widget.onLogout();
-                    if (mounted) Navigator.of(context).pop();
+                    if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
                   },
                   icon: const Icon(Icons.logout),
                   tooltip: 'Çıkış',
@@ -544,7 +544,7 @@ class _HomePageState extends State<HomePage> {
         actions: [
           TextButton(onPressed: () async {
             final id = invDraftId; // cancel preview and delete draft
-            Navigator.of(context).pop();
+            Navigator.of(context).popUntil((route) => route.isFirst);
             if (id != null) { try { await InvoiceService(widget.api).deleteIfNotKesildi(id); } catch (_) {} }
             setState(() { invDraftId = null; invPredictedSira = null; invAltinSatis = null; });
           }, child: const Text('İptal')),
@@ -555,7 +555,7 @@ class _HomePageState extends State<HomePage> {
               await InvoiceService(widget.api).finalize(id);
               if (!mounted) return;
               setState(() { invResult = 'Kesildi: Sıra No $invPredictedSira'; });
-              Navigator.of(context).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
               setState(() { invDraftId = null; invPredictedSira = null; invAltinSatis = null; });
             } catch (e) {
               _showError('Fatura kesilemedi');
@@ -593,7 +593,7 @@ class _HomePageState extends State<HomePage> {
         actions: [
           TextButton(onPressed: () async {
             final id = expDraftId;
-            Navigator.of(context).pop();
+            Navigator.of(context).popUntil((route) => route.isFirst);
             if (id != null) { try { await ExpenseService(widget.api).deleteIfNotKesildi(id); } catch (_) {} }
             setState(() { expDraftId = null; expPredictedSira = null; expAltinSatis = null; });
           }, child: const Text('İptal')),
@@ -604,7 +604,7 @@ class _HomePageState extends State<HomePage> {
               await ExpenseService(widget.api).finalize(id);
               if (!mounted) return;
               setState(() { expResult = 'Kesildi: Sıra No $expPredictedSira'; });
-              Navigator.of(context).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
               setState(() { expDraftId = null; expPredictedSira = null; expAltinSatis = null; });
             } catch (e) {
               _showError('Gider kesilemedi');
@@ -629,6 +629,17 @@ class _HomePageState extends State<HomePage> {
   double? _parseAmount(String s) {
     final cleaned = s.replaceAll('.', '').replaceAll(',', '.');
     return double.tryParse(cleaned);
+  }
+
+  @override
+  void dispose() {
+    invName.dispose();
+    invTckn.dispose();
+    invTutar.dispose();
+    expName.dispose();
+    expTckn.dispose();
+    expTutar.dispose();
+    super.dispose();
   }
 
   // Compute and render derived preview metrics (saf altın, yeni ürün, gram, işçilik)
@@ -703,3 +714,6 @@ class TurkishUppercaseTextFormatter extends TextInputFormatter {
     return TextEditingValue(text: up, selection: TextSelection.collapsed(offset: safeOffset));
   }
 }
+
+
+

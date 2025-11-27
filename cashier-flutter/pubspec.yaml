@@ -1,22 +1,22 @@
 name: cashier_flutter
-description: Kasiyer uygulamasının Flutter sürümü (Kuyumculuk Takip Programı)
+description: Kuyumculuk kasiyer uygulaması
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: ">=3.10.1 <4.0.0"
 
 dependencies:
-  flutter: { sdk: flutter }
-  cupertino_icons: ^1.0.6
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   http: ^1.2.2
-  shared_preferences: ^2.2.3
-  intl: ^0.19.0
+  shared_preferences: ^2.3.2
+  intl: ^0.20.2
+  flutter_riverpod: ^2.5.1   # basit global state/token yönetimi için
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
-
-flutter:
-  uses-material-design: true
+  flutter_lints: ^5.0.0

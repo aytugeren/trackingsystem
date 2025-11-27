@@ -26,28 +26,23 @@ class LeaveService {
   LeaveService(this._api);
 
   Future<List<LeaveItem>> listLeaves({DateTime? from, DateTime? to}) async {
-    try {
-      final query = <String, dynamic>{};
-      if (from != null) {
-        final y = from.year.toString().padLeft(4, '0');
-        final m = from.month.toString().padLeft(2, '0');
-        final d = from.day.toString().padLeft(2, '0');
-        query['from'] = '$y-$m-$d';
-      }
-      if (to != null) {
-        final y = to.year.toString().padLeft(4, '0');
-        final m = to.month.toString().padLeft(2, '0');
-        final d = to.day.toString().padLeft(2, '0');
-        query['to'] = '$y-$m-$d';
-      }
-      final json = await _api.getJson('/api/leaves', query: query.isEmpty ? null : query);
-      final items = (json['items'] as List<dynamic>? ?? const [])
-          .map((e) => LeaveItem.fromJson(e as Map<String, dynamic>))
-          .toList();
-      return items;
-    } catch (_) {
-      return const [];
+    final query = <String, dynamic>{};
+    if (from != null) {
+      final y = from.year.toString().padLeft(4, '0');
+      final m = from.month.toString().padLeft(2, '0');
+      final d = from.day.toString().padLeft(2, '0');
+      query['from'] = '$y-$m-$d';
     }
+    if (to != null) {
+      final y = to.year.toString().padLeft(4, '0');
+      final m = to.month.toString().padLeft(2, '0');
+      final d = to.day.toString().padLeft(2, '0');
+      query['to'] = '$y-$m-$d';
+    }
+    final json = await _api.getJson('/api/leaves', query: query.isEmpty ? null : query);
+    return (json['items'] as List<dynamic>? ?? const [])
+        .map((e) => LeaveItem.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> createLeave(DateTime from, DateTime to, String reason, {String? fromTime, String? toTime}) async {

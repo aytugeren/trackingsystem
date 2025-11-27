@@ -19,7 +19,9 @@ class MainMenuPage extends StatelessWidget {
           IconButton(
             onPressed: () async {
               await onLogout();
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
             },
             icon: const Icon(Icons.logout),
             tooltip: 'Çıkış',
@@ -121,4 +123,3 @@ class _OldLeaveRequestPage extends StatelessWidget {
     );
   }
 }
-
