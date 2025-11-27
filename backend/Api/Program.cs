@@ -594,7 +594,7 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
 }).WithTags("Expenses").RequireAuthorization();
 
 // Cashier: create draft invoice with definitive, gapless SiraNo
-app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbContext db, MarketDbContext mdb, IHttpClientFactory httpFactory, IConfiguration cfg, HttpContext http, CancellationToken ct) =>
+app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbContext db, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
 {
     try
     {
@@ -639,54 +639,16 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
         };
 
         // Stamp current ALTIN final sell price (per ayar margin)
-        decimal? finalSatisFromLive = null; DateTime? sourceTimeFromLive = null;
-        try
-        {
-            var url = cfg["Pricing:FeedUrl"] ?? "https://canlipiyasalar.haremaltin.com/tmp/altin.json";
-            var lang = cfg["Pricing:LanguageParam"] ?? "tr";
-            var client = httpFactory.CreateClient();
-            using var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
-            if (resp.IsSuccessStatusCode)
-            {
-                var json = await resp.Content.ReadAsStringAsync(ct);
-                if (TryParseAltin(json, out var alis, out var satis, out var srcTime))
-                {
-                    var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
-                    var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
-                                  ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
-                    var finalSatis = satis + setting.MarginSell;
-                    finalSatisFromLive = finalSatis; sourceTimeFromLive = srcTime;
-                    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == "ALTIN" && x.SourceTime == srcTime, ct);
-                    if (!exists)
-                    {
-                        mdb.PriceRecords.Add(new PriceRecord
-                        {
-                            Id = Guid.NewGuid(), Code = "ALTIN", Alis = alis, Satis = satis,
-                            SourceTime = DateTime.SpecifyKind(srcTime, DateTimeKind.Utc),
-                            FinalAlis = alis + setting.MarginBuy, FinalSatis = finalSatis, CreatedAt = DateTime.UtcNow
-                        });
-                        await mdb.SaveChangesAsync(ct);
-                    }
-                }
-            }
-        }
-        catch { }
-        if (finalSatisFromLive.HasValue)
-            entity.AltinSatisFiyati = finalSatisFromLive.Value;
-        else
-        {
-            var latestStored = await mdb.PriceRecords
-                .Where(x => x.Code == "ALTIN")
-                .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
-                .FirstOrDefaultAsync(ct);
-            if (latestStored is not null)
-            {
-                var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
-                var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
-                              ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
-                entity.AltinSatisFiyati = latestStored.Satis + setting.MarginSell;
-            }
-        }
+        var latestStored = await mdb.PriceRecords
+            .Where(x => x.Code == "ALTIN")
+            .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (latestStored is null)
+            return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
+        var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
+        var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
+                      ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
+        entity.AltinSatisFiyati = latestStored.Satis + setting.MarginSell;
 
         db.Invoices.Add(entity);
         await db.SaveChangesAsync(ct);
@@ -700,7 +662,7 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
 }).WithTags("Invoices").RequireAuthorization();
 
 // Cashier: create draft expense with definitive, gapless SiraNo
-app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbContext db, MarketDbContext mdb, IHttpClientFactory httpFactory, IConfiguration cfg, HttpContext http, CancellationToken ct) =>
+app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbContext db, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
 {
     try
     {
@@ -737,58 +699,18 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
             Kesildi = false
         };
 
-        decimal? finalSatisFromLive = null;
-        try
-        {
-            var url = cfg["Pricing:FeedUrl"] ?? "https://canlipiyasalar.haremaltin.com/tmp/altin.json";
-            var lang = cfg["Pricing:LanguageParam"] ?? "tr";
-            var client = httpFactory.CreateClient();
-            using var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
-            if (resp.IsSuccessStatusCode)
-            {
-                var json = await resp.Content.ReadAsStringAsync(ct);
-                if (TryParseAltin(json, out var alis, out var satis, out var srcTime))
-                {
-                    var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
-                    var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
-                                  ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
-                    // For expenses, apply buy margin as a discount from spot sell price
-                    var effective = satis - setting.MarginBuy;
-                    if (effective < 0) effective = 0;
-                    finalSatisFromLive = effective;
-                    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == "ALTIN" && x.SourceTime == srcTime, ct);
-                    if (!exists)
-                    {
-                        mdb.PriceRecords.Add(new PriceRecord
-                        {
-                            Id = Guid.NewGuid(), Code = "ALTIN", Alis = alis, Satis = satis,
-                            SourceTime = DateTime.SpecifyKind(srcTime, DateTimeKind.Utc),
-                            FinalAlis = alis + setting.MarginBuy, FinalSatis = satis + setting.MarginSell, CreatedAt = DateTime.UtcNow
-                        });
-                        await mdb.SaveChangesAsync(ct);
-                    }
-                }
-            }
-        }
-        catch { }
-        if (finalSatisFromLive.HasValue)
-            entity.AltinSatisFiyati = finalSatisFromLive.Value;
-        else
-        {
-            var latestStored = await mdb.PriceRecords
-                .Where(x => x.Code == "ALTIN")
-                .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
-                .FirstOrDefaultAsync(ct);
-            if (latestStored is not null)
-            {
-                var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
-                var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
-                              ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
-                var eff = latestStored.Satis - setting.MarginBuy;
-                if (eff < 0) eff = 0;
-                entity.AltinSatisFiyati = eff;
-            }
-        }
+        var latestStored = await mdb.PriceRecords
+            .Where(x => x.Code == "ALTIN")
+            .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (latestStored is null)
+            return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
+        var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
+        var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
+                      ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
+        var eff = latestStored.Satis - setting.MarginBuy;
+        if (eff < 0) eff = 0;
+        entity.AltinSatisFiyati = eff;
 
         db.Expenses.Add(entity);
         await db.SaveChangesAsync(ct);
@@ -2037,8 +1959,6 @@ public record KaratDiffSettings
 public record UpdateKaratSettingsRequest(KaratRange[] ranges, double alertThreshold);
 
 public record PrintMultiRequest([property: Required] List<string> Values);
-
-
 
 
 
