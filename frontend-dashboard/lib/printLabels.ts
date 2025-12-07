@@ -1,4 +1,4 @@
-const PRINT_BASE = (process.env.NEXT_PUBLIC_API_BASE || '')
+const PRINT_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
 
 export type PrintLabelsResponse = { count: number }
 
@@ -19,9 +19,9 @@ export async function printLabels(values: string[]): Promise<PrintLabelsResponse
   if (!res.ok) {
     const body = await res.text()
     if (res.status === 403) {
-      throw new Error(body || 'Etiket yazdırma yetkiniz bulunmamaktadır.')
+      throw new Error(body || 'Etiket yazdirma yetkiniz bulunmamaktadir.')
     }
-    throw new Error(body || 'Etiket yazdırma isteği başarısız oldu.')
+    throw new Error(body || 'Etiket yazdirma istegi basarisiz oldu.')
   }
 
   if (res.headers.get('content-type')?.includes('application/json')) {
