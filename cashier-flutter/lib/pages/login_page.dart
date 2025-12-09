@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../api/auth_service.dart';
 
@@ -21,7 +21,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Kasiyer Girişi')),
+      appBar: AppBar(title: const Text('Kasiyer Girisi')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -40,9 +40,9 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _password,
-                    decoration: const InputDecoration(labelText: 'Şifre'),
+                    decoration: const InputDecoration(labelText: 'Sifre'),
                     obscureText: true,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Şifre gerekli' : null,
+                    validator: (v) => (v == null || v.isEmpty) ? 'Sifre gerekli' : null,
                   ),
                   const SizedBox(height: 16),
                   if (_error != null)
@@ -52,7 +52,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   FilledButton(
                     onPressed: _loading ? null : _submit,
-                    child: _loading ? const CircularProgressIndicator() : const Text('Giriş Yap'),
+                    child: _loading ? const CircularProgressIndicator() : const Text('Giris Yap'),
                   )
                 ],
               ),
@@ -73,12 +73,18 @@ class _LoginPageState extends State<LoginPage> {
       await AuthService(widget.api).login(_email.text.trim(), _password.text);
       widget.onLoggedIn();
     } catch (e) {
-      setState(() => _error = 'Giriş başarısızŸarÄ±sÄ±z. Bilgileri kontrol edin.');
+      setState(() => _error = _friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  String _friendlyError(Object e) {
+    if (e is ApiError) {
+      final msg = (e.body['message'] ?? e.body['error'] ?? e.body['detail'] ?? '').toString();
+      if (msg.isNotEmpty) return 'Sunucu hatasi (${e.status}): $msg';
+      return 'Sunucu hatasi (${e.status})';
+    }
+    return 'Giris basarisiz. Bilgileri kontrol edin.';
+  }
 }
-
-
-
