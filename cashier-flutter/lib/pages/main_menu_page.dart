@@ -3,6 +3,7 @@ import '../api/api_client.dart';
 import 'gold_price_screen.dart';
 import 'profile_page.dart';
 import 'leave_request_fixed.dart';
+import 'home_page.dart';
 
 class MainMenuPage extends StatelessWidget {
   final ApiClient api;

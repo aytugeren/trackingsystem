@@ -121,3 +121,16 @@ class PricingCurrent {
       );
 }
 
+class GoldPrice {
+  final double price;
+  final DateTime? updatedAt;
+  final String? updatedBy;
+
+  GoldPrice({required this.price, this.updatedAt, this.updatedBy});
+
+  factory GoldPrice.fromJson(Map<String, dynamic> json) => GoldPrice(
+        price: (json['price'] as num).toDouble(),
+        updatedAt: json['updatedAt'] == null ? null : DateTime.parse(json['updatedAt'] as String),
+        updatedBy: json['updatedBy'] as String?,
+      );
+}

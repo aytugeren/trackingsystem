@@ -47,10 +47,9 @@ public class CreateExpenseHandler : ICreateExpenseHandler
         };
 
         var priceData = await _market.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: true, cancellationToken);
-        if (priceData is not null)
-        {
-            entity.AltinSatisFiyati = priceData.Price;
-        }
+        if (priceData is null)
+            throw new ArgumentException("Has Altin fiyatı bulunamadı");
+        entity.AltinSatisFiyati = priceData.Price;
 
         _db.Expenses.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);

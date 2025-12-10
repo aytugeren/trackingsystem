@@ -14,6 +14,7 @@ public class MarketDbContext : DbContext
     public DbSet<InvoiceGoldSnapshot> InvoiceGoldSnapshots => Set<InvoiceGoldSnapshot>();
     public DbSet<GoldFeedAlert> GoldFeedAlerts => Set<GoldFeedAlert>();
     public DbSet<GoldFeedEntry> GoldFeedEntries => Set<GoldFeedEntry>();
+    public DbSet<GlobalGoldPrice> GlobalGoldPrices => Set<GlobalGoldPrice>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,6 +73,16 @@ public class MarketDbContext : DbContext
             e.Property(x => x.Code).HasMaxLength(32);
             e.Property(x => x.FinalSatis).HasPrecision(18, 3);
             e.HasIndex(x => x.InvoiceId).IsUnique();
+        });
+
+        modelBuilder.Entity<GlobalGoldPrice>(e =>
+        {
+            e.ToTable("GlobalGoldPrices");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Price).HasPrecision(18, 3);
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            e.Property(x => x.UpdatedByEmail).HasMaxLength(200);
+            e.HasIndex(x => x.UpdatedAt);
         });
     }
 }

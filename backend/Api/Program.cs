@@ -4,6 +4,7 @@ using KuyumculukTakipProgrami.Api;
 using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
+using KuyumculukTakipProgrami.Infrastructure.Pricing;
 using Microsoft.EntityFrameworkCore;
 using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
@@ -23,8 +24,13 @@ using Microsoft.Extensions.Caching.Memory;
 using System.Net.Mime;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
+// Logging: limit console output to errors only
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Error);
 
 // Services
 builder.Services.AddEndpointsApiExplorer();
@@ -80,6 +86,7 @@ var seedAdminEmail = builder.Configuration["Seed:AdminEmail"] ?? "aytgeren@gmail
 var seedAdminPassword = builder.Configuration["Seed:AdminPassword"] ?? "72727361Aa";
 
 var app = builder.Build();
+var logger = app.Logger;
 
 if (app.Environment.IsDevelopment())
 {
@@ -189,10 +196,6 @@ using (var scope = app.Services.CreateScope())
             "ALTER TABLE \"Expenses\" ADD CONSTRAINT \"FK_Expenses_KasiyerId_Users\" FOREIGN KEY (\"KasiyerId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL; " +
             "END IF; END $$;");
         await EnsureMarketSchemaAsync(marketDb);
-        if (db.Database.CanConnect())
-        {
-            Console.WriteLine("Database Connected ?");
-        }
         await SeedData.EnsureSeededAsync(db);
         // Temizlik: Eski test seed verilerini sil ("Ali Veli", "Ahmet Demir")
         var demoInvoices = db.Invoices.Where(x => x.MusteriAdSoyad == "Ali Veli");
@@ -222,19 +225,17 @@ using (var scope = app.Services.CreateScope())
             };
             db.Users.Add(user);
             await db.SaveChangesAsync();
-            Console.WriteLine($"Seeded default admin user: {adminEmail}");
         }
         else if (app.Environment.IsDevelopment() && !VerifyPassword("72727361Aa", existingAdmin.PasswordHash))
         {
             // In development, keep default admin password in sync for convenience
             existingAdmin.PasswordHash = HashPassword("72727361Aa");
             await db.SaveChangesAsync();
-            Console.WriteLine($"Reset default admin password for: {adminEmail}");
         }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Database initialization failed: {ex.Message}");
+        logger.LogError(ex, "Database initialization failed");
     }
 }
 
@@ -639,21 +640,15 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
         };
 
         // Stamp current ALTIN final sell price (per ayar margin)
-        var latestStored = await mdb.PriceRecords
-            .Where(x => x.Code == "ALTIN")
-            .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
-            .FirstOrDefaultAsync(ct);
-        if (latestStored is null)
+        var priceData = await mdb.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: false, ct);
+        if (priceData is null)
             return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
-        var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
-        var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
-                      ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
-        entity.AltinSatisFiyati = latestStored.Satis + setting.MarginSell;
+        entity.AltinSatisFiyati = priceData.Price;
 
         db.Invoices.Add(entity);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return Results.Created($"/api/invoices/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati });
+        return Results.Created($"/api/invoices/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati, updatedAt = priceData.SourceTime });
     }
     catch (ArgumentException ex)
     {
@@ -699,23 +694,15 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
             Kesildi = false
         };
 
-        var latestStored = await mdb.PriceRecords
-            .Where(x => x.Code == "ALTIN")
-            .OrderByDescending(x => x.SourceTime).ThenByDescending(x => x.CreatedAt)
-            .FirstOrDefaultAsync(ct);
-        if (latestStored is null)
+        var priceData = await mdb.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: true, ct);
+        if (priceData is null)
             return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
-        var codeByAyar = entity.AltinAyar == AltinAyar.Ayar22 ? "ALTIN_22" : "ALTIN_24";
-        var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
-                      ?? new PriceSetting { Code = codeByAyar, MarginBuy = 0, MarginSell = 0 };
-        var eff = latestStored.Satis - setting.MarginBuy;
-        if (eff < 0) eff = 0;
-        entity.AltinSatisFiyati = eff;
+        entity.AltinSatisFiyati = priceData.Price;
 
         db.Expenses.Add(entity);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return Results.Created($"/api/expenses/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati });
+        return Results.Created($"/api/expenses/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati, updatedAt = priceData.SourceTime });
     }
     catch (ArgumentException ex)
     {
@@ -772,16 +759,69 @@ app.MapGet("/api/expenses/next-sirano", async (KtpDbContext db, CancellationToke
     return Results.Ok(new { next = max + 1 });
 }).WithTags("Expenses").RequireAuthorization();
 
+// Has alt?n pricing endpoints (manual entry)
+app.MapGet("/api/pricing/gold", async (MarketDbContext mdb, CancellationToken ct) =>
+{
+    var latest = await mdb.GlobalGoldPrices
+        .AsNoTracking()
+        .OrderByDescending(x => x.UpdatedAt)
+        .FirstOrDefaultAsync(ct);
+    if (latest is null) return Results.NotFound();
+    return Results.Ok(new { price = latest.Price, updatedAt = latest.UpdatedAt, updatedBy = latest.UpdatedByEmail });
+}).WithTags("Pricing").RequireAuthorization();
+
+app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
+{
+    if (body == null || body.Price <= 0) return Results.BadRequest(new { error = "Ge?erli bir has alt?n fiyat? girin" });
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? userId = Guid.TryParse(sub, out var parsed) ? parsed : null;
+    var email = http.User.FindFirst(JwtRegisteredClaimNames.Email)?.Value
+        ?? http.User.FindFirst(ClaimTypes.Email)?.Value
+        ?? http.User.FindFirst("email")?.Value;
+
+    var now = DateTime.UtcNow;
+    var latest = await mdb.GlobalGoldPrices.OrderByDescending(x => x.UpdatedAt).FirstOrDefaultAsync(ct);
+    if (latest is null)
+    {
+        latest = new GlobalGoldPrice { Id = Guid.NewGuid() };
+        mdb.GlobalGoldPrices.Add(latest);
+    }
+    latest.Price = Math.Round(body.Price, 3);
+    latest.UpdatedAt = now;
+    latest.UpdatedById = userId;
+    latest.UpdatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
+
+    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == "ALTIN" && x.SourceTime == now, ct);
+    if (!exists)
+    {
+        mdb.PriceRecords.Add(new PriceRecord
+        {
+            Id = Guid.NewGuid(),
+            Code = "ALTIN",
+            Alis = latest.Price,
+            Satis = latest.Price,
+            SourceTime = now,
+            FinalAlis = latest.Price,
+            FinalSatis = latest.Price,
+            CreatedAt = now
+        });
+    }
+
+    await mdb.SaveChangesAsync(ct);
+    return Results.Ok(new { price = latest.Price, updatedAt = latest.UpdatedAt, updatedBy = latest.UpdatedByEmail });
+}).WithTags("Pricing").RequireAuthorization();
+
 // Current pricing (final sell) for ALTIN
 app.MapGet("/api/pricing/current", async (MarketDbContext mdb, CancellationToken ct) =>
 {
-    var latest = await mdb.PriceRecords
+    var latest = await mdb.GlobalGoldPrices
         .AsNoTracking()
-        .OrderByDescending(x => x.SourceTime)
-        .ThenByDescending(x => x.CreatedAt)
+        .OrderByDescending(x => x.UpdatedAt)
         .FirstOrDefaultAsync(ct);
     if (latest is null) return Results.NotFound();
-    return Results.Ok(new { code = latest.Code, finalSatis = latest.FinalSatis, sourceTime = latest.SourceTime });
+    return Results.Ok(new { code = "ALTIN", finalSatis = latest.Price, sourceTime = latest.UpdatedAt });
 }).WithTags("Pricing").RequireAuthorization();
 
 // Pricing settings endpoints
@@ -809,102 +849,49 @@ app.MapPut("/api/pricing/settings/{code}", async (string code, PriceSetting body
     return Results.Ok(new { code = existing.Code, marginBuy = existing.MarginBuy, marginSell = existing.MarginSell });
 }).WithTags("Pricing");
 
-// Fetch and store ALTIN
-app.MapPost("/api/pricing/refresh", async (IHttpClientFactory httpFactory, IConfiguration cfg, MarketDbContext mdb, CancellationToken ct) =>
-{
-    var url = cfg["Pricing:FeedUrl"] ?? "https://canlipiyasalar.haremaltin.com/tmp/altin.json";
-    var lang = cfg["Pricing:LanguageParam"] ?? "tr";
-    var client = httpFactory.CreateClient();
-    var resp = await client.GetAsync($"{url}?dil_kodu={lang}", ct);
-    if (!resp.IsSuccessStatusCode) return Results.Problem("Feed ula��lm�yor", statusCode: 502);
-    var json = await resp.Content.ReadAsStringAsync(ct);
-
-    if (!TryParseAltin(json, out var alis, out var satis, out var sourceTime))
-        return Results.Problem("ALTIN verisi bulunamad�", statusCode: 422);
-
-    var setting = await mdb.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == "ALTIN", ct)
-                  ?? new PriceSetting { Code = "ALTIN", MarginBuy = 0, MarginSell = 0 };
-
-    var rec = new PriceRecord
-    {
-        Id = Guid.NewGuid(),
-        Code = "ALTIN",
-        Alis = alis,
-        Satis = satis,
-        SourceTime = DateTime.SpecifyKind(sourceTime, DateTimeKind.Utc),
-        FinalAlis = alis + setting.MarginBuy,
-        FinalSatis = satis + setting.MarginSell,
-        CreatedAt = DateTime.UtcNow
-    };
-    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == rec.Code && x.SourceTime == rec.SourceTime, ct);
-    if (!exists)
-    {
-        mdb.PriceRecords.Add(rec);
-        await mdb.SaveChangesAsync(ct);
-    }
-    return Results.Ok(new
-    {
-        code = rec.Code,
-        alis = rec.Alis,
-        satis = rec.Satis,
-        finalAlis = rec.FinalAlis,
-        finalSatis = rec.FinalSatis,
-        sourceTime = rec.SourceTime
-    });
-}).WithTags("Pricing");
-
-app.MapGet("/api/pricing/feed", async (MarketDbContext mdb, CancellationToken ct) =>
-{
-    var entry = await mdb.GoldFeedEntries
-        .AsNoTracking()
-        .OrderByDescending(x => x.FetchedAt)
-        .FirstOrDefaultAsync(ct);
-    if (entry is null || string.IsNullOrWhiteSpace(entry.Payload))
-    {
-        return Results.Problem("Fiyat beslemesi bulunamadi", statusCode: 404);
-    }
-
-    return Results.Content(entry.Payload, "application/json; charset=utf-8");
-}).WithTags("Pricing");
-
 app.MapGet("/api/pricing/status", async (MarketDbContext mdb, CancellationToken ct) =>
 {
-    var alert = await mdb.GoldFeedAlerts
+    var latest = await mdb.GlobalGoldPrices
         .AsNoTracking()
-        .Where(x => x.ResolvedAt == null)
-        .OrderByDescending(x => x.CreatedAt)
+        .OrderByDescending(x => x.UpdatedAt)
         .FirstOrDefaultAsync(ct);
-    var latest = await mdb.PriceRecords
-        .AsNoTracking()
-        .Where(x => x.Code == "ALTIN")
-        .OrderByDescending(x => x.SourceTime)
-        .ThenByDescending(x => x.CreatedAt)
-        .FirstOrDefaultAsync(ct);
+    if (latest is null)
+    {
+        return Results.Ok(new
+        {
+            hasAlert = true,
+            message = "Has Alt?n fiyat? hen?z girilmemi?.",
+            sourceTime = (DateTime?)null,
+            fetchedAt = (DateTime?)null
+        });
+    }
+
     return Results.Ok(new
     {
-        hasAlert = alert is not null,
-        message = alert?.Message ?? "Şu anda fiyatlar güncel.",
-        sourceTime = latest?.SourceTime,
-        fetchedAt = latest?.CreatedAt
+        hasAlert = false,
+        message = "Has Alt?n fiyat? manuel olarak girildi.",
+        sourceTime = latest.UpdatedAt,
+        fetchedAt = latest.UpdatedAt
     });
 }).WithTags("Pricing");
 
 app.MapGet("/api/pricing/{code}/latest", async (string code, MarketDbContext mdb, CancellationToken ct) =>
 {
     code = code.ToUpperInvariant();
-    var rec = await mdb.PriceRecords.Where(x => x.Code == code)
-        .OrderByDescending(x => x.SourceTime)
-        .ThenByDescending(x => x.CreatedAt)
+    if (code != "ALTIN") return Results.NotFound();
+    var latest = await mdb.GlobalGoldPrices
+        .AsNoTracking()
+        .OrderByDescending(x => x.UpdatedAt)
         .FirstOrDefaultAsync(ct);
-    if (rec is null) return Results.NotFound();
+    if (latest is null) return Results.NotFound();
     return Results.Ok(new
     {
-        code = rec.Code,
-        alis = rec.Alis,
-        satis = rec.Satis,
-        finalAlis = rec.FinalAlis,
-        finalSatis = rec.FinalSatis,
-        sourceTime = rec.SourceTime
+        code = "ALTIN",
+        alis = latest.Price,
+        satis = latest.Price,
+        finalAlis = latest.Price,
+        finalSatis = latest.Price,
+        sourceTime = latest.UpdatedAt
     });
 }).WithTags("Pricing");
 
@@ -1761,38 +1748,6 @@ app.MapPost("/print/multi", async (PrintMultiRequest request, IPrintQueueService
 
 app.Run();
 
-static bool TryParseAltin(string json, out decimal alis, out decimal satis, out DateTime sourceTime)
-{
-    alis = 0; satis = 0; sourceTime = DateTime.UtcNow;
-    try
-    {
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
-        var root = doc.RootElement;
-        var data = root.GetProperty("data");
-        if (!data.TryGetProperty("ALTIN", out var altin)) return false;
-        var alisStr = altin.GetProperty("alis").ToString();
-        var satisStr = altin.GetProperty("satis").ToString();
-        var tarihStr = altin.GetProperty("tarih").GetString();
-        var ci = CultureInfo.InvariantCulture;
-        alis = decimal.Parse(alisStr, ci);
-        satis = decimal.Parse(satisStr, ci);
-        // Kaynaktaki tarih yerel (TR) saat olarak geliyor; UTC'ye �evir.
-        if (!DateTime.TryParseExact(
-                tarihStr,
-                "dd-MM-yyyy HH:mm:ss",
-                CultureInfo.GetCultureInfo("tr-TR"),
-                DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal,
-                out sourceTime))
-        {
-            sourceTime = DateTime.UtcNow;
-        }
-        return true;
-    }
-    catch
-    {
-        return false;
-    }
-}
 static async Task EnsureMarketSchemaAsync(MarketDbContext db)
 {
     var sql = @"CREATE SCHEMA IF NOT EXISTS market;
@@ -1838,7 +1793,16 @@ CREATE TABLE IF NOT EXISTS market.""InvoiceGoldSnapshots"" (
     ""FinalSatis"" numeric(18,3) NOT NULL,
     ""SourceTime"" timestamptz NOT NULL,
     ""CreatedAt"" timestamptz NOT NULL
-);";
+);
+CREATE TABLE IF NOT EXISTS market.""GlobalGoldPrices"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""Price"" numeric(18,3) NOT NULL,
+    ""UpdatedAt"" timestamptz NOT NULL,
+    ""UpdatedById"" uuid NULL,
+    ""UpdatedByEmail"" varchar(200) NULL
+);
+CREATE INDEX IF NOT EXISTS IX_GlobalGoldPrices_UpdatedAt ON market.""GlobalGoldPrices"" (""UpdatedAt"");
+";
     await db.Database.ExecuteSqlRawAsync(sql);
 }
 static async Task EnsureUsersSchemaAsync(KtpDbContext db)
@@ -1949,6 +1913,7 @@ public record CreateUserRequest(string Email, string Password, Role Role);
 public record ResetPasswordRequest(string Password);
 public record UpdateInvoiceStatusRequest(bool Kesildi);
 public record FinalizeRequest(decimal UrunFiyati);
+public record GoldPriceUpdateRequest(decimal Price);
 
 public record KaratRange(double min, double max, string colorHex);
 public record KaratDiffSettings
@@ -1959,7 +1924,6 @@ public record KaratDiffSettings
 public record UpdateKaratSettingsRequest(KaratRange[] ranges, double alertThreshold);
 
 public record PrintMultiRequest([property: Required] List<string> Values);
-
 
 
 

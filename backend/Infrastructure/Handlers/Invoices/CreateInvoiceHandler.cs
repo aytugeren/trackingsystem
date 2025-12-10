@@ -48,11 +48,10 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
         
         DateTime? sourceTimeFromLive = null;
         var priceData = await _market.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: false, cancellationToken);
-        if (priceData is not null)
-        {
-            entity.AltinSatisFiyati = priceData.Price;
-            sourceTimeFromLive = priceData.SourceTime;
-        }
+        if (priceData is null)
+            throw new ArgumentException("Has Altin fiyatı bulunamadı");
+        entity.AltinSatisFiyati = priceData.Price;
+        sourceTimeFromLive = priceData.SourceTime;
 
         _db.Invoices.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);

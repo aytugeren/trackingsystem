@@ -19,8 +19,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  PricingCurrent? _pricing;
+  GoldPrice? _goldPrice;
   bool _loadingPricing = true;
+  bool _editingGold = false;
+  bool _savingGold = false;
+  final TextEditingController _goldController = TextEditingController();
   // Global karat alert state
   bool _hideAlert = false;
   double _diff22 = 0;
@@ -65,11 +68,14 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _refreshPricing() async {
     setState(() => _loadingPricing = true);
-    final p = await PricingService(widget.api).current();
+    final p = await PricingService(widget.api).gold();
     if (!mounted) return;
     setState(() {
-      _pricing = p;
+      _goldPrice = p;
       _loadingPricing = false;
+      if (_editingGold && p != null) {
+        _goldController.text = p.price.toStringAsFixed(3);
+      }
     });
   }
 
@@ -124,6 +130,27 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _saveGoldPrice() async {
+    final parsed = _parseDecimal(_goldController.text);
+    if (parsed == null || parsed <= 0) {
+      _showError('Gecerli bir has altin fiyati girin');
+      return;
+    }
+    setState(() => _savingGold = true);
+    try {
+      final updated = await PricingService(widget.api).updateGold(parsed);
+      if (!mounted) return;
+      setState(() {
+        _goldPrice = updated;
+        _editingGold = false;
+      });
+    } catch (e) {
+      _showError('Has altin fiyati kaydedilemedi');
+    } finally {
+      if (mounted) setState(() => _savingGold = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -152,7 +179,6 @@ class _HomePageState extends State<HomePage> {
                   icon: const Icon(Icons.home_outlined),
                   tooltip: 'Ana Ekran',
                 ),
-                IconButton(onPressed: _refreshPricing, icon: const Icon(Icons.refresh)),
                 IconButton(
                   onPressed: () async {
                     await widget.onLogout();
@@ -205,19 +231,73 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+
+
   Widget _buildPricingCard() {
+    final priceLabel = _goldPrice == null
+        ? 'Has altin fiyati girilmedi'
+        : '${_fmtAmount(_goldPrice!.price, fractionDigits: 3)} TL/gr';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: _loadingPricing
-            ? const Row(children: [CircularProgressIndicator(), SizedBox(width: 12), Text('Fiyat yükleniyor...')])
-            : (_pricing == null
-                ? const Text('Güncel fiyat bulunamadı..')
-                : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('ALTIN Son Fiyat'),
-                    Text('${_fmtAmount(_pricing!.finalSatis)} TL/gr', style: Theme.of(context).textTheme.headlineSmall),
-                    Text('Kaynak: ${_pricing!.sourceTime.toLocal()}')
-                  ])),
+            ? const Row(children: [CircularProgressIndicator(), SizedBox(width: 12), Text('Fiyat yukleniyor...')])
+            : (_editingGold
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Has Altin'),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _goldController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                        decoration: const InputDecoration(
+                          hintText: 'Has altin fiyati',
+                          suffixText: 'TL/gr',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          FilledButton(
+                            onPressed: _savingGold ? null : _saveGoldPrice,
+                            child: _savingGold
+                                ? const SizedBox(
+                                    height: 16,
+                                    width: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text('Kaydet'),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: _savingGold ? null : () => setState(() => _editingGold = false),
+                            child: const Text('Vazgec'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : InkWell(
+                    onTap: () {
+                      setState(() {
+                        _editingGold = true;
+                        _goldController.text = _goldPrice?.price.toStringAsFixed(3) ?? '';
+                      });
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Has Altin'),
+                        const SizedBox(height: 6),
+                        Text(
+                          priceLabel,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                      ],
+                    ),
+                  )),
       ),
     );
   }
@@ -624,6 +704,11 @@ class _HomePageState extends State<HomePage> {
     f.minimumFractionDigits = fractionDigits;
     f.maximumFractionDigits = fractionDigits;
     return f.format(v);
+  }
+
+  double? _parseDecimal(String s) {
+    final cleaned = s.replaceAll(' ', '').replaceAll(',', '.');
+    return double.tryParse(cleaned);
   }
 
   double? _parseAmount(String s) {

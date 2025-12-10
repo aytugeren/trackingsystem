@@ -13,5 +13,19 @@ class PricingService {
       return null;
     }
   }
-}
 
+  Future<GoldPrice?> gold() async {
+    try {
+      final json = await _api.getJson('/api/pricing/gold');
+      return GoldPrice.fromJson(json);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<GoldPrice> updateGold(double price) async {
+    final json = await _api.putJson('/api/pricing/gold', {'price': price});
+    // PUT returns the latest price payload
+    return GoldPrice.fromJson(json);
+  }
+}

@@ -61,9 +61,11 @@ class ApiClient {
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
 
-  Future<void> putJson(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> putJson(String path, Map<String, dynamic> body) async {
     final resp = await http.put(_uri(path), headers: _headers(), body: jsonEncode(body));
-    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    }
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
 
