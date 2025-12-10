@@ -1,6 +1,5 @@
 ﻿import 'package:flutter/material.dart';
 import '../api/api_client.dart';
-import 'home_page.dart';
 import 'gold_price_screen.dart';
 import 'profile_page.dart';
 import 'leave_request_fixed.dart';
@@ -84,19 +83,6 @@ class MainMenuPage extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => ProfilePage(api: api),
-                ));
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.currency_exchange),
-              title: const Text('Altın Fiyatları'),
-              subtitle: const Text('Kapalıçarşı ve döviz fiyatlarını canlı takip edin'),
-              onTap: () {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => GoldPriceScreen(api: api),
                 ));
               },
             ),
