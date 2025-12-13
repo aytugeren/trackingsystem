@@ -1,3 +1,4 @@
+// ignore_for_file: constant_identifier_names
 // Basic models and enums matching backend contracts
 
 enum Role { Kasiyer, Yonetici }
@@ -98,12 +99,16 @@ class CreatedDraftResponse {
   final int siraNo;
   final double? altinSatisFiyati;
 
-  CreatedDraftResponse({required this.id, required this.siraNo, this.altinSatisFiyati});
+  CreatedDraftResponse(
+      {required this.id, required this.siraNo, this.altinSatisFiyati});
 
-  factory CreatedDraftResponse.fromJson(Map<String, dynamic> json) => CreatedDraftResponse(
+  factory CreatedDraftResponse.fromJson(Map<String, dynamic> json) =>
+      CreatedDraftResponse(
         id: json['id'] as String,
         siraNo: (json['siraNo'] as num).toInt(),
-        altinSatisFiyati: json['altinSatisFiyati'] == null ? null : (json['altinSatisFiyati'] as num).toDouble(),
+        altinSatisFiyati: json['altinSatisFiyati'] == null
+            ? null
+            : (json['altinSatisFiyati'] as num).toDouble(),
       );
 }
 
@@ -112,7 +117,8 @@ class PricingCurrent {
   final double finalSatis;
   final DateTime sourceTime;
 
-  PricingCurrent({required this.code, required this.finalSatis, required this.sourceTime});
+  PricingCurrent(
+      {required this.code, required this.finalSatis, required this.sourceTime});
 
   factory PricingCurrent.fromJson(Map<String, dynamic> json) => PricingCurrent(
         code: json['code'] as String,
@@ -130,7 +136,9 @@ class GoldPrice {
 
   factory GoldPrice.fromJson(Map<String, dynamic> json) => GoldPrice(
         price: (json['price'] as num).toDouble(),
-        updatedAt: json['updatedAt'] == null ? null : DateTime.parse(json['updatedAt'] as String),
+        updatedAt: json['updatedAt'] == null
+            ? null
+            : DateTime.parse(json['updatedAt'] as String),
         updatedBy: json['updatedBy'] as String?,
       );
 }

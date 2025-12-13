@@ -1,6 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+
 import '../api/api_client.dart';
-import 'gold_price_screen.dart';
 import 'profile_page.dart';
 import 'leave_request_fixed.dart';
 import 'home_page.dart';
@@ -19,17 +19,18 @@ class MainMenuPage extends StatelessWidget {
           IconButton(
             onPressed: () async {
               await onLogout();
-              if (context.mounted) Navigator.of(context).pop();
+              if (!context.mounted) return;
+              Navigator.of(context).pop();
             },
             icon: const Icon(Icons.logout),
-            tooltip: 'Çıkış',
+            tooltip: 'Cikis',
           ),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Yeni İşlem', style: Theme.of(context).textTheme.titleLarge),
+          Text('Yeni Islem', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Card(
             child: Padding(
@@ -40,7 +41,8 @@ class MainMenuPage extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: () {
                       Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => HomePage(api: api, onLogout: onLogout, initialTab: 0),
+                        builder: (_) => HomePage(
+                            api: api, onLogout: onLogout, initialTab: 0),
                       ));
                     },
                     icon: const Icon(Icons.receipt_long),
@@ -50,7 +52,8 @@ class MainMenuPage extends StatelessWidget {
                   FilledButton.tonalIcon(
                     onPressed: () {
                       Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => HomePage(api: api, onLogout: onLogout, initialTab: 1),
+                        builder: (_) => HomePage(
+                            api: api, onLogout: onLogout, initialTab: 1),
                       ));
                     },
                     icon: const Icon(Icons.money_off),
@@ -61,13 +64,14 @@ class MainMenuPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Text('Diğer', style: Theme.of(context).textTheme.titleLarge),
+          Text('Diger', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Card(
             child: ListTile(
               leading: const Icon(Icons.event_available),
-              title: const Text('İzin İste'),
-              subtitle: const Text('İzin talebi oluştur, takvimden ekibin izinlerini gör'),
+              title: const Text('Izin Ist'),
+              subtitle: const Text(
+                  'Izin talebi olustur, takvimden ekibin izinlerini gor'),
               onTap: () {
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => LeaveRequestPage(api: api),
@@ -80,7 +84,7 @@ class MainMenuPage extends StatelessWidget {
             child: ListTile(
               leading: const Icon(Icons.person),
               title: const Text('Profilim'),
-              subtitle: const Text('Rol ve izin bilgilerini görüntüle'),
+              subtitle: const Text('Rol ve izin bilgilerini goruntule'),
               onTap: () {
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => ProfilePage(api: api),
@@ -93,19 +97,3 @@ class MainMenuPage extends StatelessWidget {
     );
   }
 }
-
-class _OldLeaveRequestPage extends StatelessWidget {
-  final ApiClient api;
-  const _OldLeaveRequestPage({super.key, required this.api});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('İzin İste')),
-      body: const Center(
-        child: Text('İzin talebi sayfası henüz eklenmedi'),
-      ),
-    );
-  }
-}
-

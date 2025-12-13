@@ -1,30 +1,24 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+import 'package:cashier_flutter/api/api_client.dart';
+import 'package:cashier_flutter/app.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:cashier_flutter/main.dart';
+class _FakeApiClient extends ApiClient {
+  _FakeApiClient() : super(baseUrl: 'http://localhost');
+  @override
+  Future<void> loadToken() async {}
+  @override
+  bool get hasToken => false;
+  @override
+  Future<void> clearToken() async {}
+}
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('Uygulama token yokken login ekranını gösterir', (tester) async {
+    final api = _FakeApiClient();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(CashierApp(api: api));
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Kasiyer Girisi'), findsOneWidget);
   });
 }

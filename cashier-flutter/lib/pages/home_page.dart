@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api/api_client.dart';
 import 'package:intl/intl.dart';
@@ -12,7 +12,11 @@ class HomePage extends StatefulWidget {
   final ApiClient api;
   final Future<void> Function() onLogout;
   final int initialTab; // 0: Fatura, 1: Gider
-  const HomePage({super.key, required this.api, required this.onLogout, this.initialTab = 0});
+  const HomePage(
+      {super.key,
+      required this.api,
+      required this.onLogout,
+      this.initialTab = 0});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -80,31 +84,41 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _refreshKaratAlert() async {
-    setState(() { _loadingAlert = true; });
+    setState(() {
+      _loadingAlert = true;
+    });
     try {
       // Load karat settings
       final cfg = await widget.api.getJson('/api/settings/karat');
       final thr = (cfg['alertThreshold'] as num?)?.toDouble() ?? 1000.0;
       // Load latest invoices/expenses page
-      final inv = await widget.api.getJson('/api/invoices', query: { 'page': 1, 'pageSize': 500 });
-      final exp = await widget.api.getJson('/api/expenses', query: { 'page': 1, 'pageSize': 500 });
+      final inv = await widget.api
+          .getJson('/api/invoices', query: {'page': 1, 'pageSize': 500});
+      final exp = await widget.api
+          .getJson('/api/expenses', query: {'page': 1, 'pageSize': 500});
       final itemsInv = (inv['items'] as List?) ?? const [];
       final itemsExp = (exp['items'] as List?) ?? const [];
       final now = DateTime.now();
-      final monthKey = '${now.year.toString().padLeft(4,'0')}-${now.month.toString().padLeft(2,'0')}';
+      final monthKey =
+          '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
       double inv22 = 0, inv24 = 0, exp22 = 0, exp24 = 0;
       int toAyar(dynamic v) {
         if (v == 22 || v == 'Ayar22') return 22;
         if (v == 24 || v == 'Ayar24') return 24;
         return 0;
       }
+
       bool startsWithMonth(String? t) => t != null && t.startsWith(monthKey);
       for (final it in itemsInv) {
         final m = it as Map<String, dynamic>;
         if ((m['kesildi'] == true) && startsWithMonth(m['tarih'] as String?)) {
           final ayar = toAyar(m['altinAyar']);
           final g = (m['gramDegeri'] as num?)?.toDouble() ?? 0;
-          if (ayar == 22) inv22 += g; else if (ayar == 24) inv24 += g;
+          if (ayar == 22) {
+            inv22 += g;
+          } else if (ayar == 24) {
+            inv24 += g;
+          }
         }
       }
       for (final it in itemsExp) {
@@ -112,7 +126,11 @@ class _HomePageState extends State<HomePage> {
         if ((m['kesildi'] == true) && startsWithMonth(m['tarih'] as String?)) {
           final ayar = toAyar(m['altinAyar']);
           final g = (m['gramDegeri'] as num?)?.toDouble() ?? 0;
-          if (ayar == 22) exp22 += g; else if (ayar == 24) exp24 += g;
+          if (ayar == 22) {
+            exp22 += g;
+          } else if (ayar == 24) {
+            exp24 += g;
+          }
         }
       }
       if (!mounted) return;
@@ -126,7 +144,9 @@ class _HomePageState extends State<HomePage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() { _loadingAlert = false; });
+      setState(() {
+        _loadingAlert = false;
+      });
     }
   }
 
@@ -158,22 +178,25 @@ class _HomePageState extends State<HomePage> {
       initialIndex: widget.initialTab,
       child: Builder(
         builder: (ctx) {
-          final tabController = DefaultTabController.of(ctx)!;
+          final tabController = DefaultTabController.of(ctx);
           return Scaffold(
             backgroundColor: Colors.grey[50],
             appBar: AppBar(
               title: AnimatedBuilder(
-                animation: tabController.animation!,
+                animation: tabController.animation ?? tabController,
                 builder: (_, __) {
                   final idx = tabController.index;
-                  return Text('Fatura / Gider - ' + (idx == 0 ? 'Fatura' : 'Gider'));
+                  return Text(
+                      'Fatura / Gider - ${idx == 0 ? 'Fatura' : 'Gider'}');
                 },
               ),
               actions: [
                 IconButton(
                   onPressed: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => MainMenuPage(api: widget.api, onLogout: widget.onLogout)),
+                      MaterialPageRoute(
+                          builder: (_) => MainMenuPage(
+                              api: widget.api, onLogout: widget.onLogout)),
                     );
                   },
                   icon: const Icon(Icons.home_outlined),
@@ -182,10 +205,11 @@ class _HomePageState extends State<HomePage> {
                 IconButton(
                   onPressed: () async {
                     await widget.onLogout();
-                    if (mounted) Navigator.of(context).pop();
+                    if (!context.mounted) return;
+                    Navigator.of(context).pop();
                   },
                   icon: const Icon(Icons.logout),
-                  tooltip: 'Çıkış',
+                  tooltip: 'Cikis',
                 ),
               ],
               bottom: const TabBar(
@@ -231,8 +255,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-
-
   Widget _buildPricingCard() {
     final priceLabel = _goldPrice == null
         ? 'Has altin fiyati girilmedi'
@@ -241,7 +263,11 @@ class _HomePageState extends State<HomePage> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: _loadingPricing
-            ? const Row(children: [CircularProgressIndicator(), SizedBox(width: 12), Text('Fiyat yukleniyor...')])
+            ? const Row(children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 12),
+                Text('Fiyat yukleniyor...')
+              ])
             : (_editingGold
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,8 +276,11 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 8),
                       TextField(
                         controller: _goldController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                        ],
                         decoration: const InputDecoration(
                           hintText: 'Has altin fiyati',
                           suffixText: 'TL/gr',
@@ -266,13 +295,16 @@ class _HomePageState extends State<HomePage> {
                                 ? const SizedBox(
                                     height: 16,
                                     width: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
                                   )
                                 : const Text('Kaydet'),
                           ),
                           const SizedBox(width: 8),
                           TextButton(
-                            onPressed: _savingGold ? null : () => setState(() => _editingGold = false),
+                            onPressed: _savingGold
+                                ? null
+                                : () => setState(() => _editingGold = false),
                             child: const Text('Vazgec'),
                           ),
                         ],
@@ -283,7 +315,8 @@ class _HomePageState extends State<HomePage> {
                     onTap: () {
                       setState(() {
                         _editingGold = true;
-                        _goldController.text = _goldPrice?.price.toStringAsFixed(3) ?? '';
+                        _goldController.text =
+                            _goldPrice?.price.toStringAsFixed(3) ?? '';
                       });
                     },
                     child: Column(
@@ -314,7 +347,9 @@ class _HomePageState extends State<HomePage> {
     final which = parts.join(' ve ');
     return Card(
       color: Colors.amber[100],
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.amber.shade200)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: Colors.amber.shade200)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
@@ -340,7 +375,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _fmtNumber(double v) {
-    try { return NumberFormat.decimalPattern('tr_TR').format(v); } catch (_) { return v.toStringAsFixed(2); }
+    try {
+      return NumberFormat.decimalPattern('tr_TR').format(v);
+    } catch (_) {
+      return v.toStringAsFixed(2);
+    }
   }
 
   // --- Tabs ---
@@ -384,7 +423,8 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(height: 8),
             TextField(
               controller: invTutar,
-              decoration: const InputDecoration(labelText: 'Tutar (TL)').copyWith(prefixText: '₺ '),
+              decoration: const InputDecoration(labelText: 'Tutar (TL)')
+                  .copyWith(prefixText: '₺ '),
               keyboardType: TextInputType.number,
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
@@ -392,9 +432,13 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             const SizedBox(height: 12),
-            _ayarToggle(current: invAyar, onChanged: (v) => setState(() => invAyar = v)),
+            _ayarToggle(
+                current: invAyar,
+                onChanged: (v) => setState(() => invAyar = v)),
             const SizedBox(height: 12),
-            _odemeToggle(current: invOdeme, onChanged: (v) => setState(() => invOdeme = v)),
+            _odemeToggle(
+                current: invOdeme,
+                onChanged: (v) => setState(() => invOdeme = v)),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: creatingInv ? null : _previewInvoice,
@@ -439,11 +483,30 @@ class _HomePageState extends State<HomePage> {
               inputFormatters: const [TurkishUppercaseTextFormatter()],
             ),
             const SizedBox(height: 8),
-            TextField(controller: expTckn,decoration: const InputDecoration(labelText: 'TCKN (11 hane)'),keyboardType: TextInputType.number,inputFormatters: [FilteringTextInputFormatter.digitsOnly,LengthLimitingTextInputFormatter(11),],),
+            TextField(
+              controller: expTckn,
+              decoration: const InputDecoration(labelText: 'TCKN (11 hane)'),
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(11),
+              ],
+            ),
             const SizedBox(height: 8),
-            TextField(controller: expTutar,decoration: const InputDecoration(labelText: 'Tutar (TL)').copyWith(prefixText: '₺ '),keyboardType: TextInputType.number,inputFormatters: [FilteringTextInputFormatter.digitsOnly,const ThousandsSeparatorInputFormatter(),],),
+            TextField(
+              controller: expTutar,
+              decoration: const InputDecoration(labelText: 'Tutar (TL)')
+                  .copyWith(prefixText: '₺ '),
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                const ThousandsSeparatorInputFormatter(),
+              ],
+            ),
             const SizedBox(height: 12),
-            _ayarToggle(current: expAyar, onChanged: (v) => setState(() => expAyar = v)),
+            _ayarToggle(
+                current: expAyar,
+                onChanged: (v) => setState(() => expAyar = v)),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: creatingExp ? null : _previewExpense,
@@ -500,10 +563,15 @@ class _HomePageState extends State<HomePage> {
         Center(
           child: ToggleButtons(
             isSelected: [is22, !is22],
-            onPressed: (i) => onChanged(i == 0 ? AltinAyar.Ayar22 : AltinAyar.Ayar24),
+            onPressed: (i) =>
+                onChanged(i == 0 ? AltinAyar.Ayar22 : AltinAyar.Ayar24),
             children: const [
-              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('22 Ayar')),
-              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('24 Ayar')),
+              Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('22 Ayar')),
+              Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('24 Ayar')),
             ],
           ),
         ),
@@ -524,10 +592,15 @@ class _HomePageState extends State<HomePage> {
         Center(
           child: ToggleButtons(
             isSelected: [isHavale, !isHavale],
-            onPressed: (i) => onChanged(i == 0 ? OdemeSekli.Havale : OdemeSekli.KrediKarti),
+            onPressed: (i) =>
+                onChanged(i == 0 ? OdemeSekli.Havale : OdemeSekli.KrediKarti),
             children: const [
-              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Havale')),
-              Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Kredi Kartı')),
+              Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Havale')),
+              Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Kredi Kartı')),
             ],
           ),
         ),
@@ -540,10 +613,19 @@ class _HomePageState extends State<HomePage> {
     final name = invName.text.trim();
     final tckn = invTckn.text.trim();
     final tutar = _parseAmount(invTutar.text);
-    if (name.isEmpty || tckn.isEmpty || tutar == null) { _showError('Lütfen tüm alanları doldurun'); return; }
-    if (!_validateTckn(tckn)) { _showError('TCKN geçersiz!'); return; }
+    if (name.isEmpty || tckn.isEmpty || tutar == null) {
+      _showError('Lütfen tüm alanları doldurun');
+      return;
+    }
+    if (!_validateTckn(tckn)) {
+      _showError('TCKN geçersiz!');
+      return;
+    }
     try {
-      setState(() { creatingInv = true; invResult = null; });
+      setState(() {
+        creatingInv = true;
+        invResult = null;
+      });
       final dto = CreateInvoiceDto(
         tarih: invDate,
         musteriAdSoyad: name,
@@ -553,12 +635,20 @@ class _HomePageState extends State<HomePage> {
         altinAyar: invAyar,
       );
       final created = await InvoiceService(widget.api).createDraft(dto);
-      setState(() { invDraftId = created.id; invPredictedSira = created.siraNo; invAltinSatis = created.altinSatisFiyati; });
+      setState(() {
+        invDraftId = created.id;
+        invPredictedSira = created.siraNo;
+        invAltinSatis = created.altinSatisFiyati;
+      });
       await _showInvoicePreviewDialog();
     } catch (e) {
       _showError('Önizleme oluşturulamadı!');
     } finally {
-      if (mounted) setState(() { creatingInv = false; });
+      if (mounted) {
+        setState(() {
+          creatingInv = false;
+        });
+      }
     }
   }
 
@@ -566,10 +656,19 @@ class _HomePageState extends State<HomePage> {
     final name = expName.text.trim();
     final tckn = expTckn.text.trim();
     final tutar = _parseAmount(expTutar.text);
-    if (name.isEmpty || tckn.isEmpty || tutar == null) { _showError('Lütfen tüm alanları doldurun'); return; }
-    if (!_validateTckn(tckn)) { _showError('TCKN geçersiz'); return; }
+    if (name.isEmpty || tckn.isEmpty || tutar == null) {
+      _showError('Lütfen tüm alanları doldurun');
+      return;
+    }
+    if (!_validateTckn(tckn)) {
+      _showError('TCKN geçersiz');
+      return;
+    }
     try {
-      setState(() { creatingExp = true; expResult = null; });
+      setState(() {
+        creatingExp = true;
+        expResult = null;
+      });
       final dto = CreateExpenseDto(
         tarih: expDate,
         musteriAdSoyad: name,
@@ -578,20 +677,32 @@ class _HomePageState extends State<HomePage> {
         altinAyar: expAyar,
       );
       final created = await ExpenseService(widget.api).createDraft(dto);
-      setState(() { expDraftId = created.id; expPredictedSira = created.siraNo; expAltinSatis = created.altinSatisFiyati; });
+      setState(() {
+        expDraftId = created.id;
+        expPredictedSira = created.siraNo;
+        expAltinSatis = created.altinSatisFiyati;
+      });
       await _showExpensePreviewDialog();
     } catch (e) {
       _showError('Önizleme oluşturulamadı!');
     } finally {
-      if (mounted) setState(() { creatingExp = false; });
+      if (mounted) {
+        setState(() {
+          creatingExp = false;
+        });
+      }
     }
   }
 
   bool _validateTckn(String id) {
     if (!RegExp(r'^\d{11}$').hasMatch(id)) return false;
     if (id.startsWith('0')) return false;
-    final digits = id.split('').take(11).map((e) => int.tryParse(e) ?? 0).toList();
-    final calc10 = (((digits[0] + digits[2] + digits[4] + digits[6] + digits[8]) * 7) - (digits[1] + digits[3] + digits[5] + digits[7])) % 10;
+    final digits =
+        id.split('').take(11).map((e) => int.tryParse(e) ?? 0).toList();
+    final calc10 =
+        (((digits[0] + digits[2] + digits[4] + digits[6] + digits[8]) * 7) -
+                (digits[1] + digits[3] + digits[5] + digits[7])) %
+            10;
     final calc11 = (digits.take(10).reduce((a, b) => a + b)) % 10;
     return digits[9] == calc10 && digits[10] == calc11;
   }
@@ -610,37 +721,58 @@ class _HomePageState extends State<HomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (invPredictedSira != null) Text('Sıra No: $invPredictedSira'),
-            if (invAltinSatis != null) Text('Altın Satış Fiyatı: ${_fmtAmount(invAltinSatis!)} TL/gr'),
+            if (invAltinSatis != null)
+              Text('Altın Satış Fiyatı: ${_fmtAmount(invAltinSatis!)} TL/gr'),
             const SizedBox(height: 8),
             Text('Tarih: ${_formatDate(invDate)}'),
             Text('Ad Soyad: $name'),
             Text('TCKN: $tckn'),
             Text('Tutar: ${_fmtAmount(tutar)} TL'),
-            Text('Ayar: ${invAyar == AltinAyar.Ayar22 ? '22 Ayar' : '24 Ayar'}'),
+            Text(
+                'Ayar: ${invAyar == AltinAyar.Ayar22 ? '22 Ayar' : '24 Ayar'}'),
             _buildDerivedPreview(tutar, invAltinSatis, invAyar),
-            Text('Ödeme: ${invOdeme == OdemeSekli.Havale ? 'Havale' : 'Kredi Kartı'}'),
+            Text(
+                'Ödeme: ${invOdeme == OdemeSekli.Havale ? 'Havale' : 'Kredi Kartı'}'),
           ],
         ),
         actions: [
-          TextButton(onPressed: () async {
-            final id = invDraftId; // cancel preview and delete draft
-            Navigator.of(context).pop();
-            if (id != null) { try { await InvoiceService(widget.api).deleteIfNotKesildi(id); } catch (_) {} }
-            setState(() { invDraftId = null; invPredictedSira = null; invAltinSatis = null; });
-          }, child: const Text('İptal')),
-          FilledButton(onPressed: () async {
-            final id = invDraftId;
-            if (id == null) return;
-            try {
-              await InvoiceService(widget.api).finalize(id);
-              if (!mounted) return;
-              setState(() { invResult = 'Kesildi: Sıra No $invPredictedSira'; });
-              Navigator.of(context).pop();
-              setState(() { invDraftId = null; invPredictedSira = null; invAltinSatis = null; });
-            } catch (e) {
-              _showError('Fatura kesilemedi');
-            }
-          }, child: const Text('Kes')),
+          TextButton(
+              onPressed: () async {
+                final id = invDraftId; // cancel preview and delete draft
+                Navigator.of(context).pop();
+                if (id != null) {
+                  try {
+                    await InvoiceService(widget.api).deleteIfNotKesildi(id);
+                  } catch (_) {}
+                }
+                setState(() {
+                  invDraftId = null;
+                  invPredictedSira = null;
+                  invAltinSatis = null;
+                });
+              },
+              child: const Text('İptal')),
+          FilledButton(
+              onPressed: () async {
+                final id = invDraftId;
+                if (id == null) return;
+                try {
+                  await InvoiceService(widget.api).finalize(id);
+                  if (!mounted) return;
+                  setState(() {
+                    invResult = 'Kesildi: Sıra No $invPredictedSira';
+                  });
+                  Navigator.of(context).pop();
+                  setState(() {
+                    invDraftId = null;
+                    invPredictedSira = null;
+                    invAltinSatis = null;
+                  });
+                } catch (e) {
+                  _showError('Fatura kesilemedi');
+                }
+              },
+              child: const Text('Kes')),
         ],
       ),
     );
@@ -660,36 +792,56 @@ class _HomePageState extends State<HomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (expPredictedSira != null) Text('Sıra No: $expPredictedSira'),
-            if (expAltinSatis != null) Text('Altın Satış: ${_fmtAmount(expAltinSatis!)} TL/gr'),
+            if (expAltinSatis != null)
+              Text('Altın Satış: ${_fmtAmount(expAltinSatis!)} TL/gr'),
             const SizedBox(height: 8),
             Text('Tarih: ${_formatDate(expDate)}'),
             Text('Ad Soyad: $name'),
             Text('TCKN: $tckn'),
             Text('Tutar: ${_fmtAmount(tutar)} TL'),
-            Text('Ayar: ${expAyar == AltinAyar.Ayar22 ? '22 Ayar' : '24 Ayar'}'),
+            Text(
+                'Ayar: ${expAyar == AltinAyar.Ayar22 ? '22 Ayar' : '24 Ayar'}'),
             _buildDerivedPreview(tutar, expAltinSatis, expAyar),
           ],
         ),
         actions: [
-          TextButton(onPressed: () async {
-            final id = expDraftId;
-            Navigator.of(context).pop();
-            if (id != null) { try { await ExpenseService(widget.api).deleteIfNotKesildi(id); } catch (_) {} }
-            setState(() { expDraftId = null; expPredictedSira = null; expAltinSatis = null; });
-          }, child: const Text('İptal')),
-          FilledButton(onPressed: () async {
-            final id = expDraftId;
-            if (id == null) return;
-            try {
-              await ExpenseService(widget.api).finalize(id);
-              if (!mounted) return;
-              setState(() { expResult = 'Kesildi: Sıra No $expPredictedSira'; });
-              Navigator.of(context).pop();
-              setState(() { expDraftId = null; expPredictedSira = null; expAltinSatis = null; });
-            } catch (e) {
-              _showError('Gider kesilemedi');
-            }
-          }, child: const Text('Kes')),
+          TextButton(
+              onPressed: () async {
+                final id = expDraftId;
+                Navigator.of(context).pop();
+                if (id != null) {
+                  try {
+                    await ExpenseService(widget.api).deleteIfNotKesildi(id);
+                  } catch (_) {}
+                }
+                setState(() {
+                  expDraftId = null;
+                  expPredictedSira = null;
+                  expAltinSatis = null;
+                });
+              },
+              child: const Text('İptal')),
+          FilledButton(
+              onPressed: () async {
+                final id = expDraftId;
+                if (id == null) return;
+                try {
+                  await ExpenseService(widget.api).finalize(id);
+                  if (!mounted) return;
+                  setState(() {
+                    expResult = 'Kesildi: Sıra No $expPredictedSira';
+                  });
+                  Navigator.of(context).pop();
+                  setState(() {
+                    expDraftId = null;
+                    expPredictedSira = null;
+                    expAltinSatis = null;
+                  });
+                } catch (e) {
+                  _showError('Gider kesilemedi');
+                }
+              },
+              child: const Text('Kes')),
         ],
       ),
     );
@@ -717,11 +869,14 @@ class _HomePageState extends State<HomePage> {
   }
 
   // Compute and render derived preview metrics (saf altın, yeni ürün, gram, işçilik)
-  Widget _buildDerivedPreview(double tutar, double? altinSatis, AltinAyar ayar) {
+  Widget _buildDerivedPreview(
+      double tutar, double? altinSatis, AltinAyar ayar) {
     if (altinSatis == null) return const SizedBox.shrink();
     double r2(double x) => (x * 100).round() / 100.0;
-    final safAltin = r2(ayar == AltinAyar.Ayar22 ? altinSatis * 0.916 : altinSatis * 0.995);
-    final yeniUrun = r2(ayar == AltinAyar.Ayar22 ? tutar * 0.99 : tutar * 0.998);
+    final safAltin =
+        r2(ayar == AltinAyar.Ayar22 ? altinSatis * 0.916 : altinSatis * 0.995);
+    final yeniUrun =
+        r2(ayar == AltinAyar.Ayar22 ? tutar * 0.99 : tutar * 0.998);
     final gram = safAltin == 0 ? 0.0 : r2(yeniUrun / safAltin);
     final altinHizmet = r2(gram * safAltin);
     final iscilikKdvli = r2(r2(tutar) - altinHizmet);
@@ -730,10 +885,12 @@ class _HomePageState extends State<HomePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 8),
-        Text('Saf Altın Değeri: ${_fmtAmount(safAltin, fractionDigits: 2)} TL/gr'),
+        Text(
+            'Saf Altın Değeri: ${_fmtAmount(safAltin, fractionDigits: 2)} TL/gr'),
         Text('Yeni Ürün Fiyatı: ${_fmtAmount(yeniUrun, fractionDigits: 2)} TL'),
         Text('Gram Değeri: ${_fmtAmount(gram, fractionDigits: 2)} gr'),
-        Text('İşçilik (KDV\'siz): ${_fmtAmount(iscilik, fractionDigits: 2)} TL'),
+        Text(
+            'İşçilik (KDV\'siz): ${_fmtAmount(iscilik, fractionDigits: 2)} TL'),
       ],
     );
   }
@@ -743,10 +900,12 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
   const ThousandsSeparatorInputFormatter();
 
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
     final rawDigits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
     if (rawDigits.isEmpty) {
-      return const TextEditingValue(text: '', selection: TextSelection.collapsed(offset: 0));
+      return const TextEditingValue(
+          text: '', selection: TextSelection.collapsed(offset: 0));
     }
     final number = int.parse(rawDigits);
     final formatted = NumberFormat.decimalPattern('tr_TR')
@@ -754,11 +913,13 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
       ..maximumFractionDigits = 0;
     final newText = formatted.format(number);
 
-    final cursorFromRight = newValue.text.length - newValue.selection.extentOffset;
+    final cursorFromRight =
+        newValue.text.length - newValue.selection.extentOffset;
     var newOffset = newText.length - cursorFromRight;
     if (newOffset < 0) newOffset = 0;
     if (newOffset > newText.length) newOffset = newText.length;
-    return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newOffset));
+    return TextEditingValue(
+        text: newText, selection: TextSelection.collapsed(offset: newOffset));
   }
 }
 
@@ -780,11 +941,13 @@ class TurkishUppercaseTextFormatter extends TextInputFormatter {
   }
 
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
     final up = _trUpper(newValue.text);
     final sel = newValue.selection;
     final offset = sel.isValid ? sel.baseOffset : up.length;
     final safeOffset = offset.clamp(0, up.length);
-    return TextEditingValue(text: up, selection: TextSelection.collapsed(offset: safeOffset));
+    return TextEditingValue(
+        text: up, selection: TextSelection.collapsed(offset: safeOffset));
   }
 }
