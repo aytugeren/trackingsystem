@@ -12,10 +12,8 @@ public static class GoldPricingHelpers
 {
     public static async Task<GoldPriceForAyar?> GetLatestPriceForAyarAsync(this MarketDbContext market, AltinAyar ayar, bool useBuyMargin, CancellationToken ct)
     {
-        var latest = await market.PriceRecords
-            .Where(x => x.Code == "ALTIN")
-            .OrderByDescending(x => x.SourceTime)
-            .ThenByDescending(x => x.CreatedAt)
+        var latest = await market.GlobalGoldPrices
+            .OrderByDescending(x => x.UpdatedAt)
             .FirstOrDefaultAsync(ct);
         if (latest is null) return null;
 
@@ -23,10 +21,10 @@ public static class GoldPricingHelpers
         var setting = await market.PriceSettings.AsNoTracking().FirstOrDefaultAsync(x => x.Code == codeByAyar, ct)
                       ?? new PriceSetting { Code = codeByAyar };
 
-        var price = useBuyMargin ? latest.Satis - setting.MarginBuy : latest.Satis + setting.MarginSell;
+        var price = useBuyMargin ? latest.Price - setting.MarginBuy : latest.Price + setting.MarginSell;
         if (useBuyMargin && price < 0) price = 0;
 
-        return new GoldPriceForAyar(price, DateTime.SpecifyKind(latest.SourceTime, DateTimeKind.Utc));
+        return new GoldPriceForAyar(price, DateTime.SpecifyKind(latest.UpdatedAt, DateTimeKind.Utc));
     }
 
     public static async Task<PriceRecord?> GetLatestAltinRecordAsync(this MarketDbContext market, CancellationToken ct)

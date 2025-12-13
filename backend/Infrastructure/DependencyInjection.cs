@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Infrastructure.Backup;
-using KuyumculukTakipProgrami.Infrastructure.Pricing;
 using KuyumculukTakipProgrami.Infrastructure.Optimization;
 
 namespace KuyumculukTakipProgrami.Infrastructure;
@@ -26,9 +25,6 @@ public static class DependencyInjection
         {
             options.UseNpgsql(marketConnection);
         });
-
-        services.AddScoped<IGoldPricingRefreshService, GoldPricingRefreshService>();
-        services.AddHostedService<GoldFeedBackgroundService>();
 
         // CQRS Handlers
         services.AddScoped<ICreateInvoiceHandler, Handlers.Invoices.CreateInvoiceHandler>();

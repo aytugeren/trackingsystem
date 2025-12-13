@@ -4,8 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
   // Use --dart-define=API_BASE=https://host:port for overrides
-  // Default to backend running on localhost:5000
-  static const _defaultBase = String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:8080');
+  static const _defaultBase = String.fromEnvironment('API_BASE', defaultValue: 'http://161.97.97.216:9002');
   final String baseUrl;
   String? _token;
 
@@ -62,9 +61,11 @@ class ApiClient {
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
 
-  Future<void> putJson(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> putJson(String path, Map<String, dynamic> body) async {
     final resp = await http.put(_uri(path), headers: _headers(), body: jsonEncode(body));
-    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+    }
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
 

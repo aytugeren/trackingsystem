@@ -12,8 +12,6 @@ services:
       SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
       ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
       ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
-      Pricing__FeedUrl: ${PRICING_FEED_URL:-https://canlipiyasalar.haremaltin.com/tmp/altin.json}
-      Pricing__LanguageParam: ${PRICING_LANGUAGE_PARAM:-tr}
       Jwt__Key: ${JWT_KEY:-insecure-dev-key-change-me-please-very-long-0123456789abcdef}
       Jwt__Issuer: ${JWT_ISSUER:-KTP}
       Jwt__Audience: ${JWT_AUDIENCE:-KTP-Clients}
@@ -141,6 +139,5 @@ volumes:
     name: ktp_backups
   ktp_dataprotection:
     name: ktp_dataprotection
-
 
 

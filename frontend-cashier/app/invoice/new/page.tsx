@@ -56,6 +56,13 @@ function InvoiceNewInner() {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [predictedSira, setPredictedSira] = useState<number | null>(null)
   const [currentAltinSatis, setCurrentAltinSatis] = useState<number | null>(null)
+  const [savedHasAltin, setSavedHasAltin] = useState<number | null>(null)
+  const [hasAltinInput, setHasAltinInput] = useState<string>('')
+  const [hasAltinUpdatedAt, setHasAltinUpdatedAt] = useState<string | null>(null)
+  const [hasAltinUpdatedBy, setHasAltinUpdatedBy] = useState<string | null>(null)
+  const [hasAltinLoading, setHasAltinLoading] = useState(false)
+  const [hasAltinSaving, setHasAltinSaving] = useState(false)
+  const [hasAltinEditing, setHasAltinEditing] = useState(false)
   const [draftId, setDraftId] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const PENDING_DRAFT_KEY = 'cashierPendingDraft'
@@ -99,8 +106,71 @@ function InvoiceNewInner() {
     return Math.floor(Math.random() * (max - min + 1)) + min
   }
 
+  async function loadHasAltin() {
+    setHasAltinLoading(true)
+    try {
+      const res = await fetch(apiBase + '/api/pricing/gold', { cache: 'no-store', headers: { ...authHeaders() } })
+      if (res.status === 404) {
+        setHasAltinInput('')
+        setHasAltinUpdatedAt(null)
+        setHasAltinUpdatedBy(null)
+        setSavedHasAltin(null)
+        setCurrentAltinSatis(null)
+        return
+      }
+      if (!res.ok) throw new Error('cannot load')
+      const j = await res.json()
+      const priceVal = Number(j?.price ?? 0)
+      setHasAltinInput(priceVal ? formatHasAltinDisplay(String(priceVal).replace('.', ',')) : '')
+      setHasAltinUpdatedAt(j?.updatedAt ?? null)
+      setHasAltinUpdatedBy(j?.updatedBy ?? null)
+      setSavedHasAltin(Number.isFinite(priceVal) ? priceVal : null)
+      setCurrentAltinSatis(Number.isFinite(priceVal) ? priceVal : null)
+    } catch {
+      setError('Has Altin bilgisi alinmadi')
+    } finally {
+      setHasAltinLoading(false)
+    }
+  }
+
+  async function saveHasAltin(showToast = true): Promise<boolean> {
+    const parsed = parseHasAltinValue()
+    if (!parsed || Number.isNaN(parsed)) { setError('Gecerli bir Has Altin fiyati girin'); return false }
+    if (showToast) { setError(''); setSuccess('') }
+    setHasAltinSaving(true)
+    try {
+      const res = await fetch(apiBase + '/api/pricing/gold', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ price: parsed })
+      })
+      if (!res.ok) throw new Error('kaydedilemedi')
+      const j = await res.json()
+      const priceVal = Number(j?.price ?? parsed)
+      setHasAltinInput(priceVal ? formatHasAltinDisplay(String(priceVal).replace('.', ',')) : '')
+      setHasAltinUpdatedAt(j?.updatedAt ?? new Date().toISOString())
+      setHasAltinUpdatedBy(j?.updatedBy ?? null)
+      setSavedHasAltin(Number.isFinite(priceVal) ? priceVal : parsed)
+      setCurrentAltinSatis(Number.isFinite(priceVal) ? priceVal : parsed)
+      if (showToast) setSuccess('Has Altin guncellendi')
+      setHasAltinEditing(false)
+      return true
+    } catch {
+      if (showToast) setError('Has Altin guncellenemedi')
+      return false
+    } finally {
+      setHasAltinSaving(false)
+    }
+  }
+
   async function openPreview() {
     setError('')
+    const hasVal = parseHasAltinValue()
+    if (!hasVal || Number.isNaN(hasVal)) { setError('Has Altın fiyatı gerekli'); return }
+    if (savedHasAltin == null || Math.abs(hasVal - savedHasAltin) > 0.0005) {
+      const saved = await saveHasAltin(false)
+      if (!saved) { setError('Has Altın fiyatı kaydedilemedi'); return }
+    }
     if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment) || !ayar) {
       setError('Lütfen tüm alanları doldurun')
       return
@@ -141,7 +211,20 @@ function InvoiceNewInner() {
     }
     setPreviewOpen(true)
   }
-  
+
+  useEffect(() => {
+    loadHasAltin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const formattedHasAltin = savedHasAltin != null
+    ? Number(savedHasAltin).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 3 })
+    : 'Has Altin girilmedi'
+  const formattedHasAltinMeta = hasAltinUpdatedAt
+    ? `${new Date(hasAltinUpdatedAt).toLocaleString('tr-TR')}${hasAltinUpdatedBy ? ` · ${hasAltinUpdatedBy}` : ''}`
+    : (hasAltinUpdatedBy ? `Güncelleyen: ${hasAltinUpdatedBy}` : 'Henüz güncellenmedi')
+  const hasAltinMissing = savedHasAltin == null
+
   // On mount: if a pending draft exists (from a refresh), delete it
   useEffect(() => {
     try {
@@ -219,6 +302,31 @@ function InvoiceNewInner() {
     return fracPart != null && fracPart !== '' ? `${withSep},${fracPart}` : (normalized.endsWith(',') ? withSep + ',' : withSep)
   }
 
+  function sanitizeHasAltinInput(v: string): string {
+    const cleaned = v.replace(/\./g, '').replace(/[^0-9,]/g, '')
+    const firstComma = cleaned.indexOf(',')
+    if (firstComma === -1) return cleaned
+    const intPart = cleaned.slice(0, firstComma).replace(/,/g, '')
+    const fracPart = cleaned.slice(firstComma + 1).replace(/,/g, '').slice(0, 3)
+    return intPart + (fracPart ? (',' + fracPart) : ',')
+  }
+
+  function formatHasAltinDisplay(v: string): string {
+    if (!v) return ''
+    const normalized = sanitizeHasAltinInput(v)
+    const [intPart, fracPart] = normalized.split(',')
+    const withSep = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+    if (fracPart != null) {
+      const limited = fracPart.slice(0, 3)
+      return limited !== '' ? `${withSep},${limited}` : (normalized.endsWith(',') ? withSep + ',' : withSep)
+    }
+    return normalized.endsWith(',') ? withSep + ',' : withSep
+  }
+
+  function parseHasAltinValue(): number {
+    return parseFloat((sanitizeHasAltinInput(hasAltinInput || '0') || '0').replace(',', '.'))
+  }
+
   async function onSave() {
     setError('')
     setSuccess('')
@@ -234,6 +342,11 @@ function InvoiceNewInner() {
     const amountNum = parseFloat(amount.replace(',', '.'))
     if (Number.isNaN(amountNum)) {
       setError('Tutar geçersiz')
+      return
+    }
+    const hasVal = parseHasAltinValue()
+    if (!hasVal || Number.isNaN(hasVal) || savedHasAltin == null) {
+      setError('Has Altın fiyatı gerekli')
       return
     }
     setLoading(true)
@@ -331,10 +444,10 @@ function InvoiceNewInner() {
           }
         } catch {}
       }
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setCurrentAltinSatis(null); setDraftId(null)
+      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null)
     } else if ((res as any).queued) {
       setSuccess('Çevrimdışı kaydedildi, sonra gönderilecek ✅')
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setCurrentAltinSatis(null); setDraftId(null)
+      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null)
     } else {
       setError('Kayıt eklenemedi')
     }
@@ -347,37 +460,76 @@ function InvoiceNewInner() {
         <BackButton />
       </div>
 
+      <div className="card" style={{ marginTop: 8, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {hasAltinLoading ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="spinner" />
+            <div>Yukleniyor...</div>
+          </div>
+        ) : hasAltinEditing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 12 }}>Has Altin (Global)</div>
+            <TouchField
+              label="Has Altin (TL)"
+              value={formatHasAltinDisplay(hasAltinInput)}
+              onChange={(v) => setHasAltinInput(sanitizeHasAltinInput(v))}
+              inputMode="decimal"
+              onFocus={() => setActiveKeypad(null)}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="primary" onClick={() => saveHasAltin(true)} disabled={hasAltinSaving}>{hasAltinSaving ? 'Kaydediliyor...' : 'Kaydet'}</button>
+              <button className="secondary" onClick={() => setHasAltinEditing(false)} disabled={hasAltinSaving}>Vazgec</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setHasAltinEditing(true)}
+            style={{ background: 'none', border: 'none', textAlign: 'left', padding: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6 }}
+          >
+            <div style={{ fontWeight: 700, color: '#111' }}>Has Altin (Global)</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#111' }}>{formattedHasAltin}</div>
+          </button>
+        )}
+        <div style={{ fontSize: 11, color: '#666' }}>{formattedHasAltinMeta}</div>
+      </div>
+
+      {hasAltinMissing && (
+        <div className="card" style={{ background: '#fdecea', color: '#b3261e', border: '1px solid #f5c2c0', marginBottom: 12 }}>
+          Lutfen has altin giriniz. Has altin olmadan islem yapamazsiniz.
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-        <button type="button" className={txType === 'invoice' ? 'primary' : 'secondary'} onClick={() => setTxType('invoice')} style={{ flex: 1 }}>Fatura</button>
-        <button type="button" className={txType === 'expense' ? 'primary' : 'secondary'} onClick={() => setTxType('expense')} style={{ flex: 1 }}>Gider</button>
+        <button type="button" className={txType === 'invoice' ? 'primary' : 'secondary'} onClick={() => setTxType('invoice')} style={{ flex: 1 }} disabled={hasAltinMissing}>Fatura</button>
+        <button type="button" className={txType === 'expense' ? 'primary' : 'secondary'} onClick={() => setTxType('expense')} style={{ flex: 1 }} disabled={hasAltinMissing}>Gider</button>
       </div>
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <TouchField label="Tarih" type="date" value={date} onChange={setDate} />
-        <TouchField label="Ad Soyad" value={fullName} onChange={setFullName} onFocus={() => setActiveKeypad(null)} upperCaseTr />
+        <TouchField label="Tarih" type="date" value={date} onChange={setDate} disabled={hasAltinMissing} />
+        <TouchField label="Ad Soyad" value={fullName} onChange={setFullName} onFocus={() => setActiveKeypad(null)} upperCaseTr disabled={hasAltinMissing} />
         {/* Doğum yılı alanı kaldırıldı */}
-        <TouchField label="TCKN" value={tckn} onChange={(v) => setTckn(v.replace(/[^0-9]/g, '').slice(0, 11))} inputMode="numeric" pattern="\d*" maxLength={11} onFocus={() => setActiveKeypad(null)} error={tcknError} />
+        <TouchField label="TCKN" value={tckn} onChange={(v) => setTckn(v.replace(/[^0-9]/g, '').slice(0, 11))} inputMode="numeric" pattern="\d*" maxLength={11} onFocus={() => setActiveKeypad(null)} error={tcknError} disabled={hasAltinMissing} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <TouchField label="Tutar" value={formatAmountDisplay(amount)} onChange={(v) => setAmount(sanitizeAmountInput(v))} inputMode="decimal" onFocus={() => setActiveKeypad('amount')} />
-          {activeKeypad === 'amount' && (
+          <TouchField label="Tutar" value={formatAmountDisplay(amount)} onChange={(v) => setAmount(sanitizeAmountInput(v))} inputMode="decimal" onFocus={() => !hasAltinMissing && setActiveKeypad('amount')} disabled={hasAltinMissing} />
+          {activeKeypad === 'amount' && !hasAltinMissing && (
             <BigKeypad {...handleKeypadTo(setAmount)} />
           )}
         </div>
 
         <div style={{ display: 'flex', gap: 12 }}>
-          <button type="button" className={ayar === 22 ? 'primary' : 'secondary'} onClick={() => setAyar(22)} style={{ flex: 1 }}>22 Ayar</button>
-          <button type="button" className={ayar === 24 ? 'primary' : 'secondary'} onClick={() => setAyar(24)} style={{ flex: 1 }}>24 Ayar</button>
+          <button type="button" className={ayar === 22 ? 'primary' : 'secondary'} onClick={() => setAyar(22)} style={{ flex: 1 }} disabled={hasAltinMissing}>22 Ayar</button>
+          <button type="button" className={ayar === 24 ? 'primary' : 'secondary'} onClick={() => setAyar(24)} style={{ flex: 1 }} disabled={hasAltinMissing}>24 Ayar</button>
         </div>
 
         {txType === 'invoice' && (
           <div style={{ display: 'flex', gap: 12 }}>
-            <button type="button" className={payment === 'havale' ? 'primary' : 'secondary'} onClick={() => setPayment('havale')} style={{ flex: 1 }}>Havale</button>
-            <button type="button" className={payment === 'krediKarti' ? 'primary' : 'secondary'} onClick={() => setPayment('krediKarti')} style={{ flex: 1 }}>Kredi Kartı</button>
+            <button type="button" className={payment === 'havale' ? 'primary' : 'secondary'} onClick={() => setPayment('havale')} style={{ flex: 1 }} disabled={hasAltinMissing}>Havale</button>
+            <button type="button" className={payment === 'krediKarti' ? 'primary' : 'secondary'} onClick={() => setPayment('krediKarti')} style={{ flex: 1 }} disabled={hasAltinMissing}>Kredi Kartı</button>
           </div>
         )}
 
         <div className="actions">
-          <button className="primary" onClick={openPreview} disabled={loading}>
+          <button className="primary" onClick={openPreview} disabled={loading || hasAltinMissing}>
             {loading ? 'Hazırlanıyor…' : 'Önizle'}
           </button>
         </div>
@@ -539,7 +691,7 @@ function InvoiceNewInner() {
               )
             })()}
             <div className="actions" style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="secondary" onClick={async () => { if (draftId) { try { await fetch(`${apiBase}/${txType === 'invoice' ? 'api/invoices' : 'api/expenses'}/${draftId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...authHeaders() } }) } catch {} } setPreviewOpen(false); setPredictedSira(null); setCurrentAltinSatis(null); setDraftId(null) }}>İptal</button>
+              <button className="secondary" onClick={async () => { if (draftId) { try { await fetch(`${apiBase}/${txType === 'invoice' ? 'api/invoices' : 'api/expenses'}/${draftId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...authHeaders() } }) } catch {} } setPreviewOpen(false); setPredictedSira(null); setDraftId(null) }}>İptal</button>
               <button className="primary" onClick={onSave} disabled={loading}>{loading ? 'Kaydediliyor…' : 'Onayla'}</button>
             </div>
           </div>
@@ -558,22 +710,3 @@ export default function InvoiceNewPage() {
     </Suspense>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
