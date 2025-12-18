@@ -34,6 +34,9 @@ public class Invoice
     // Kasiyer onayı tamamlandığında işaretlemek için
     public DateTime? FinalizedAt { get; set; }
 
+    public Guid? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+
     // Oluşturan kullanıcı bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }

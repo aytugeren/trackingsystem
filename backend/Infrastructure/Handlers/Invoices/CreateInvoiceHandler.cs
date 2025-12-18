@@ -4,8 +4,8 @@ using KuyumculukTakipProgrami.Domain.Entities;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
 using KuyumculukTakipProgrami.Infrastructure.Pricing;
 using KuyumculukTakipProgrami.Domain.Entities.Market;
+using KuyumculukTakipProgrami.Infrastructure.Util;
 using Microsoft.EntityFrameworkCore;
-using System.Globalization;
 
 namespace KuyumculukTakipProgrami.Infrastructure.Handlers.Invoices;
 
@@ -29,17 +29,48 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" | ", errors));
 
-        var nameUpper = command.Dto.MusteriAdSoyad;
-        if (!string.IsNullOrWhiteSpace(nameUpper))
-            nameUpper = nameUpper.Trim().ToUpper(CultureInfo.GetCultureInfo("tr-TR"));
+        var normalizedName = CustomerUtil.NormalizeName(command.Dto.MusteriAdSoyad);
+        var normalizedTckn = CustomerUtil.NormalizeTckn(command.Dto.TCKN);
+        var phone = command.Dto.Telefon?.Trim();
+        var email = command.Dto.Email?.Trim();
+        var customer = await _db.Customers.FirstOrDefaultAsync(x => x.TCKN == normalizedTckn, cancellationToken);
+        if (customer is null)
+        {
+            customer = new Customer
+            {
+                Id = Guid.NewGuid(),
+                AdSoyad = normalizedName,
+                NormalizedAdSoyad = normalizedName,
+                TCKN = normalizedTckn,
+                Phone = string.IsNullOrWhiteSpace(phone) ? null : phone,
+                Email = string.IsNullOrWhiteSpace(email) ? null : email,
+                CreatedAt = DateTime.UtcNow,
+                LastTransactionAt = DateTime.UtcNow
+            };
+            _db.Customers.Add(customer);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedName) && !string.Equals(customer.AdSoyad, normalizedName, StringComparison.Ordinal))
+            {
+                customer.AdSoyad = normalizedName;
+                customer.NormalizedAdSoyad = normalizedName;
+            }
+            if (!string.IsNullOrWhiteSpace(phone))
+                customer.Phone = phone;
+            if (!string.IsNullOrWhiteSpace(email))
+                customer.Email = email;
+            customer.LastTransactionAt = DateTime.UtcNow;
+        }
 
         var entity = new Invoice
         {
             Id = Guid.NewGuid(),
             Tarih = command.Dto.Tarih,
             SiraNo = command.Dto.SiraNo,
-            MusteriAdSoyad = nameUpper,
-            TCKN = command.Dto.TCKN,
+            MusteriAdSoyad = customer.AdSoyad,
+            TCKN = customer.TCKN,
+            CustomerId = customer.Id,
             Tutar = command.Dto.Tutar,
             OdemeSekli = command.Dto.OdemeSekli,
             AltinAyar = command.Dto.AltinAyar,

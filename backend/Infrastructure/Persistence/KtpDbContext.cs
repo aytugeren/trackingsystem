@@ -11,6 +11,7 @@ public class KtpDbContext : DbContext
 
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Leave> Leaves => Set<Leave>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
@@ -37,7 +38,11 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.YeniUrunFiyati).HasPrecision(18, 3);
             entity.Property(x => x.GramDegeri).HasPrecision(18, 3);
             entity.Property(x => x.Iscilik).HasPrecision(18, 3);
-            // Kasiyer ilişkisi (nullable, kullanıcı silinirse null kalır)
+            entity.HasOne(x => x.Customer)
+                  .WithMany()
+                  .HasForeignKey(x => x.CustomerId)
+                  .OnDelete(DeleteBehavior.SetNull);
+            // Kasiyer iliskisi (nullable, kullanici silinirse null kalir)
             entity.HasOne(x => x.Kasiyer)
                   .WithMany()
                   .HasForeignKey(x => x.KasiyerId)
@@ -59,7 +64,11 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.YeniUrunFiyati).HasPrecision(18, 3);
             entity.Property(x => x.GramDegeri).HasPrecision(18, 3);
             entity.Property(x => x.Iscilik).HasPrecision(18, 3);
-            // Kasiyer ilişkisi (nullable)
+            entity.HasOne(x => x.Customer)
+                  .WithMany()
+                  .HasForeignKey(x => x.CustomerId)
+                  .OnDelete(DeleteBehavior.SetNull);
+            // Kasiyer iliskisi (nullable)
             entity.HasOne(x => x.Kasiyer)
                   .WithMany()
                   .HasForeignKey(x => x.KasiyerId)
@@ -110,6 +119,21 @@ public class KtpDbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => x.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<Customer>(entity =>
+        {
+            entity.ToTable("Customers");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.AdSoyad).HasMaxLength(150).IsRequired();
+            entity.Property(x => x.NormalizedAdSoyad).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.TCKN).HasMaxLength(11).IsRequired();
+            entity.Property(x => x.Phone).HasMaxLength(40).IsRequired(false);
+            entity.Property(x => x.Email).HasMaxLength(200).IsRequired(false);
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.LastTransactionAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => x.TCKN).IsUnique();
+            entity.HasIndex(x => x.NormalizedAdSoyad);
         });
     }
 }

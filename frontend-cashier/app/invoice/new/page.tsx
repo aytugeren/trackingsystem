@@ -10,6 +10,7 @@ import { useSearchParams } from 'next/navigation'
 import { authHeaders } from '../../../lib/api'
 
 type TxType = 'invoice' | 'expense'
+type CustomerSuggestion = { id: string; adSoyad: string; tckn: string; phone?: string | null; email?: string | null; hasContact?: boolean }
 
 function todayStr() {
   const d = new Date()
@@ -45,6 +46,12 @@ function InvoiceNewInner() {
     return String(r)
   })
   const [tckn, setTckn] = useState<string>('')
+  const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSuggestion[]>([])
+  const [suggestFor, setSuggestFor] = useState<'name' | 'tckn' | null>(null)
+  const [phone, setPhone] = useState<string>('')
+  const [email, setEmail] = useState<string>('')
+  const [needsContact, setNeedsContact] = useState<boolean>(false)
+  const [existingCustomerId, setExistingCustomerId] = useState<string | null>(null)
   const [amount, setAmount] = useState<string>('')
   const [payment, setPayment] = useState<'havale' | 'krediKarti' | ''>('')
   const [loading, setLoading] = useState(false)
@@ -189,7 +196,9 @@ function InvoiceNewInner() {
         musteriAdSoyad: fullName.trim(),
         tckn: tckn,
         tutar: amountNum,
-        altinAyar: ayar
+        altinAyar: ayar,
+        telefon: phone.trim() || undefined,
+        email: email.trim() || undefined
       }
       if (txType === 'invoice') payload.odemeSekli = payment === 'havale' ? 0 : 1
       const url = txType === 'invoice' ? '/api/cashier/invoices/draft' : '/api/cashier/expenses/draft'
@@ -216,6 +225,45 @@ function InvoiceNewInner() {
     loadHasAltin()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const source = suggestFor
+    const query = source === 'name' ? fullName : (source === 'tckn' ? tckn : '')
+    if (!source || !query || query.trim().length < 2 || !isOnline) {
+      setCustomerSuggestions([])
+      return
+    }
+    const ctrl = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/customers/suggest?q=${encodeURIComponent(query.trim())}&limit=8`, {
+          headers: { ...authHeaders() },
+          signal: ctrl.signal
+        })
+        if (!res.ok) { setCustomerSuggestions([]); return }
+        const data = await res.json()
+        const items = Array.isArray(data) ? data : (Array.isArray((data as any)?.items) ? (data as any).items : [])
+        const mapped = (items as any[]).map(it => {
+          const phoneVal = it.phone ?? it.Phone ?? null
+          const emailVal = it.email ?? it.Email ?? null
+          const hasContact = (it.hasContact ?? it.has_contact ?? it.has_contact_info ?? null)
+          return {
+            id: String(it.id ?? it.Id ?? ''),
+            adSoyad: String(it.adSoyad ?? it.AdSoyad ?? it.name ?? ''),
+            tckn: String(it.tckn ?? it.TCKN ?? ''),
+            phone: phoneVal != null ? String(phoneVal) : null,
+            email: emailVal != null ? String(emailVal) : null,
+            hasContact: hasContact != null ? Boolean(hasContact) : Boolean(phoneVal) || Boolean(emailVal)
+          }
+        }).filter(x => x.id)
+        setCustomerSuggestions(mapped)
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return
+        setCustomerSuggestions([])
+      }
+    }, 200)
+    return () => { ctrl.abort(); clearTimeout(timer) }
+  }, [suggestFor, fullName, tckn, apiBase, isOnline])
 
   const formattedHasAltin = savedHasAltin != null
     ? Number(savedHasAltin).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 3 })
@@ -327,6 +375,37 @@ function InvoiceNewInner() {
     return parseFloat((sanitizeHasAltinInput(hasAltinInput || '0') || '0').replace(',', '.'))
   }
 
+  function applyCustomerSuggestion(s: CustomerSuggestion) {
+    setFullName(s.adSoyad || '')
+    setTckn(String(s.tckn || ''))
+    setTcknError('')
+    setExistingCustomerId(s.id || null)
+    setPhone(s.phone ? String(s.phone) : '')
+    setEmail(s.email ? String(s.email) : '')
+    setNeedsContact(!s.hasContact)
+    setCustomerSuggestions([])
+    setSuggestFor(null)
+  }
+
+  function renderSuggestions(field: 'name' | 'tckn') {
+    if (suggestFor !== field || customerSuggestions.length === 0) return null
+    return (
+      <div style={{ position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%', marginTop: 4, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 10px 26px rgba(0,0,0,0.12)', maxHeight: 240, overflowY: 'auto' }}>
+        {customerSuggestions.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => applyCustomerSuggestion(s)}
+            style={{ width: '100%', padding: '10px 12px', textAlign: 'left', background: 'white', border: 'none', borderBottom: '1px solid #f1f1f1', cursor: 'pointer' }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#111' }}>{s.adSoyad || '-'}</div>
+            <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>TCKN: {s.tckn || '-'}</div>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   async function onSave() {
     setError('')
     setSuccess('')
@@ -387,18 +466,20 @@ function InvoiceNewInner() {
     }
 
     const { firstName, lastName } = splitFullName(fullName)
-    const common: any = {
-      tarih: date,
-      siraNo: 0,
-      musteriAdSoyad: fullName.trim(),
-      tckn: tckn,
-      tutar: amountNum,
-      fullName: fullName.trim(),
-      firstName,
-      lastName,
-      birthYear: computeBirthYear(),
-      altinAyar: ayar
-    }
+  const common: any = {
+    tarih: date,
+    siraNo: 0,
+    musteriAdSoyad: fullName.trim(),
+    tckn: tckn,
+    tutar: amountNum,
+    fullName: fullName.trim(),
+    firstName,
+    lastName,
+    birthYear: computeBirthYear(),
+    altinAyar: ayar,
+    telefon: phone.trim() || undefined,
+    email: email.trim() || undefined
+  }
 
     // If draft exists, finalize it; else fallback to original create
     let res: any = null
@@ -444,10 +525,12 @@ function InvoiceNewInner() {
           }
         } catch {}
       }
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null)
+      setCustomerSuggestions([]); setSuggestFor(null)
+      setCustomerSuggestions([]); setSuggestFor(null)
+      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false)
     } else if ((res as any).queued) {
       setSuccess('Çevrimdışı kaydedildi, sonra gönderilecek ✅')
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null)
+      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false)
     } else {
       setError('Kayıt eklenemedi')
     }
@@ -506,9 +589,26 @@ function InvoiceNewInner() {
 
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TouchField label="Tarih" type="date" value={date} onChange={setDate} disabled={hasAltinMissing} />
-        <TouchField label="Ad Soyad" value={fullName} onChange={setFullName} onFocus={() => setActiveKeypad(null)} upperCaseTr disabled={hasAltinMissing} />
+        <div style={{ position: 'relative' }}>
+          <TouchField label="Ad Soyad" value={fullName} onChange={(v) => { setFullName(v); setSuggestFor('name') }} onFocus={() => { setActiveKeypad(null); setSuggestFor('name') }} upperCaseTr disabled={hasAltinMissing} />
+          {renderSuggestions('name')}
+        </div>
         {/* Doğum yılı alanı kaldırıldı */}
-        <TouchField label="TCKN" value={tckn} onChange={(v) => setTckn(v.replace(/[^0-9]/g, '').slice(0, 11))} inputMode="numeric" pattern="\d*" maxLength={11} onFocus={() => setActiveKeypad(null)} error={tcknError} disabled={hasAltinMissing} />
+        <div style={{ position: 'relative' }}>
+          <TouchField label="TCKN" value={tckn} onChange={(v) => { const cleaned = v.replace(/[^0-9]/g, '').slice(0, 11); setTckn(cleaned); setTcknError(''); setSuggestFor('tckn'); setNeedsContact(false); setExistingCustomerId(null); setPhone(''); setEmail(''); }} inputMode="numeric" pattern="\\d*" maxLength={11} onFocus={() => { setActiveKeypad(null); setSuggestFor('tckn') }} error={tcknError} disabled={hasAltinMissing} />
+          {renderSuggestions('tckn')}
+        </div>
+        {existingCustomerId && (
+          <>
+            {needsContact && (
+              <div className="card" style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412' }}>
+                Daha önce gelen müşteri için telefon veya e-posta alınmamış. Lütfen ekleyin (zorunlu değil).
+              </div>
+            )}
+            <TouchField label="Telefon (isteğe bağlı)" value={phone} onChange={(v) => setPhone(v.replace(/[^0-9+]/g, '').slice(0, 20))} inputMode="tel" onFocus={() => setActiveKeypad(null)} disabled={hasAltinMissing} />
+            <TouchField label="Email (isteğe bağlı)" value={email} onChange={(v) => setEmail(v.trim())} inputMode="email" onFocus={() => setActiveKeypad(null)} disabled={hasAltinMissing} />
+          </>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <TouchField label="Tutar" value={formatAmountDisplay(amount)} onChange={(v) => setAmount(sanitizeAmountInput(v))} inputMode="decimal" onFocus={() => !hasAltinMissing && setActiveKeypad('amount')} disabled={hasAltinMissing} />
           {activeKeypad === 'amount' && !hasAltinMissing && (

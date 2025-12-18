@@ -11,6 +11,7 @@ const baseItems: NavItem[] = [
   { href: '/', label: 'Ana Sayfa', icon: IconHome },
   { href: '/invoices', label: 'Faturalar', icon: IconInvoice },
   { href: '/expenses', label: 'Giderler', icon: IconExpense },
+  { href: '/customers', label: 'Müşteriler', icon: IconUsers },
   { href: '/reports', label: 'Raporlar', icon: IconChart },
   { href: '/etiket-basma', label: 'Etiket Basma', icon: IconTag },
 ]
@@ -47,6 +48,7 @@ export function MainNav({ onNavigate, collapsed = false }: { onNavigate?: () => 
       if (it.href === '/' && perms && perms.canViewReports === false) return false
       if (it.href === '/invoices' && perms && perms.canUseInvoices === false) return false
       if (it.href === '/expenses' && perms && perms.canUseExpenses === false) return false
+      if (it.href === '/customers' && perms && (perms.canUseInvoices === false && perms.canUseExpenses === false)) return false
       if (it.href === '/reports' && perms && perms.canViewReports === false) return false
       if (it.href === '/etiket-basma' && perms && perms.canPrintLabels === false) return false
       return true

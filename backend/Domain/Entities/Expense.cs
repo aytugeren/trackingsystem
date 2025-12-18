@@ -32,6 +32,9 @@ public class Expense
     // Kasiyer onayı tamamlandığında işaretlemek için
     public DateTime? FinalizedAt { get; set; }
 
+    public Guid? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
+
     // Olusturan kullanici bilgisi (JWT'den)
     public Guid? CreatedById { get; set; }
     public string? CreatedByEmail { get; set; }

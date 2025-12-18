@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
   // Use --dart-define=API_BASE=https://host:port for overrides
-  static const _defaultBase = String.fromEnvironment('API_BASE', defaultValue: 'http://161.97.97.216:9002');
+  static const _defaultBase = String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:8080');
   final String baseUrl;
   String? _token;
 

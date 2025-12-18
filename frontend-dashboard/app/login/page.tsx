@@ -25,11 +25,9 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
     try {
-      const form = e.currentTarget as HTMLFormElement;
-      const emailEl = form.querySelector('#email') as HTMLInputElement | null;
-      const passEl = form.querySelector('#password') as HTMLInputElement | null;
-      const emailVal = (email && email.length > 0) ? email : (emailEl?.value || '');
-      const passwordVal = (password && password.length > 0) ? password : (passEl?.value || '');
+      const fd = new FormData(e.currentTarget)
+      const emailVal = (fd.get('email')?.toString().trim() || email).trim()
+      const passwordVal = fd.get('password')?.toString() || password
       const resp = await api.login(emailVal, passwordVal)
       localStorage.setItem('ktp_token', resp.token)
       localStorage.setItem('ktp_role', resp.role)
@@ -67,11 +65,27 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input
+                id="email"
+                name="email"
+                autoComplete="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label htmlFor="password">Şifre</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Input
+                id="password"
+                name="password"
+                autoComplete="current-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
             {error && <div className="text-sm text-red-600">{error}</div>}
             <Button type="submit" disabled={loading} className="w-full">{loading ? 'Giriş yapılıyor...' : 'Giriş Yap'}</Button>
@@ -81,4 +95,3 @@ export default function LoginPage() {
     </div>
   )
 }
-

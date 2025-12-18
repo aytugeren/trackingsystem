@@ -5,6 +5,7 @@ using KuyumculukTakipProgrami.Application;
 using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
 using KuyumculukTakipProgrami.Infrastructure.Pricing;
+using KuyumculukTakipProgrami.Infrastructure.Util;
 using Microsoft.EntityFrameworkCore;
 using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
@@ -190,11 +191,31 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Iscilik\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"FinalizedAt\" timestamp with time zone NULL;");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Customers\" (\"Id\" uuid PRIMARY KEY, \"AdSoyad\" varchar(150) NOT NULL, \"NormalizedAdSoyad\" varchar(160) NOT NULL, \"TCKN\" varchar(11) NOT NULL, \"Phone\" varchar(40) NULL, \"Email\" varchar(200) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"LastTransactionAt\" timestamptz NULL);");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"Phone\" varchar(40) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"Email\" varchar(200) NULL;");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Customers_TCKN\" ON \"Customers\" (\"TCKN\");");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Customers_NormalizedAdSoyad\" ON \"Customers\" (\"NormalizedAdSoyad\");");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CustomerId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CustomerId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Invoices_CustomerId\" ON \"Invoices\" (\"CustomerId\");");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Expenses_CustomerId\" ON \"Expenses\" (\"CustomerId\");");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Invoices_CustomerId_Customers') THEN " +
+            "ALTER TABLE \"Invoices\" ADD CONSTRAINT \"FK_Invoices_CustomerId_Customers\" FOREIGN KEY (\"CustomerId\") REFERENCES \"Customers\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Expenses_CustomerId_Customers') THEN " +
+            "ALTER TABLE \"Expenses\" ADD CONSTRAINT \"FK_Expenses_CustomerId_Customers\" FOREIGN KEY (\"CustomerId\") REFERENCES \"Customers\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
         await db.Database.ExecuteSqlRawAsync(
             "DO $$ BEGIN " +
             "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Expenses_KasiyerId_Users') THEN " +
             "ALTER TABLE \"Expenses\" ADD CONSTRAINT \"FK_Expenses_KasiyerId_Users\" FOREIGN KEY (\"KasiyerId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL; " +
             "END IF; END $$;");
+        await EnsureCustomersMigratedAsync(db, CancellationToken.None);
         await EnsureMarketSchemaAsync(marketDb);
         await SeedData.EnsureSeededAsync(db);
         // Temizlik: Eski test seed verilerini sil ("Ali Veli", "Ahmet Demir")
@@ -391,6 +412,7 @@ app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IM
                             id = i.Id,
                             tarih = i.Tarih,
                             siraNo = i.SiraNo,
+                            customerId = i.CustomerId,
                             musteriAdSoyad = i.MusteriAdSoyad,
                             tckn = i.TCKN,
                             tutar = i.Tutar,
@@ -566,6 +588,7 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
                             id = e.Id,
                             tarih = e.Tarih,
                             siraNo = e.SiraNo,
+                            customerId = e.CustomerId,
                             musteriAdSoyad = e.MusteriAdSoyad,
                             tckn = e.TCKN,
                             tutar = e.Tutar,
@@ -619,17 +642,48 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
         var max = await db.Invoices.AsNoTracking().MaxAsync(x => (int?)x.SiraNo, ct) ?? 0;
         var next = max + 1;
 
-        var nameUpper = dto.MusteriAdSoyad;
-        if (!string.IsNullOrWhiteSpace(nameUpper))
-            nameUpper = nameUpper.Trim().ToUpper(System.Globalization.CultureInfo.GetCultureInfo("tr-TR"));
+        var normalizedName = CustomerUtil.NormalizeName(dto.MusteriAdSoyad);
+        var normalizedTckn = CustomerUtil.NormalizeTckn(dto.TCKN);
+        var customerPhone = dto.Telefon?.Trim();
+        var customerEmail = dto.Email?.Trim();
+        var customer = await db.Customers.FirstOrDefaultAsync(x => x.TCKN == normalizedTckn, ct);
+        if (customer is null)
+        {
+            customer = new Customer
+            {
+                Id = Guid.NewGuid(),
+                AdSoyad = normalizedName,
+                NormalizedAdSoyad = normalizedName,
+                TCKN = normalizedTckn,
+                Phone = string.IsNullOrWhiteSpace(customerPhone) ? null : customerPhone,
+                Email = string.IsNullOrWhiteSpace(customerEmail) ? null : customerEmail,
+                CreatedAt = DateTime.UtcNow,
+                LastTransactionAt = DateTime.UtcNow
+            };
+            db.Customers.Add(customer);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedName) && !string.Equals(customer.AdSoyad, normalizedName, StringComparison.Ordinal))
+            {
+                customer.AdSoyad = normalizedName;
+                customer.NormalizedAdSoyad = normalizedName;
+            }
+            if (!string.IsNullOrWhiteSpace(customerPhone))
+                customer.Phone = customerPhone;
+            if (!string.IsNullOrWhiteSpace(customerEmail))
+                customer.Email = customerEmail;
+            customer.LastTransactionAt = DateTime.UtcNow;
+        }
 
         var entity = new Invoice
         {
             Id = Guid.NewGuid(),
             Tarih = dto.Tarih,
             SiraNo = next,
-            MusteriAdSoyad = nameUpper,
-            TCKN = dto.TCKN,
+            MusteriAdSoyad = customer.AdSoyad,
+            TCKN = customer.TCKN,
+            CustomerId = customer.Id,
             Tutar = dto.Tutar,
             OdemeSekli = dto.OdemeSekli,
             AltinAyar = dto.AltinAyar,
@@ -681,14 +735,44 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
         var max = await db.Expenses.AsNoTracking().MaxAsync(x => (int?)x.SiraNo, ct) ?? 0;
         var next = max + 1;
 
-        var nameUpper2 = dto.MusteriAdSoyad;
-        if (!string.IsNullOrWhiteSpace(nameUpper2))
-            nameUpper2 = nameUpper2.Trim().ToUpper(System.Globalization.CultureInfo.GetCultureInfo("tr-TR"));
+        var normalizedName2 = CustomerUtil.NormalizeName(dto.MusteriAdSoyad);
+        var normalizedTckn2 = CustomerUtil.NormalizeTckn(dto.TCKN);
+        var customerPhone2 = dto.Telefon?.Trim();
+        var customerEmail2 = dto.Email?.Trim();
+        var customer = await db.Customers.FirstOrDefaultAsync(x => x.TCKN == normalizedTckn2, ct);
+        if (customer is null)
+        {
+            customer = new Customer
+            {
+                Id = Guid.NewGuid(),
+                AdSoyad = normalizedName2,
+                NormalizedAdSoyad = normalizedName2,
+                TCKN = normalizedTckn2,
+                Phone = string.IsNullOrWhiteSpace(customerPhone2) ? null : customerPhone2,
+                Email = string.IsNullOrWhiteSpace(customerEmail2) ? null : customerEmail2,
+                CreatedAt = DateTime.UtcNow,
+                LastTransactionAt = DateTime.UtcNow
+            };
+            db.Customers.Add(customer);
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedName2) && !string.Equals(customer.AdSoyad, normalizedName2, StringComparison.Ordinal))
+            {
+                customer.AdSoyad = normalizedName2;
+                customer.NormalizedAdSoyad = normalizedName2;
+            }
+            if (!string.IsNullOrWhiteSpace(customerPhone2))
+                customer.Phone = customerPhone2;
+            if (!string.IsNullOrWhiteSpace(customerEmail2))
+                customer.Email = customerEmail2;
+            customer.LastTransactionAt = DateTime.UtcNow;
+        }
 
         var entity = new Expense
         {
             Id = Guid.NewGuid(), Tarih = dto.Tarih, SiraNo = next,
-            MusteriAdSoyad = nameUpper2, TCKN = dto.TCKN, Tutar = dto.Tutar,
+            MusteriAdSoyad = customer.AdSoyad, TCKN = customer.TCKN, CustomerId = customer.Id, Tutar = dto.Tutar,
             AltinAyar = dto.AltinAyar, KasiyerId = currentUserId,
             CreatedById = currentUserId, CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email,
             Kesildi = false
@@ -758,6 +842,134 @@ app.MapGet("/api/expenses/next-sirano", async (KtpDbContext db, CancellationToke
     var max = await db.Expenses.AsNoTracking().MaxAsync(x => (int?)x.SiraNo, ct) ?? 0;
     return Results.Ok(new { next = max + 1 });
 }).WithTags("Expenses").RequireAuthorization();
+
+app.MapGet("/api/customers/suggest", async (string q, int? limit, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!await HasCustomerLookupPermissionAsync(http, db, ct)) return Results.Forbid();
+    if (string.IsNullOrWhiteSpace(q)) return Results.Ok(Array.Empty<object>());
+
+    var take = Math.Clamp(limit ?? 8, 1, 50);
+    var normalizedQuery = CustomerUtil.NormalizeName(q);
+    var trimmed = q.Trim();
+
+    var baseQuery = db.Customers.AsNoTracking()
+        .Where(c =>
+            (normalizedQuery != string.Empty && c.NormalizedAdSoyad.Contains(normalizedQuery)) ||
+            (!string.IsNullOrEmpty(trimmed) && c.TCKN.Contains(trimmed)));
+
+    var items = await baseQuery
+        .OrderByDescending(c => c.LastTransactionAt ?? c.CreatedAt)
+        .ThenBy(c => c.AdSoyad)
+        .Take(take)
+        .Select(c => new
+        {
+            id = c.Id,
+            adSoyad = c.AdSoyad,
+            tckn = c.TCKN,
+            phone = c.Phone,
+            email = c.Email,
+            hasContact = !string.IsNullOrWhiteSpace(c.Phone) || !string.IsNullOrWhiteSpace(c.Email)
+        })
+        .ToListAsync(ct);
+
+    return Results.Ok(items);
+}).WithTags("Customers").RequireAuthorization();
+
+app.MapGet("/api/customers", async (int? page, int? pageSize, string? q, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!await HasCustomerLookupPermissionAsync(http, db, ct)) return Results.Forbid();
+    var p = Math.Max(page ?? 1, 1);
+    var ps = Math.Clamp(pageSize ?? 20, 1, 200);
+    var normalizedQuery = CustomerUtil.NormalizeName(q);
+    var trimmed = q?.Trim() ?? string.Empty;
+
+    var baseQuery = db.Customers.AsNoTracking();
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        baseQuery = baseQuery.Where(c =>
+            (!string.IsNullOrEmpty(normalizedQuery) && c.NormalizedAdSoyad.Contains(normalizedQuery)) ||
+            (!string.IsNullOrEmpty(trimmed) && c.TCKN.Contains(trimmed)));
+    }
+
+    var totalCount = await baseQuery.CountAsync(ct);
+    var items = await baseQuery
+        .OrderByDescending(c => c.LastTransactionAt ?? c.CreatedAt)
+        .ThenBy(c => c.AdSoyad)
+        .Skip((p - 1) * ps)
+        .Take(ps)
+        .Select(c => new
+        {
+            id = c.Id,
+            adSoyad = c.AdSoyad,
+            tckn = c.TCKN,
+            phone = c.Phone,
+            email = c.Email,
+            lastTransactionAt = c.LastTransactionAt,
+            createdAt = c.CreatedAt
+        })
+        .ToListAsync(ct);
+
+    var ids = items.Select(i => i.id).ToList();
+    var invoiceCounts = await db.Invoices.AsNoTracking()
+        .Where(x => x.CustomerId != null && ids.Contains(x.CustomerId.Value))
+        .GroupBy(x => x.CustomerId!.Value)
+        .Select(g => new { CustomerId = g.Key, Count = g.Count() })
+        .ToDictionaryAsync(x => x.CustomerId, x => x.Count, ct);
+    var expenseCounts = await db.Expenses.AsNoTracking()
+        .Where(x => x.CustomerId != null && ids.Contains(x.CustomerId.Value))
+        .GroupBy(x => x.CustomerId!.Value)
+        .Select(g => new { CustomerId = g.Key, Count = g.Count() })
+        .ToDictionaryAsync(x => x.CustomerId, x => x.Count, ct);
+
+    var shaped = items.Select(c =>
+    {
+        var inv = invoiceCounts.TryGetValue(c.id, out var ci) ? ci : 0;
+        var exp = expenseCounts.TryGetValue(c.id, out var ce) ? ce : 0;
+        return new
+        {
+            c.id,
+            c.adSoyad,
+            c.tckn,
+            c.phone,
+            c.email,
+            c.lastTransactionAt,
+            c.createdAt,
+            purchaseCount = inv + exp
+        };
+    });
+
+    return Results.Ok(new { items = shaped, totalCount });
+}).WithTags("Customers").RequireAuthorization();
+
+app.MapGet("/api/customers/{id:guid}/transactions", async (Guid id, int? limit, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!await HasCustomerLookupPermissionAsync(http, db, ct)) return Results.Forbid();
+    var take = Math.Clamp(limit ?? 50, 1, 200);
+
+    var invoices = await db.Invoices.AsNoTracking()
+        .Where(x => x.CustomerId == id)
+        .OrderByDescending(x => x.Tarih)
+        .ThenByDescending(x => x.SiraNo)
+        .Take(take)
+        .Select(x => new { id = x.Id, type = "invoice", tarih = x.Tarih, siraNo = x.SiraNo, tutar = x.Tutar })
+        .ToListAsync(ct);
+    var expenses = await db.Expenses.AsNoTracking()
+        .Where(x => x.CustomerId == id)
+        .OrderByDescending(x => x.Tarih)
+        .ThenByDescending(x => x.SiraNo)
+        .Take(take)
+        .Select(x => new { id = x.Id, type = "expense", tarih = x.Tarih, siraNo = x.SiraNo, tutar = x.Tutar })
+        .ToListAsync(ct);
+
+    var combined = invoices.Concat<object>(expenses)
+        .Cast<dynamic>()
+        .OrderByDescending(x => x.tarih)
+        .ThenByDescending(x => x.siraNo)
+        .Take(take)
+        .ToList();
+
+    return Results.Ok(new { items = combined, totalCount = combined.Count });
+}).WithTags("Customers").RequireAuthorization();
 
 // Has alt?n pricing endpoints (manual entry)
 app.MapGet("/api/pricing/gold", async (MarketDbContext mdb, CancellationToken ct) =>
@@ -860,7 +1072,7 @@ app.MapGet("/api/pricing/status", async (MarketDbContext mdb, CancellationToken 
         return Results.Ok(new
         {
             hasAlert = true,
-            message = "Has Alt?n fiyat? hen?z girilmemi?.",
+            message = "Has Altın Fiyatı Girilmemiş!",
             sourceTime = (DateTime?)null,
             fetchedAt = (DateTime?)null
         });
@@ -1044,8 +1256,9 @@ app.MapGet("/api/leaves/summary", async (int? year, KtpDbContext db) =>
     const double workingDayHours = 8.0; // Saat bazl� kesinti i�in 1 g�n = 8 saat varsay�m�
     var used = approved
         .GroupBy(a => a.UserId)
+        .Where(g => g.Key.HasValue)
         .ToDictionary(
-            g => g.Key,
+            g => g.Key!.Value,
             g => g.Sum(x =>
                 (x.FromTime.HasValue && x.ToTime.HasValue)
                     ? Math.Max(0.0, (x.ToTime.Value.ToTimeSpan() - x.FromTime.Value.ToTimeSpan()).TotalHours) / workingDayHours
@@ -1816,6 +2029,89 @@ static async Task EnsureUsersSchemaAsync(KtpDbContext db)
     await db.Database.ExecuteSqlRawAsync(sql);
 }
 
+static async Task EnsureCustomersMigratedAsync(KtpDbContext db, CancellationToken ct)
+{
+    var customers = await db.Customers.ToListAsync(ct);
+    var customerMap = customers.ToDictionary(c => CustomerUtil.NormalizeTckn(c.TCKN), c => c);
+
+    var invoices = await db.Invoices.AsNoTracking()
+        .Select(x => new { x.Id, x.TCKN, x.MusteriAdSoyad, x.Tarih, x.CustomerId })
+        .ToListAsync(ct);
+    var expenses = await db.Expenses.AsNoTracking()
+        .Select(x => new { x.Id, x.TCKN, x.MusteriAdSoyad, x.Tarih, x.CustomerId })
+        .ToListAsync(ct);
+
+    void Upsert(string? tcknRaw, string? nameRaw, DateOnly tarih)
+    {
+        var tckn = CustomerUtil.NormalizeTckn(tcknRaw);
+        if (string.IsNullOrWhiteSpace(tckn)) return;
+        var normalizedName = CustomerUtil.NormalizeName(nameRaw);
+        var txTime = DateTime.SpecifyKind(tarih.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+
+        if (!customerMap.TryGetValue(tckn, out var cust))
+        {
+            cust = new Customer
+            {
+                Id = Guid.NewGuid(),
+                AdSoyad = normalizedName,
+                NormalizedAdSoyad = normalizedName,
+                TCKN = tckn,
+                CreatedAt = txTime,
+                LastTransactionAt = txTime
+            };
+            db.Customers.Add(cust);
+            customerMap[tckn] = cust;
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedName) && !string.Equals(cust.AdSoyad, normalizedName, StringComparison.Ordinal))
+            {
+                cust.AdSoyad = normalizedName;
+                cust.NormalizedAdSoyad = normalizedName;
+            }
+            if (!cust.LastTransactionAt.HasValue || cust.LastTransactionAt.Value < txTime)
+                cust.LastTransactionAt = txTime;
+        }
+    }
+
+    foreach (var inv in invoices)
+    {
+        Upsert(inv.TCKN, inv.MusteriAdSoyad, inv.Tarih);
+    }
+    foreach (var exp in expenses)
+    {
+        Upsert(exp.TCKN, exp.MusteriAdSoyad, exp.Tarih);
+    }
+
+    await db.SaveChangesAsync(ct);
+
+    var invsToUpdate = await db.Invoices.Where(x => x.CustomerId == null && x.TCKN != null).ToListAsync(ct);
+    foreach (var inv in invsToUpdate)
+    {
+        var key = CustomerUtil.NormalizeTckn(inv.TCKN);
+        if (customerMap.TryGetValue(key, out var cust))
+        {
+            inv.CustomerId = cust.Id;
+            inv.MusteriAdSoyad = cust.AdSoyad;
+            inv.TCKN = cust.TCKN;
+        }
+    }
+
+    var expsToUpdate = await db.Expenses.Where(x => x.CustomerId == null && x.TCKN != null).ToListAsync(ct);
+    foreach (var exp in expsToUpdate)
+    {
+        var key = CustomerUtil.NormalizeTckn(exp.TCKN);
+        if (customerMap.TryGetValue(key, out var cust))
+        {
+            exp.CustomerId = cust.Id;
+            exp.MusteriAdSoyad = cust.AdSoyad;
+            exp.TCKN = cust.TCKN;
+        }
+    }
+
+    await db.SaveChangesAsync(ct);
+}
+
 static string IssueJwt(User user, string issuer, string audience, string key, TimeSpan lifetime)
 {
     var claims = new List<Claim>
@@ -1861,6 +2157,22 @@ static bool VerifyPassword(string password, string stored)
         return CryptographicOperations.FixedTimeEquals(expected, actual);
     }
     catch { return false; }
+}
+
+static async Task<bool> HasCustomerLookupPermissionAsync(HttpContext http, KtpDbContext db, CancellationToken ct)
+{
+    if (http.User.IsInRole(Role.Yonetici.ToString())) return true;
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    if (!Guid.TryParse(sub, out var uid)) return false;
+    var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, ct);
+    if (user?.AssignedRoleId is Guid rid)
+    {
+        var role = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid, ct);
+        return role?.CanUseInvoices == true || role?.CanUseExpenses == true;
+    }
+    return false;
 }
 
 // Request models
@@ -1924,18 +2236,3 @@ public record KaratDiffSettings
 public record UpdateKaratSettingsRequest(KaratRange[] ranges, double alertThreshold);
 
 public record PrintMultiRequest([property: Required] List<string> Values);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

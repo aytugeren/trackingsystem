@@ -2,6 +2,7 @@
   id: string
   tarih: string // ISO or yyyy-MM-dd
   siraNo: number
+  customerId?: string | null
   musteriAdSoyad?: string | null
   tckn?: string | null
   tutar: number
@@ -23,6 +24,7 @@ export type Expense = {
   id: string
   tarih: string
   siraNo: number
+  customerId?: string | null
   musteriAdSoyad?: string | null
   tckn?: string | null
   tutar: number
@@ -37,6 +39,25 @@ export type Expense = {
   kesildi?: boolean
   kasiyerAdSoyad?: string | null
   odemeSekli: number | 'Havale' | 'KrediKarti'
+}
+
+export type Customer = {
+  id: string
+  adSoyad: string
+  tckn: string
+  phone?: string | null
+  email?: string | null
+  lastTransactionAt?: string | null
+  createdAt?: string | null
+  purchaseCount?: number
+}
+
+export type CustomerTransaction = {
+  id: string
+  type: 'invoice' | 'expense' | string
+  tarih: string
+  siraNo: number
+  tutar: number
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
@@ -103,6 +124,22 @@ export const api = {
     const url = `${API_BASE}/api/expenses/${id}/finalize`
     const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
     if (!res.ok) throw new Error('Gider kesilemedi')
+  },
+  async listCustomers(page = 1, pageSize = 20, q?: string): Promise<Paginated<Customer>> {
+    const search = new URLSearchParams()
+    search.set('page', String(page))
+    search.set('pageSize', String(pageSize))
+    if (q) search.set('q', q)
+    const url = `${API_BASE}/api/customers?${search.toString()}`
+    const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+    if (!res.ok) throw new Error('Müşteriler alınamadı')
+    return res.json()
+  },
+  async listCustomerTransactions(id: string, limit = 50): Promise<{ items: CustomerTransaction[] }> {
+    const url = `${API_BASE}/api/customers/${id}/transactions?limit=${limit}`
+    const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+    if (!res.ok) throw new Error('Geçmiş işlemler alınamadı')
+    return res.json()
   },
   async deleteInvoice(id: string): Promise<void> {
     const url = `${API_BASE}/api/invoices/${id}`

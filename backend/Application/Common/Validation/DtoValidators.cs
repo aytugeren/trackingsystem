@@ -9,21 +9,23 @@ public static class DtoValidators
     {
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(dto.MusteriAdSoyad))
-            errors.Add("MusteriAdSoyad boş olamaz.");
+        var name = dto.MusteriAdSoyad?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+            errors.Add("MusteriAdSoyad boY olamaz.");
 
-        if (string.IsNullOrWhiteSpace(dto.TCKN) || dto.TCKN.Length != 11 || !dto.TCKN.All(char.IsDigit))
-            errors.Add("TCKN tam 11 haneli olmalı ve sadece rakam içermeli.");
+        var tckn = dto.TCKN?.Trim() ?? string.Empty;
+        if (tckn.Length != 11 || !tckn.All(char.IsDigit))
+            errors.Add("TCKN tam 11 haneli olmalŽñ ve sadece rakam iÇõermeli.");
 
         if (dto.Tutar <= 0)
-            errors.Add("Tutar 0'dan büyük olmalı.");
+            errors.Add("Tutar 0'dan bÇ¬yÇ¬k olmalŽñ.");
 
         if (dto.SiraNo < 1)
-            errors.Add("SiraNo en az 1 olmalı.");
+            errors.Add("SiraNo en az 1 olmalŽñ.");
 
         var ayarVal = (int)dto.AltinAyar;
         if (ayarVal != 22 && ayarVal != 24)
-            errors.Add("AltinAyar yalnızca 22 veya 24 olmalıdır.");
+            errors.Add("AltinAyar yalnŽñzca 22 veya 24 olmalŽñdŽñr.");
 
         return errors;
     }
@@ -32,23 +34,24 @@ public static class DtoValidators
     {
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(dto.MusteriAdSoyad))
-            errors.Add("MusteriAdSoyad boş olamaz.");
+        var name = dto.MusteriAdSoyad?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+            errors.Add("MusteriAdSoyad boY olamaz.");
 
-        if (string.IsNullOrWhiteSpace(dto.TCKN) || dto.TCKN.Length != 11 || !dto.TCKN.All(char.IsDigit))
-            errors.Add("TCKN tam 11 haneli olmalı ve sadece rakam içermeli.");
+        var tckn = dto.TCKN?.Trim() ?? string.Empty;
+        if (tckn.Length != 11 || !tckn.All(char.IsDigit))
+            errors.Add("TCKN tam 11 haneli olmalŽñ ve sadece rakam iÇõermeli.");
 
         if (dto.Tutar <= 0)
-            errors.Add("Tutar 0'dan büyük olmalı.");
+            errors.Add("Tutar 0'dan bÇ¬yÇ¬k olmalŽñ.");
 
         if (dto.SiraNo < 1)
-            errors.Add("SiraNo en az 1 olmalı.");
+            errors.Add("SiraNo en az 1 olmalŽñ.");
 
         var ayarVal = (int)dto.AltinAyar;
         if (ayarVal != 22 && ayarVal != 24)
-            errors.Add("AltinAyar yalnızca 22 veya 24 olmalıdır.");
+            errors.Add("AltinAyar yalnŽñzca 22 veya 24 olmalŽñdŽñr.");
 
         return errors;
     }
 }
-
