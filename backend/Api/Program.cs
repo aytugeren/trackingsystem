@@ -32,6 +32,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Error);
+builder.Logging.AddFilter("KuyumculukTakipProgrami.Infrastructure.Pricing.GoldPriceFeedService", LogLevel.Information);
 
 // Services
 builder.Services.AddEndpointsApiExplorer();
@@ -982,7 +983,7 @@ app.MapGet("/api/pricing/gold", async (MarketDbContext mdb, CancellationToken ct
     return Results.Ok(new { price = latest.Price, updatedAt = latest.UpdatedAt, updatedBy = latest.UpdatedByEmail });
 }).WithTags("Pricing").RequireAuthorization();
 
-app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
+app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, IGoldPriceWriter writer, HttpContext http, CancellationToken ct) =>
 {
     if (body == null || body.Price <= 0) return Results.BadRequest(new { error = "Ge?erli bir has alt?n fiyat? girin" });
     var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
@@ -993,35 +994,7 @@ app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, MarketDbCont
         ?? http.User.FindFirst(ClaimTypes.Email)?.Value
         ?? http.User.FindFirst("email")?.Value;
 
-    var now = DateTime.UtcNow;
-    var latest = await mdb.GlobalGoldPrices.OrderByDescending(x => x.UpdatedAt).FirstOrDefaultAsync(ct);
-    if (latest is null)
-    {
-        latest = new GlobalGoldPrice { Id = Guid.NewGuid() };
-        mdb.GlobalGoldPrices.Add(latest);
-    }
-    latest.Price = Math.Round(body.Price, 3);
-    latest.UpdatedAt = now;
-    latest.UpdatedById = userId;
-    latest.UpdatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
-
-    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == "ALTIN" && x.SourceTime == now, ct);
-    if (!exists)
-    {
-        mdb.PriceRecords.Add(new PriceRecord
-        {
-            Id = Guid.NewGuid(),
-            Code = "ALTIN",
-            Alis = latest.Price,
-            Satis = latest.Price,
-            SourceTime = now,
-            FinalAlis = latest.Price,
-            FinalSatis = latest.Price,
-            CreatedAt = now
-        });
-    }
-
-    await mdb.SaveChangesAsync(ct);
+    var latest = await writer.UpsertAsync(body.Price, userId, email, ct);
     return Results.Ok(new { price = latest.Price, updatedAt = latest.UpdatedAt, updatedBy = latest.UpdatedByEmail });
 }).WithTags("Pricing").RequireAuthorization();
 

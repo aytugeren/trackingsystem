@@ -30,6 +30,15 @@ services:
       Backup__BusyEnd: ${BACKUP_BUSY_END:-19:30}
       # Optimization toggles
       Optimization__EnableIndexCreation: ${OPTIMIZATION_ENABLE_INDEX_CREATION:-false}
+      # Pricing feed
+      PricingFeed__Enabled: ${PRICING_FEED_ENABLED:-true}
+      PricingFeed__Url: ${PRICING_FEED_URL:-http://www.dijikur.com/Odalar/Machine.aspx?v=5&m=D9FBE3028649CCD7BC3240CD20C59101}
+      PricingFeed__PricePath: ${PRICING_FEED_PRICE_PATH:-}
+      PricingFeed__IntervalSeconds: ${PRICING_FEED_INTERVAL_SECONDS:-180}
+      PricingFeed__TimeoutSeconds: ${PRICING_FEED_TIMEOUT_SECONDS:-10}
+      PricingFeed__UserEmail: ${PRICING_FEED_USER_EMAIL:-dijikur@eren.com}
+      PricingFeed__HttpMethod: ${PRICING_FEED_HTTP_METHOD:-GET}
+      PricingFeed__MinimumPrice: ${PRICING_FEED_MINIMUM_PRICE:-0.01}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
@@ -139,5 +148,4 @@ volumes:
     name: ktp_backups
   ktp_dataprotection:
     name: ktp_dataprotection
-
 
