@@ -6,6 +6,7 @@ using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Infrastructure.Backup;
 using KuyumculukTakipProgrami.Infrastructure.Optimization;
+using KuyumculukTakipProgrami.Infrastructure.Pricing;
 
 namespace KuyumculukTakipProgrami.Infrastructure;
 
@@ -31,9 +32,11 @@ public static class DependencyInjection
         services.AddScoped<IListInvoicesHandler, Handlers.Invoices.ListInvoicesHandler>();
         services.AddScoped<ICreateExpenseHandler, Handlers.Expenses.CreateExpenseHandler>();
         services.AddScoped<IListExpensesHandler, Handlers.Expenses.ListExpensesHandler>();
+        services.AddScoped<IGoldPriceWriter, GoldPriceWriter>();
 
         // Background backup service (hourly backups + daily archive)
         services.AddHostedService<BackupBackgroundService>();
+        services.AddHostedService<GoldPriceFeedService>();
         // Enable index optimizer only if configured
         var enableIndex = configuration.GetSection("Optimization").GetValue<bool>("EnableIndexCreation", false);
         if (enableIndex)

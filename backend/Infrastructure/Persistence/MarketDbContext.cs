@@ -14,7 +14,9 @@ public class MarketDbContext : DbContext
     public DbSet<InvoiceGoldSnapshot> InvoiceGoldSnapshots => Set<InvoiceGoldSnapshot>();
     public DbSet<GoldFeedAlert> GoldFeedAlerts => Set<GoldFeedAlert>();
     public DbSet<GoldFeedEntry> GoldFeedEntries => Set<GoldFeedEntry>();
+    public DbSet<GoldFeedNewVersion> GoldFeedNewVersions => Set<GoldFeedNewVersion>();
     public DbSet<GlobalGoldPrice> GlobalGoldPrices => Set<GlobalGoldPrice>();
+    public DbSet<GoldAttributes> GlobalAttributes => Set<GoldAttributes>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +56,16 @@ public class MarketDbContext : DbContext
             e.Property(x => x.FetchedAt).HasColumnType("timestamp with time zone");
             e.Property(x => x.SourceTime).HasColumnType("timestamp with time zone");
             e.HasIndex(x => x.FetchedAt);
+        });
+
+        modelBuilder.Entity<GoldFeedNewVersion>(e =>
+        {
+            e.ToTable("GoldFeedNewVersion");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.RawResponse).IsRequired().HasColumnType("text");
+            e.Property(x => x.FetchTime).HasColumnType("timestamp with time zone");
+            e.Property(x => x.ParseError).HasColumnType("text");
+            e.HasIndex(x => x.FetchTime);
         });
 
         modelBuilder.Entity<GoldFeedAlert>(e =>

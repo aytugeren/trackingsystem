@@ -32,6 +32,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Error);
+builder.Logging.AddFilter("KuyumculukTakipProgrami.Infrastructure.Pricing.GoldPriceFeedService", LogLevel.Information);
 
 // Services
 builder.Services.AddEndpointsApiExplorer();
@@ -982,7 +983,7 @@ app.MapGet("/api/pricing/gold", async (MarketDbContext mdb, CancellationToken ct
     return Results.Ok(new { price = latest.Price, updatedAt = latest.UpdatedAt, updatedBy = latest.UpdatedByEmail });
 }).WithTags("Pricing").RequireAuthorization();
 
-app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
+app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, IGoldPriceWriter writer, HttpContext http, CancellationToken ct) =>
 {
     if (body == null || body.Price <= 0) return Results.BadRequest(new { error = "Ge?erli bir has alt?n fiyat? girin" });
     var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
@@ -993,35 +994,7 @@ app.MapPut("/api/pricing/gold", async (GoldPriceUpdateRequest body, MarketDbCont
         ?? http.User.FindFirst(ClaimTypes.Email)?.Value
         ?? http.User.FindFirst("email")?.Value;
 
-    var now = DateTime.UtcNow;
-    var latest = await mdb.GlobalGoldPrices.OrderByDescending(x => x.UpdatedAt).FirstOrDefaultAsync(ct);
-    if (latest is null)
-    {
-        latest = new GlobalGoldPrice { Id = Guid.NewGuid() };
-        mdb.GlobalGoldPrices.Add(latest);
-    }
-    latest.Price = Math.Round(body.Price, 3);
-    latest.UpdatedAt = now;
-    latest.UpdatedById = userId;
-    latest.UpdatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email;
-
-    var exists = await mdb.PriceRecords.AnyAsync(x => x.Code == "ALTIN" && x.SourceTime == now, ct);
-    if (!exists)
-    {
-        mdb.PriceRecords.Add(new PriceRecord
-        {
-            Id = Guid.NewGuid(),
-            Code = "ALTIN",
-            Alis = latest.Price,
-            Satis = latest.Price,
-            SourceTime = now,
-            FinalAlis = latest.Price,
-            FinalSatis = latest.Price,
-            CreatedAt = now
-        });
-    }
-
-    await mdb.SaveChangesAsync(ct);
+    var latest = await writer.UpsertAsync(body.Price, userId, email, ct);
     return Results.Ok(new { price = latest.Price, updatedAt = latest.UpdatedAt, updatedBy = latest.UpdatedByEmail });
 }).WithTags("Pricing").RequireAuthorization();
 
@@ -1084,6 +1057,48 @@ app.MapGet("/api/pricing/status", async (MarketDbContext mdb, CancellationToken 
         message = "Has Alt?n fiyat? manuel olarak girildi.",
         sourceTime = latest.UpdatedAt,
         fetchedAt = latest.UpdatedAt
+    });
+}).WithTags("Pricing");
+
+app.MapGet("/api/pricing/feed/latest", async (MarketDbContext mdb, CancellationToken ct) =>
+{
+    var latest = await mdb.GoldFeedNewVersions
+        .AsNoTracking()
+        .Where(x => x.IsParsed)
+        .OrderByDescending(x => x.FetchTime)
+        .FirstOrDefaultAsync(ct);
+    if (latest is null) return Results.NotFound();
+
+    if (!GoldFeedNewVersionParser.TryParse(latest.RawResponse, out var parsed, out var error) || parsed is null)
+    {
+        return Results.Problem($"Gold feed parse failed: {error}");
+    }
+
+    var items = GoldFeedNewVersionMapping.Indexes
+        .Select(def => new
+        {
+            index = def.Index,
+            label = def.Label,
+            isUsed = def.IsUsed,
+            value = parsed.IndexedValues[def.Index - 1]
+        })
+        .ToList();
+
+    return Results.Ok(new
+    {
+        fetchedAt = latest.FetchTime,
+        header = new
+        {
+            usdAlis = parsed.Header.UsdAlis,
+            usdSatis = parsed.Header.UsdSatis,
+            eurAlis = parsed.Header.EurAlis,
+            eurSatis = parsed.Header.EurSatis,
+            eurUsd = parsed.Header.EurUsd,
+            ons = parsed.Header.Ons,
+            has = parsed.Header.Has,
+            gumusHas = parsed.Header.GumusHas
+        },
+        items
     });
 }).WithTags("Pricing");
 
@@ -1999,6 +2014,14 @@ CREATE TABLE IF NOT EXISTS market.""GoldFeedEntries"" (
     ""SourceTime"" timestamptz
 );
 CREATE INDEX IF NOT EXISTS IX_GoldFeedEntries_FetchedAt ON market.""GoldFeedEntries"" (""FetchedAt"");
+CREATE TABLE IF NOT EXISTS market.""GoldFeedNewVersion"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""RawResponse"" text NOT NULL,
+    ""FetchTime"" timestamptz NOT NULL,
+    ""IsParsed"" boolean NOT NULL,
+    ""ParseError"" text NULL
+);
+CREATE INDEX IF NOT EXISTS IX_GoldFeedNewVersion_FetchTime ON market.""GoldFeedNewVersion"" (""FetchTime"");
 CREATE TABLE IF NOT EXISTS market.""InvoiceGoldSnapshots"" (
     ""Id"" uuid NOT NULL PRIMARY KEY,
     ""InvoiceId"" uuid NOT NULL UNIQUE,
