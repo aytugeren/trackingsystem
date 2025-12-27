@@ -7,7 +7,7 @@ public sealed class GoldPriceFeedOptions
     public bool Enabled { get; set; } = false;
     public string Url { get; set; } = string.Empty;
     public string PricePath { get; set; } = "price";
-    public int IntervalSeconds { get; set; } = 300;
+    public int IntervalSeconds { get; set; } = 240;
     public int TimeoutSeconds { get; set; } = 10;
     public string UserEmail { get; set; } = "dijikur@eren.com";
     public string HttpMethod { get; set; } = "GET";

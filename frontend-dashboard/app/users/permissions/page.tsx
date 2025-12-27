@@ -1,8 +1,9 @@
 "use client"
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { listUsersWithPermissions, type UserWithPermissions, listRoles, assignRole, type RoleDef } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 export default function UserPermissionsPage() {
   const [users, setUsers] = useState<UserWithPermissions[]>([])
@@ -10,6 +11,17 @@ export default function UserPermissionsPage() {
   const [loading, setLoading] = useState(true)
   const [role, setRole] = useState<string | null>(null)
   const [roles, setRoles] = useState<RoleDef[]>([])
+  const [query, setQuery] = useState('')
+
+  const filteredUsers = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return users
+    return users.filter((u) => {
+      const email = (u.email || '').toLowerCase()
+      const roleName = (u.customRoleName || u.role || '').toLowerCase()
+      return email.includes(q) || roleName.includes(q)
+    })
+  }, [users, query])
 
   async function load() {
     try {
@@ -28,11 +40,19 @@ export default function UserPermissionsPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Kullanıcı Yetkileri</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle>Kullanıcı Yetkileri</CardTitle>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="İsim veya email ara"
+            className="w-full max-w-xs"
+          />
+        </div>
       </CardHeader>
       <CardContent>
         {error && <p className="text-red-600 mb-2">{error}</p>}
-        {loading ? <p>Yükleniyor…</p> : <UsersTable users={users} roles={roles} onAssign={async (uid, rid) => { await assignRole(uid, rid); await load() }} />}
+        {loading ? <p>Yükleniyor…</p> : <UsersTable users={filteredUsers} roles={roles} onAssign={async (uid, rid) => { await assignRole(uid, rid); await load() }} />}
       </CardContent>
     </Card>
   )

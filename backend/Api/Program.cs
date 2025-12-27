@@ -1060,6 +1060,48 @@ app.MapGet("/api/pricing/status", async (MarketDbContext mdb, CancellationToken 
     });
 }).WithTags("Pricing");
 
+app.MapGet("/api/pricing/feed/latest", async (MarketDbContext mdb, CancellationToken ct) =>
+{
+    var latest = await mdb.GoldFeedNewVersions
+        .AsNoTracking()
+        .Where(x => x.IsParsed)
+        .OrderByDescending(x => x.FetchTime)
+        .FirstOrDefaultAsync(ct);
+    if (latest is null) return Results.NotFound();
+
+    if (!GoldFeedNewVersionParser.TryParse(latest.RawResponse, out var parsed, out var error) || parsed is null)
+    {
+        return Results.Problem($"Gold feed parse failed: {error}");
+    }
+
+    var items = GoldFeedNewVersionMapping.Indexes
+        .Select(def => new
+        {
+            index = def.Index,
+            label = def.Label,
+            isUsed = def.IsUsed,
+            value = parsed.IndexedValues[def.Index - 1]
+        })
+        .ToList();
+
+    return Results.Ok(new
+    {
+        fetchedAt = latest.FetchTime,
+        header = new
+        {
+            usdAlis = parsed.Header.UsdAlis,
+            usdSatis = parsed.Header.UsdSatis,
+            eurAlis = parsed.Header.EurAlis,
+            eurSatis = parsed.Header.EurSatis,
+            eurUsd = parsed.Header.EurUsd,
+            ons = parsed.Header.Ons,
+            has = parsed.Header.Has,
+            gumusHas = parsed.Header.GumusHas
+        },
+        items
+    });
+}).WithTags("Pricing");
+
 app.MapGet("/api/pricing/{code}/latest", async (string code, MarketDbContext mdb, CancellationToken ct) =>
 {
     code = code.ToUpperInvariant();
@@ -1972,6 +2014,14 @@ CREATE TABLE IF NOT EXISTS market.""GoldFeedEntries"" (
     ""SourceTime"" timestamptz
 );
 CREATE INDEX IF NOT EXISTS IX_GoldFeedEntries_FetchedAt ON market.""GoldFeedEntries"" (""FetchedAt"");
+CREATE TABLE IF NOT EXISTS market.""GoldFeedNewVersion"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""RawResponse"" text NOT NULL,
+    ""FetchTime"" timestamptz NOT NULL,
+    ""IsParsed"" boolean NOT NULL,
+    ""ParseError"" text NULL
+);
+CREATE INDEX IF NOT EXISTS IX_GoldFeedNewVersion_FetchTime ON market.""GoldFeedNewVersion"" (""FetchTime"");
 CREATE TABLE IF NOT EXISTS market.""InvoiceGoldSnapshots"" (
     ""Id"" uuid NOT NULL PRIMARY KEY,
     ""InvoiceId"" uuid NOT NULL UNIQUE,

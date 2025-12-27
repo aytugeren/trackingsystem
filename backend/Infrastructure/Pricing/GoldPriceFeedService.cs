@@ -1,15 +1,11 @@
 using System;
-using System.Globalization;
-using System.Linq;
 using System.Net.Http;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
 using System.Diagnostics;
+using KuyumculukTakipProgrami.Domain.Entities.Market;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -108,41 +104,63 @@ public class GoldPriceFeedService : BackgroundService
 
     private async Task RunOnceAsync(CancellationToken ct)
     {
-        var price = await FetchPriceAsync(ct);
-        if (price.HasValue && price.Value >= _options.MinimumPrice)
+        var payload = await FetchPayloadAsync(ct);
+        if (payload is null)
         {
-            using var scope = _sp.CreateScope();
-            var writer = scope.ServiceProvider.GetRequiredService<IGoldPriceWriter>();
-            var userId = await ResolveUserIdAsync(scope.ServiceProvider, ct);
-            await writer.UpsertAsync(price.Value, userId, _options.UserEmail, ct);
-            _logger.LogInformation("Gold price feed updated has altin to {price}", price.Value);
+            _logger.LogWarning("Gold price feed did not return a payload.");
+            return;
+        }
+
+        using var scope = _sp.CreateScope();
+        var market = scope.ServiceProvider.GetRequiredService<MarketDbContext>();
+
+        var entry = new GoldFeedNewVersion
+        {
+            Id = Guid.NewGuid(),
+            RawResponse = payload,
+            FetchTime = DateTime.UtcNow
+        };
+
+        GoldFeedParsedResult? parsed = null;
+        if (GoldFeedNewVersionParser.TryParse(payload, out parsed, out var error))
+        {
+            entry.IsParsed = true;
+            entry.ParseError = null;
+            _logger.LogInformation("Gold price feed parsed successfully.");
         }
         else
         {
-            _logger.LogWarning("Gold price feed did not produce a valid price (value={price})", price);
+            entry.IsParsed = false;
+            entry.ParseError = error;
+            _logger.LogWarning("Gold price feed parse failed: {error}", error);
+        }
+
+        market.GoldFeedNewVersions.Add(entry);
+
+        var wrotePrice = false;
+        if (parsed is not null)
+        {
+            var has = parsed.Header.Has;
+            if (has >= _options.MinimumPrice)
+            {
+                var writer = scope.ServiceProvider.GetRequiredService<IGoldPriceWriter>();
+                await writer.UpsertAsync(has, null, _options.UserEmail, ct);
+                wrotePrice = true;
+                _logger.LogInformation("Has price updated from feed: {price}", has);
+            }
+            else
+            {
+                _logger.LogWarning("Has price from feed ignored (below minimum): {price}", has);
+            }
+        }
+
+        if (!wrotePrice)
+        {
+            await market.SaveChangesAsync(ct);
         }
     }
 
-    private async Task<Guid?> ResolveUserIdAsync(IServiceProvider provider, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(_options.UserEmail)) return null;
-
-        try
-        {
-            var db = provider.GetRequiredService<KtpDbContext>();
-            var email = _options.UserEmail.Trim().ToLowerInvariant();
-            var user = await db.Users.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Email.ToLower() == email, ct);
-            return user?.Id;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not resolve user id for {email}", _options.UserEmail);
-            return null;
-        }
-    }
-
-    private async Task<decimal?> FetchPriceAsync(CancellationToken ct)
+    private async Task<string?> FetchPayloadAsync(CancellationToken ct)
     {
         try
         {
@@ -163,13 +181,7 @@ public class GoldPriceFeedService : BackgroundService
             var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
             var charset = resp.Content.Headers.ContentType?.CharSet;
             var encoding = TryGetEncoding(charset) ?? Encoding.UTF8;
-            var payload = encoding.GetString(bytes);
-            var price = ParsePrice(payload);
-            if (!price.HasValue)
-            {
-                _logger.LogWarning("Gold price feed payload could not be parsed.");
-            }
-            return price;
+            return encoding.GetString(bytes);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -183,36 +195,6 @@ public class GoldPriceFeedService : BackgroundService
         }
     }
 
-    private decimal? ParsePrice(string payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload)) return null;
-
-        if (TryParseDecimal(payload, out var plain)) return plain;
-
-        var hasMatch = Regex.Match(payload, @"\bHAS\s+([0-9]+(?:[.,][0-9]+)?)", RegexOptions.IgnoreCase);
-        if (hasMatch.Success && TryParseDecimal(hasMatch.Groups[1].Value, out var hasVal)) return hasVal;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payload);
-            var root = doc.RootElement;
-            var paths = new[] { _options.PricePath, "price", "satis", "sell", "data.price" }
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var path in paths)
-            {
-                if (TryReadPath(root, path, out var val)) return val;
-            }
-        }
-        catch (JsonException)
-        {
-            // ignore, fallback returns null
-        }
-
-        return null;
-    }
-
     private static Encoding? TryGetEncoding(string? charset)
     {
         if (string.IsNullOrWhiteSpace(charset)) return null;
@@ -224,42 +206,5 @@ public class GoldPriceFeedService : BackgroundService
         {
             return null;
         }
-    }
-
-    private static bool TryReadPath(JsonElement root, string path, out decimal value)
-    {
-        value = 0;
-        var current = root;
-        var parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var part in parts)
-        {
-            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(part, out current))
-                return false;
-        }
-
-        return TryConvert(current, out value);
-    }
-
-    private static bool TryConvert(JsonElement element, out decimal value)
-    {
-        value = 0;
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Number:
-                return element.TryGetDecimal(out value);
-            case JsonValueKind.String:
-                return TryParseDecimal(element.GetString() ?? string.Empty, out value);
-            default:
-                return false;
-        }
-    }
-
-    private static bool TryParseDecimal(string text, out decimal value)
-    {
-        value = 0;
-        var normalized = text.Trim();
-        if (decimal.TryParse(normalized, NumberStyles.Any, CultureInfo.InvariantCulture, out value)) return true;
-        if (decimal.TryParse(normalized, NumberStyles.Any, new CultureInfo("tr-TR"), out value)) return true;
-        return false;
     }
 }
