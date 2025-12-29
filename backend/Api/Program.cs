@@ -60,6 +60,7 @@ var jwtKey = jwtSection.GetValue<string>("Key") ?? "insecure-dev-key-change-me-p
 var jwtIssuer = jwtSection.GetValue<string>("Issuer") ?? "KTP";
 var jwtAudience = jwtSection.GetValue<string>("Audience") ?? "KTP-Clients";
 var jwtExpiresHours = jwtSection.GetValue<int?>("ExpiresHours") ?? 8;
+var jwtValidateLifetime = jwtSection.GetValue<bool?>("ValidateLifetime") ?? true;
 
 builder.Services.AddAuthentication(options =>
 {
@@ -72,6 +73,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateIssuerSigningKey = true,
+        ValidateLifetime = jwtValidateLifetime,
         ValidIssuer = jwtIssuer,
         ValidAudience = jwtAudience,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
@@ -1062,16 +1064,30 @@ app.MapGet("/api/pricing/status", async (MarketDbContext mdb, CancellationToken 
 
 app.MapGet("/api/pricing/feed/latest", async (MarketDbContext mdb, CancellationToken ct) =>
 {
-    var latest = await mdb.GoldFeedNewVersions
+    var candidates = await mdb.GoldFeedNewVersions
         .AsNoTracking()
-        .Where(x => x.IsParsed)
-        .OrderByDescending(x => x.FetchTime)
-        .FirstOrDefaultAsync(ct);
-    if (latest is null) return Results.NotFound();
+        .OrderByDescending(x => x.IsParsed)
+        .ThenByDescending(x => x.FetchTime)
+        .Take(50)
+        .ToListAsync(ct);
+    if (candidates.Count == 0) return Results.NotFound();
 
-    if (!GoldFeedNewVersionParser.TryParse(latest.RawResponse, out var parsed, out var error) || parsed is null)
+    GoldFeedParsedResult? parsed = null;
+    GoldFeedNewVersion? picked = null;
+    string? lastError = null;
+    foreach (var entry in candidates)
     {
-        return Results.Problem($"Gold feed parse failed: {error}");
+        if (GoldFeedNewVersionParser.TryParse(entry.RawResponse, out parsed, out var error) && parsed is not null)
+        {
+            picked = entry;
+            break;
+        }
+        lastError = error;
+    }
+
+    if (picked is null || parsed is null)
+    {
+        return Results.Problem($"Gold feed parse failed: {lastError}");
     }
 
     var items = GoldFeedNewVersionMapping.Indexes
@@ -1086,7 +1102,7 @@ app.MapGet("/api/pricing/feed/latest", async (MarketDbContext mdb, CancellationT
 
     return Results.Ok(new
     {
-        fetchedAt = latest.FetchTime,
+        fetchedAt = picked.FetchTime,
         header = new
         {
             usdAlis = parsed.Header.UsdAlis,

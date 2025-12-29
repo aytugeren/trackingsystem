@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'api/api_client.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
@@ -31,6 +32,16 @@ class _CashierAppState extends State<CashierApp> {
     return MaterialApp(
       title: 'Kasiyer',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.amber),
+      locale: const Locale('tr', 'TR'),
+      supportedLocales: const [
+        Locale('tr', 'TR'),
+        Locale('en', 'US'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: _loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _authenticated

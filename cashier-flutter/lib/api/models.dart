@@ -37,6 +37,8 @@ class CreateInvoiceDto {
   final double tutar;
   final OdemeSekli odemeSekli;
   final AltinAyar altinAyar;
+  final String? telefon;
+  final String? email;
 
   CreateInvoiceDto({
     required this.tarih,
@@ -46,17 +48,28 @@ class CreateInvoiceDto {
     required this.tutar,
     required this.odemeSekli,
     required this.altinAyar,
+    this.telefon,
+    this.email,
   });
 
-  Map<String, dynamic> toJson() => {
-        'tarih': _toDateOnly(tarih),
-        'siraNo': siraNo,
-        'musteriAdSoyad': musteriAdSoyad,
-        'tckn': tckn,
-        'tutar': tutar,
-        'odemeSekli': odemeSekli.toInt(),
-        'altinAyar': altinAyar.toInt(),
-      };
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{
+      'tarih': _toDateOnly(tarih),
+      'siraNo': siraNo,
+      'musteriAdSoyad': musteriAdSoyad,
+      'tckn': tckn,
+      'tutar': tutar,
+      'odemeSekli': odemeSekli.toInt(),
+      'altinAyar': altinAyar.toInt(),
+    };
+    if (telefon != null && telefon!.trim().isNotEmpty) {
+      map['telefon'] = telefon;
+    }
+    if (email != null && email!.trim().isNotEmpty) {
+      map['email'] = email;
+    }
+    return map;
+  }
 }
 
 class CreateExpenseDto {
@@ -66,6 +79,8 @@ class CreateExpenseDto {
   final String tckn;
   final double tutar;
   final AltinAyar altinAyar;
+  final String? telefon;
+  final String? email;
 
   CreateExpenseDto({
     required this.tarih,
@@ -74,16 +89,27 @@ class CreateExpenseDto {
     required this.tckn,
     required this.tutar,
     required this.altinAyar,
+    this.telefon,
+    this.email,
   });
 
-  Map<String, dynamic> toJson() => {
-        'tarih': _toDateOnly(tarih),
-        'siraNo': siraNo,
-        'musteriAdSoyad': musteriAdSoyad,
-        'tckn': tckn,
-        'tutar': tutar,
-        'altinAyar': altinAyar.toInt(),
-      };
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{
+      'tarih': _toDateOnly(tarih),
+      'siraNo': siraNo,
+      'musteriAdSoyad': musteriAdSoyad,
+      'tckn': tckn,
+      'tutar': tutar,
+      'altinAyar': altinAyar.toInt(),
+    };
+    if (telefon != null && telefon!.trim().isNotEmpty) {
+      map['telefon'] = telefon;
+    }
+    if (email != null && email!.trim().isNotEmpty) {
+      map['email'] = email;
+    }
+    return map;
+  }
 }
 
 String _toDateOnly(DateTime dt) {
@@ -140,5 +166,90 @@ class GoldPrice {
             ? null
             : DateTime.parse(json['updatedAt'] as String),
         updatedBy: json['updatedBy'] as String?,
+      );
+}
+
+class GoldFeedHeader {
+  final double usdAlis;
+  final double usdSatis;
+  final double eurAlis;
+  final double eurSatis;
+  final double eurUsd;
+  final double ons;
+  final double has;
+  final double gumusHas;
+
+  GoldFeedHeader({
+    required this.usdAlis,
+    required this.usdSatis,
+    required this.eurAlis,
+    required this.eurSatis,
+    required this.eurUsd,
+    required this.ons,
+    required this.has,
+    required this.gumusHas,
+  });
+
+  factory GoldFeedHeader.fromJson(Map<String, dynamic> json) => GoldFeedHeader(
+        usdAlis: (json['usdAlis'] as num).toDouble(),
+        usdSatis: (json['usdSatis'] as num).toDouble(),
+        eurAlis: (json['eurAlis'] as num).toDouble(),
+        eurSatis: (json['eurSatis'] as num).toDouble(),
+        eurUsd: (json['eurUsd'] as num).toDouble(),
+        ons: (json['ons'] as num).toDouble(),
+        has: (json['has'] as num).toDouble(),
+        gumusHas: (json['gumusHas'] as num).toDouble(),
+      );
+}
+
+class GoldFeedItem {
+  final int index;
+  final String label;
+  final bool isUsed;
+  final double? value;
+
+  GoldFeedItem({
+    required this.index,
+    required this.label,
+    required this.isUsed,
+    required this.value,
+  });
+
+  factory GoldFeedItem.fromJson(Map<String, dynamic> json) {
+    final raw = json['value'];
+    double? parsed;
+    if (raw is num) {
+      parsed = raw.toDouble();
+    } else if (raw is String) {
+      parsed = double.tryParse(raw);
+    }
+    return GoldFeedItem(
+      index: (json['index'] as num).toInt(),
+      label: (json['label'] as String?) ?? '',
+      isUsed: json['isUsed'] == true,
+      value: parsed,
+    );
+  }
+}
+
+class GoldFeedLatest {
+  final DateTime fetchedAt;
+  final GoldFeedHeader header;
+  final List<GoldFeedItem> items;
+
+  GoldFeedLatest({
+    required this.fetchedAt,
+    required this.header,
+    required this.items,
+  });
+
+  factory GoldFeedLatest.fromJson(Map<String, dynamic> json) => GoldFeedLatest(
+        fetchedAt: DateTime.parse(json['fetchedAt'] as String),
+        header: GoldFeedHeader.fromJson(json['header'] as Map<String, dynamic>),
+        items: (json['items'] as List? ?? [])
+            .whereType<Map>()
+            .map((it) =>
+                GoldFeedItem.fromJson(it.cast<String, dynamic>()))
+            .toList(),
       );
 }

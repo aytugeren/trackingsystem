@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import 'gold_prices_page.dart';
 import 'profile_page.dart';
 import 'leave_request_fixed.dart';
 import 'home_page.dart';
@@ -75,6 +76,19 @@ class MainMenuPage extends StatelessWidget {
               onTap: () {
                 Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => LeaveRequestPage(api: api),
+                ));
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.currency_lira),
+              title: const Text('Altin Fiyatlari'),
+              subtitle: const Text('Has altin ve piyasa fiyatlarini gor'),
+              onTap: () {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => GoldPricesPage(api: api),
                 ));
               },
             ),

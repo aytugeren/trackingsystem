@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiClient {
   // Use --dart-define=API_BASE=https://host:port for overrides
   static const _defaultBase = String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:8080');
+  static const _logHttp = bool.fromEnvironment('LOG_HTTP', defaultValue: false);
   final String baseUrl;
   String? _token;
 
@@ -45,8 +46,35 @@ class ApiClient {
     return Uri.parse('$baseUrl$cleaned').replace(queryParameters: query?.map((k, v) => MapEntry(k, '$v')));
   }
 
+  void _logRequest(String method, Uri uri, Map<String, String> headers, [Object? body]) {
+    if (!_logHttp) return;
+    final safeHeaders = Map<String, String>.from(headers);
+    if (safeHeaders.containsKey('Authorization')) {
+      safeHeaders['Authorization'] = 'Bearer ***';
+    }
+    print('HTTP $method $uri');
+    print('Headers: $safeHeaders');
+    if (body != null) {
+      print('Body: $body');
+    }
+  }
+
+  void _logResponse(String method, Uri uri, http.Response resp) {
+    if (!_logHttp) return;
+    final text = utf8.decode(resp.bodyBytes);
+    print('HTTP $method $uri -> ${resp.statusCode}');
+    if (text.isNotEmpty) {
+      print('Response: $text');
+    }
+  }
+
   Future<Map<String, dynamic>> postJson(String path, Map<String, dynamic> body, {Map<String, dynamic>? query}) async {
-    final resp = await http.post(_uri(path, query), headers: _headers(), body: jsonEncode(body));
+    final uri = _uri(path, query);
+    final headers = _headers();
+    final payload = jsonEncode(body);
+    _logRequest('POST', uri, headers, payload);
+    final resp = await http.post(uri, headers: headers, body: payload);
+    _logResponse('POST', uri, resp);
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -54,15 +82,37 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getJson(String path, {Map<String, dynamic>? query}) async {
-    final resp = await http.get(_uri(path, query), headers: _headers());
+    final uri = _uri(path, query);
+    final headers = _headers();
+    _logRequest('GET', uri, headers);
+    final resp = await http.get(uri, headers: headers);
+    _logResponse('GET', uri, resp);
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
 
+  Future<dynamic> getJsonAny(String path, {Map<String, dynamic>? query}) async {
+    final uri = _uri(path, query);
+    final headers = _headers();
+    _logRequest('GET', uri, headers);
+    final resp = await http.get(uri, headers: headers);
+    _logResponse('GET', uri, resp);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      if (resp.body.isEmpty) return null;
+      return jsonDecode(utf8.decode(resp.bodyBytes));
+    }
+    throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
+  }
+
   Future<Map<String, dynamic>> putJson(String path, Map<String, dynamic> body) async {
-    final resp = await http.put(_uri(path), headers: _headers(), body: jsonEncode(body));
+    final uri = _uri(path);
+    final headers = _headers();
+    final payload = jsonEncode(body);
+    _logRequest('PUT', uri, headers, payload);
+    final resp = await http.put(uri, headers: headers, body: payload);
+    _logResponse('PUT', uri, resp);
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       return resp.body.isEmpty ? <String, dynamic>{} : jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     }
@@ -70,7 +120,11 @@ class ApiClient {
   }
 
   Future<void> delete(String path) async {
-    final resp = await http.delete(_uri(path), headers: _headers());
+    final uri = _uri(path);
+    final headers = _headers();
+    _logRequest('DELETE', uri, headers);
+    final resp = await http.delete(uri, headers: headers);
+    _logResponse('DELETE', uri, resp);
     if (resp.statusCode >= 200 && resp.statusCode < 300) return;
     throw ApiError(resp.statusCode, _safeDecode(resp.bodyBytes));
   }
