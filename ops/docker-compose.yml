@@ -1,15 +1,16 @@
 ﻿version: "3.8"
 
 services:
+
   api:
     build:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
     env_file:
-      - ./env.backend
+      - ./config/env/env.backend
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
-      SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Debug}
+      SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Error}
       ConnectionStrings__DefaultConnection: ${DB_DEFAULT_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
       ConnectionStrings__MarketConnection: ${DB_MARKET_CONNECTION:-Host=postgres;Port=5432;Database=ktp_db;Username=ktp;Password=ktp_pwd}
       Jwt__Key: ${JWT_KEY:-insecure-dev-key-change-me-please-very-long-0123456789abcdef}
@@ -32,8 +33,8 @@ services:
       Optimization__EnableIndexCreation: ${OPTIMIZATION_ENABLE_INDEX_CREATION:-false}
       # Pricing feed
       PricingFeed__Enabled: ${PRICING_FEED_ENABLED:-true}
-      PricingFeed__Url: ${PRICING_FEED_URL:-https://api.example.com/pricing}
-      PricingFeed__PricePath: ${PRICING_FEED_PRICE_PATH:-}
+      PricingFeed__Url: ${PRICING_FEED_URL:-http://www.dijikur.com/Odalar/Machine.aspx?v=5&m=D9FBE3028649CCD7BC3240CD20C59101}
+      PricingFeed__PricePath: ${PRICING_FEED_PRICE_PATH:-price}
       PricingFeed__IntervalSeconds: ${PRICING_FEED_INTERVAL_SECONDS:-240}
       PricingFeed__TimeoutSeconds: ${PRICING_FEED_TIMEOUT_SECONDS:-10}
       PricingFeed__UserEmail: ${PRICING_FEED_USER_EMAIL:-dijikur@eren.com}
@@ -49,8 +50,7 @@ services:
       - "${API_PORT:-8080}:8080"
     working_dir: /app
     volumes:
-      - ktp_backups:/app/ops/backups
-      - ktp_dataprotection:/root/.aspnet/DataProtection-Keys
+      - ../backend:/src
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,7 +62,7 @@ services:
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     env_file:
-      - ./env.frontend-cashier
+      - ./config/env/env.frontend-cashier
     environment:
       NODE_ENV: ${FRONTEND_NODE_ENV:-development}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
@@ -89,7 +89,7 @@ services:
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     env_file:
-      - ./env.frontend-dashboard
+      - ./config/env/env.frontend-dashboard
     environment:
       NODE_ENV: ${FRONTEND_NODE_ENV:-development}
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}

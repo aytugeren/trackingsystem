@@ -1,7 +1,7 @@
 Production Deploy Guide
 
 1) Configure appsettings.Production.json
-   - File: backend/Api/appsettings.Production.json
+   - File: ops/config/appsettings/appsettings.Production.json
    - Set ConnectionStrings.DefaultConnection
    - Verify Backup settings and BusyStart/BusyEnd (09:00–19:30)
    - Keep Optimization.EnableIndexCreation=false for first rollout.

@@ -5,6 +5,9 @@ COPY . ./
 WORKDIR /src/Api
 RUN dotnet restore
 RUN dotnet publish -c Release -o /out
+RUN apt-get update \
+    && apt-get install -y curl unzip \
+    && curl -sSL https://aka.ms/getvsdbgsh | bash /dev/stdin -v latest -l /vsdbg
 
 # Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -15,7 +18,7 @@ RUN apt-get update \
 COPY --from=build /out ./
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080 \
-    PricingFeed__Enabled=false \
+    PricingFeed__Enabled=true \
     PricingFeed__Url=http://www.dijikur.com/Odalar/Machine.aspx?v=5&m=D9FBE3028649CCD7BC3240CD20C59101 \
     PricingFeed__PricePath=price \
     PricingFeed__IntervalSeconds=300 \

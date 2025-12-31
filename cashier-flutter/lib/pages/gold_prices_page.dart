@@ -90,9 +90,9 @@ class _GoldPricesPageState extends State<GoldPricesPage> {
         _editingGold = false;
         _goldController.text = updated.price.toStringAsFixed(3);
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _goldError = 'Has altın güncellenemedi');
+      setState(() => _goldError = _formatApiError(e, 'Has altın güncellenemedi'));
     } finally {
       if (!mounted) return;
       setState(() => _savingGold = false);
@@ -119,6 +119,15 @@ class _GoldPricesPageState extends State<GoldPricesPage> {
       if (!mounted) return;
       setState(() => _search = value.trim());
     });
+  }
+
+  String _formatApiError(Object err, String fallback) {
+    if (err is ApiError) {
+      final msg = err.body['error'] ?? err.body['message'];
+      if (msg is String && msg.trim().isNotEmpty) return msg;
+      return '$fallback (HTTP ${err.status})';
+    }
+    return fallback;
   }
 
   List<GoldFeedItem> _filteredItems() {

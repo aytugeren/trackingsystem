@@ -363,7 +363,7 @@ class _HomePageState extends State<HomePage> {
         _editingGold = false;
       });
     } catch (e) {
-      _showError('Has altin fiyati kaydedilemedi');
+      _showError(_formatApiError(e, 'Has altin fiyati kaydedilemedi'));
     } finally {
       if (mounted) setState(() => _savingGold = false);
     }
@@ -1153,6 +1153,15 @@ class _HomePageState extends State<HomePage> {
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String _formatApiError(Object err, String fallback) {
+    if (err is ApiError) {
+      final msg = err.body['error'] ?? err.body['message'];
+      if (msg is String && msg.trim().isNotEmpty) return msg;
+      return '$fallback (HTTP ${err.status})';
+    }
+    return fallback;
   }
 
   String _fmtAmount(num v, {int fractionDigits = 0}) {

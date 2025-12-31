@@ -70,7 +70,7 @@ class MainMenuPage extends StatelessWidget {
           Card(
             child: ListTile(
               leading: const Icon(Icons.event_available),
-              title: const Text('Izin Ist'),
+              title: const Text('Izin Iste'),
               subtitle: const Text(
                   'Izin talebi olustur, takvimden ekibin izinlerini gor'),
               onTap: () {

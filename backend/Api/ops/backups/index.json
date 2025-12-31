@@ -178,5 +178,29 @@
     "message": "An error occurred trying to start process \u0027pg_dump\u0027 with working directory \u0027/Users/aytugeren/Projeler/Kuyumcu/trackingsystem/backend/Api\u0027. No such file or directory",
     "archived": false,
     "archivePath": null
+  },
+  {
+    "id": "cf312834-b64e-4d1a-8d89-c825d772dbde",
+    "createdAt": "2025-12-29T20:00:13.43969+03:00",
+    "type": "hourly",
+    "filePath": "",
+    "sizeBytes": 0,
+    "checksumSha256": "",
+    "status": "failed",
+    "message": "An error occurred trying to start process \u0027pg_dump\u0027 with working directory \u0027/Users/aytugeren/Projeler/Kuyumcu/trackingsystem/backend/Api\u0027. No such file or directory",
+    "archived": false,
+    "archivePath": null
+  },
+  {
+    "id": "99ad4dd6-3157-4fd2-a39e-e0594a865a56",
+    "createdAt": "2025-12-29T21:00:01.900988+03:00",
+    "type": "hourly",
+    "filePath": "",
+    "sizeBytes": 0,
+    "checksumSha256": "",
+    "status": "failed",
+    "message": "An error occurred trying to start process \u0027pg_dump\u0027 with working directory \u0027/Users/aytugeren/Projeler/Kuyumcu/trackingsystem/backend/Api\u0027. No such file or directory",
+    "archived": false,
+    "archivePath": null
   }
 ]
