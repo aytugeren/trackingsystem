@@ -1,7 +1,7 @@
 Backup System
 
 - Hourly PostgreSQL backups are created automatically by the API background service during the configured hours and archived daily.
-- Configuration lives in `backend/Api/appsettings.json` under `Backup`.
+- Configuration lives in `ops/config/appsettings/appsettings.json` under `Backup`.
 - Backups and archives are stored under `ops/backups` by default.
 
 Scripts

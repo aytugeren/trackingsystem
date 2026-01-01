@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api/api_client.dart';
@@ -7,6 +8,26 @@ import '../api/invoice_service.dart';
 import '../api/expense_service.dart';
 import '../api/pricing_service.dart';
 import 'main_menu_page.dart';
+
+enum SuggestSource { name, tckn }
+
+class CustomerSuggestion {
+  final String id;
+  final String adSoyad;
+  final String tckn;
+  final String? phone;
+  final String? email;
+  final bool hasContact;
+
+  const CustomerSuggestion({
+    required this.id,
+    required this.adSoyad,
+    required this.tckn,
+    this.phone,
+    this.email,
+    required this.hasContact,
+  });
+}
 
 class HomePage extends StatefulWidget {
   final ApiClient api;
@@ -39,16 +60,26 @@ class _HomePageState extends State<HomePage> {
   final invName = TextEditingController();
   final invTckn = TextEditingController();
   final invTutar = TextEditingController();
+  final invPhone = TextEditingController();
+  final invEmail = TextEditingController();
   DateTime invDate = DateTime.now();
   OdemeSekli invOdeme = OdemeSekli.Havale;
   AltinAyar invAyar = AltinAyar.Ayar22;
+  List<CustomerSuggestion> _invSuggestions = [];
+  Timer? _invSuggestTimer;
+  bool _invNeedsContact = false;
 
   // Expense form state
   final expName = TextEditingController();
   final expTckn = TextEditingController();
   final expTutar = TextEditingController();
+  final expPhone = TextEditingController();
+  final expEmail = TextEditingController();
   DateTime expDate = DateTime.now();
   AltinAyar expAyar = AltinAyar.Ayar22;
+  List<CustomerSuggestion> _expSuggestions = [];
+  Timer? _expSuggestTimer;
+  bool _expNeedsContact = false;
 
   // Preview/draft state
   String? invDraftId;
@@ -68,6 +99,173 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _refreshPricing();
     _refreshKaratAlert();
+  }
+
+  @override
+  void dispose() {
+    invName.dispose();
+    invTckn.dispose();
+    invTutar.dispose();
+    invPhone.dispose();
+    invEmail.dispose();
+    expName.dispose();
+    expTckn.dispose();
+    expTutar.dispose();
+    expPhone.dispose();
+    expEmail.dispose();
+    _goldController.dispose();
+    _invSuggestTimer?.cancel();
+    _expSuggestTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<List<CustomerSuggestion>> _fetchSuggestions(String query) async {
+    try {
+      final res = await widget.api.getJsonAny('/api/customers/suggest',
+          query: {'q': query, 'limit': 8});
+      final items = res is List
+          ? res
+          : (res is Map && res['items'] is List ? res['items'] as List : []);
+      return items.map((it) {
+        final map = it is Map ? it : <String, dynamic>{};
+        final phoneVal = map['phone'] ?? map['Phone'];
+        final emailVal = map['email'] ?? map['Email'];
+        final hasContactVal =
+            map['hasContact'] ?? map['has_contact'] ?? map['has_contact_info'];
+        final hasContact = hasContactVal is bool
+            ? hasContactVal
+            : ((phoneVal != null && '$phoneVal'.trim().isNotEmpty) ||
+                (emailVal != null && '$emailVal'.trim().isNotEmpty));
+        final id = '${map['id'] ?? map['Id'] ?? ''}'.trim();
+        return CustomerSuggestion(
+          id: id,
+          adSoyad: '${map['adSoyad'] ?? map['AdSoyad'] ?? map['name'] ?? ''}'
+              .trim(),
+          tckn: '${map['tckn'] ?? map['TCKN'] ?? ''}'.trim(),
+          phone: phoneVal == null ? null : '$phoneVal'.trim(),
+          email: emailVal == null ? null : '$emailVal'.trim(),
+          hasContact: hasContact,
+        );
+      }).where((s) => s.id.isNotEmpty).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _scheduleInvoiceSuggest(SuggestSource source, String value) {
+    final query = value.trim();
+    _invSuggestTimer?.cancel();
+    if (query.length < 2) {
+      setState(() => _invSuggestions = []);
+      return;
+    }
+    _invSuggestTimer = Timer(const Duration(milliseconds: 200), () async {
+      final current = source == SuggestSource.name
+          ? invName.text.trim()
+          : invTckn.text.trim();
+      if (current != query) return;
+      final items = await _fetchSuggestions(query);
+      if (!mounted) return;
+      final stillCurrent = source == SuggestSource.name
+          ? invName.text.trim() == query
+          : invTckn.text.trim() == query;
+      if (!stillCurrent) return;
+      setState(() => _invSuggestions = items);
+    });
+  }
+
+  void _scheduleExpenseSuggest(SuggestSource source, String value) {
+    final query = value.trim();
+    _expSuggestTimer?.cancel();
+    if (query.length < 2) {
+      setState(() => _expSuggestions = []);
+      return;
+    }
+    _expSuggestTimer = Timer(const Duration(milliseconds: 200), () async {
+      final current = source == SuggestSource.name
+          ? expName.text.trim()
+          : expTckn.text.trim();
+      if (current != query) return;
+      final items = await _fetchSuggestions(query);
+      if (!mounted) return;
+      final stillCurrent = source == SuggestSource.name
+          ? expName.text.trim() == query
+          : expTckn.text.trim() == query;
+      if (!stillCurrent) return;
+      setState(() => _expSuggestions = items);
+    });
+  }
+
+  void _applyInvoiceSuggestion(CustomerSuggestion s) {
+    setState(() {
+      invName.text = s.adSoyad;
+      invTckn.text = s.tckn;
+      invPhone.text = s.phone ?? '';
+      invEmail.text = s.email ?? '';
+      _invNeedsContact =
+          !s.hasContact && invPhone.text.trim().isEmpty && invEmail.text.isEmpty;
+      _invSuggestions = [];
+    });
+  }
+
+  void _applyExpenseSuggestion(CustomerSuggestion s) {
+    setState(() {
+      expName.text = s.adSoyad;
+      expTckn.text = s.tckn;
+      expPhone.text = s.phone ?? '';
+      expEmail.text = s.email ?? '';
+      _expNeedsContact =
+          !s.hasContact && expPhone.text.trim().isEmpty && expEmail.text.isEmpty;
+      _expSuggestions = [];
+    });
+  }
+
+  Widget _suggestionList(
+      List<CustomerSuggestion> items, void Function(CustomerSuggestion) onTap) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            InkWell(
+              onTap: () => onTap(items[i]),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, size: 18, color: Colors.black54),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(items[i].adSoyad,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          if (items[i].tckn.isNotEmpty)
+                            Text('TCKN: ${items[i].tckn}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.black54)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (i != items.length - 1)
+              Divider(height: 1, color: Colors.grey.shade200),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _refreshPricing() async {
@@ -165,7 +363,7 @@ class _HomePageState extends State<HomePage> {
         _editingGold = false;
       });
     } catch (e) {
-      _showError('Has altin fiyati kaydedilemedi');
+      _showError(_formatApiError(e, 'Has altin fiyati kaydedilemedi'));
     } finally {
       if (mounted) setState(() => _savingGold = false);
     }
@@ -409,6 +607,7 @@ class _HomePageState extends State<HomePage> {
               decoration: const InputDecoration(labelText: 'Ad Soyad'),
               textCapitalization: TextCapitalization.characters,
               inputFormatters: const [TurkishUppercaseTextFormatter()],
+              onChanged: (v) => _scheduleInvoiceSuggest(SuggestSource.name, v),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -419,6 +618,40 @@ class _HomePageState extends State<HomePage> {
                 FilteringTextInputFormatter.digitsOnly,
                 LengthLimitingTextInputFormatter(11),
               ],
+              onChanged: (v) => _scheduleInvoiceSuggest(SuggestSource.tckn, v),
+            ),
+            _suggestionList(_invSuggestions, _applyInvoiceSuggestion),
+            const SizedBox(height: 8),
+            if (_invNeedsContact)
+              const Text(
+                'Daha önce gelen müşteri için telefon veya e-posta alınmamış. Lütfen ekleyin (zorunlu değil).',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            if (_invNeedsContact) const SizedBox(height: 8),
+            TextField(
+              controller: invPhone,
+              decoration: const InputDecoration(labelText: 'Telefon (isteğe bağlı)'),
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9+]')),
+                LengthLimitingTextInputFormatter(20),
+              ],
+              onChanged: (v) {
+                if (_invNeedsContact && v.trim().isNotEmpty) {
+                  setState(() => _invNeedsContact = false);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: invEmail,
+              decoration: const InputDecoration(labelText: 'Email (isteğe bağlı)'),
+              keyboardType: TextInputType.emailAddress,
+              onChanged: (v) {
+                if (_invNeedsContact && v.trim().isNotEmpty) {
+                  setState(() => _invNeedsContact = false);
+                }
+              },
             ),
             const SizedBox(height: 8),
             TextField(
@@ -481,6 +714,7 @@ class _HomePageState extends State<HomePage> {
               decoration: const InputDecoration(labelText: 'Ad Soyad'),
               textCapitalization: TextCapitalization.characters,
               inputFormatters: const [TurkishUppercaseTextFormatter()],
+              onChanged: (v) => _scheduleExpenseSuggest(SuggestSource.name, v),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -491,6 +725,41 @@ class _HomePageState extends State<HomePage> {
                 FilteringTextInputFormatter.digitsOnly,
                 LengthLimitingTextInputFormatter(11),
               ],
+              onChanged: (v) => _scheduleExpenseSuggest(SuggestSource.tckn, v),
+            ),
+            _suggestionList(_expSuggestions, _applyExpenseSuggestion),
+            const SizedBox(height: 8),
+            if (_expNeedsContact)
+              const Text(
+                'Daha önce gelen müşteri için telefon veya e-posta alınmamış. Lütfen ekleyin (zorunlu değil).',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+            if (_expNeedsContact) const SizedBox(height: 8),
+            TextField(
+              controller: expPhone,
+              decoration:
+                  const InputDecoration(labelText: 'Telefon (isteğe bağlı)'),
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9+]')),
+                LengthLimitingTextInputFormatter(20),
+              ],
+              onChanged: (v) {
+                if (_expNeedsContact && v.trim().isNotEmpty) {
+                  setState(() => _expNeedsContact = false);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: expEmail,
+              decoration: const InputDecoration(labelText: 'Email (isteğe bağlı)'),
+              keyboardType: TextInputType.emailAddress,
+              onChanged: (v) {
+                if (_expNeedsContact && v.trim().isNotEmpty) {
+                  setState(() => _expNeedsContact = false);
+                }
+              },
             ),
             const SizedBox(height: 8),
             TextField(
@@ -633,6 +902,8 @@ class _HomePageState extends State<HomePage> {
         tutar: tutar,
         odemeSekli: invOdeme,
         altinAyar: invAyar,
+        telefon: invPhone.text.trim().isEmpty ? null : invPhone.text.trim(),
+        email: invEmail.text.trim().isEmpty ? null : invEmail.text.trim(),
       );
       final created = await InvoiceService(widget.api).createDraft(dto);
       setState(() {
@@ -675,6 +946,8 @@ class _HomePageState extends State<HomePage> {
         tckn: tckn,
         tutar: tutar,
         altinAyar: expAyar,
+        telefon: expPhone.text.trim().isEmpty ? null : expPhone.text.trim(),
+        email: expEmail.text.trim().isEmpty ? null : expEmail.text.trim(),
       );
       final created = await ExpenseService(widget.api).createDraft(dto);
       setState(() {
@@ -692,6 +965,43 @@ class _HomePageState extends State<HomePage> {
         });
       }
     }
+  }
+
+  void _resetInvoiceForm({bool keepResult = false}) {
+    setState(() {
+      invName.clear();
+      invTckn.clear();
+      invTutar.clear();
+      invPhone.clear();
+      invEmail.clear();
+      invDate = DateTime.now();
+      invOdeme = OdemeSekli.Havale;
+      invAyar = AltinAyar.Ayar22;
+      _invSuggestions = [];
+      _invNeedsContact = false;
+      if (!keepResult) invResult = null;
+      invDraftId = null;
+      invPredictedSira = null;
+      invAltinSatis = null;
+    });
+  }
+
+  void _resetExpenseForm({bool keepResult = false}) {
+    setState(() {
+      expName.clear();
+      expTckn.clear();
+      expTutar.clear();
+      expPhone.clear();
+      expEmail.clear();
+      expDate = DateTime.now();
+      expAyar = AltinAyar.Ayar22;
+      _expSuggestions = [];
+      _expNeedsContact = false;
+      if (!keepResult) expResult = null;
+      expDraftId = null;
+      expPredictedSira = null;
+      expAltinSatis = null;
+    });
   }
 
   bool _validateTckn(String id) {
@@ -763,11 +1073,8 @@ class _HomePageState extends State<HomePage> {
                     invResult = 'Kesildi: Sıra No $invPredictedSira';
                   });
                   Navigator.of(context).pop();
-                  setState(() {
-                    invDraftId = null;
-                    invPredictedSira = null;
-                    invAltinSatis = null;
-                  });
+                  if (!mounted) return;
+                  _resetInvoiceForm(keepResult: true);
                 } catch (e) {
                   _showError('Fatura kesilemedi');
                 }
@@ -832,11 +1139,8 @@ class _HomePageState extends State<HomePage> {
                     expResult = 'Kesildi: Sıra No $expPredictedSira';
                   });
                   Navigator.of(context).pop();
-                  setState(() {
-                    expDraftId = null;
-                    expPredictedSira = null;
-                    expAltinSatis = null;
-                  });
+                  if (!mounted) return;
+                  _resetExpenseForm(keepResult: true);
                 } catch (e) {
                   _showError('Gider kesilemedi');
                 }
@@ -849,6 +1153,15 @@ class _HomePageState extends State<HomePage> {
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String _formatApiError(Object err, String fallback) {
+    if (err is ApiError) {
+      final msg = err.body['error'] ?? err.body['message'];
+      if (msg is String && msg.trim().isNotEmpty) return msg;
+      return '$fallback (HTTP ${err.status})';
+    }
+    return fallback;
   }
 
   String _fmtAmount(num v, {int fractionDigits = 0}) {

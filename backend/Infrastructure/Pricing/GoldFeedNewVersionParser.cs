@@ -28,6 +28,7 @@ public static class GoldFeedNewVersionParser
         result = null;
         error = null;
 
+        // Flow: parse header -> build typed header -> parse indexed sarrafiye values.
         if (payload is null)
         {
             error = "Payload is null.";
@@ -118,6 +119,7 @@ public static class GoldFeedNewVersionParser
 
     private static Dictionary<string, List<decimal>> ParseHeaderRates(string input)
     {
+        // Normalize encoding glitches so labels match reliably.
         var normalized = input
             .Replace("GümüşHAS", "GUMUSHAS", StringComparison.OrdinalIgnoreCase)
             .Replace("G�m��HAS", "GUMUSHAS", StringComparison.OrdinalIgnoreCase)
@@ -125,6 +127,7 @@ public static class GoldFeedNewVersionParser
             .Replace("İAB", "IAB", StringComparison.OrdinalIgnoreCase)
             .Replace("�AB", "IAB", StringComparison.OrdinalIgnoreCase);
 
+        // Split by whitespace so token positions do not depend on line breaks.
         var tokens = normalized.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
         var labelMap = new Dictionary<string, (string Key, int Count)>(StringComparer.OrdinalIgnoreCase)
@@ -141,6 +144,7 @@ public static class GoldFeedNewVersionParser
 
         for (var i = 0; i < tokens.Length; i++)
         {
+            // When a known label is found, capture the next N numeric values.
             if (!labelMap.TryGetValue(tokens[i], out var meta))
             {
                 continue;
@@ -166,6 +170,7 @@ public static class GoldFeedNewVersionParser
 
     private static List<decimal?> ParseIndexedValues(string input)
     {
+        // The indexed block starts at "IAB", then continues after the first "~".
         var normalized = input
             .Replace("İAB", "IAB", StringComparison.OrdinalIgnoreCase)
             .Replace("�AB", "IAB", StringComparison.OrdinalIgnoreCase);
@@ -194,6 +199,88 @@ public static class GoldFeedNewVersionParser
             iabValue = extractedIab;
         }
 
+        // Parse the sarrafiye pairs (Alis/Satis) after the IAB block.
+        var sarrafiyePairs = ParseSarrafiyePairs(input);
+        if (sarrafiyePairs.Count == 0)
+        {
+            return new List<decimal?>();
+        }
+
+        // Index 1 is a placeholder ("Bos"); remove it with its values.
+        var filteredPairs = new List<(decimal Alis, decimal Satis)>();
+        for (var i = 0; i < sarrafiyePairs.Count; i++)
+        {
+            if (i == 1)
+            {
+                continue;
+            }
+
+            filteredPairs.Add(sarrafiyePairs[i]);
+        }
+
+        var expectedCount = GoldFeedNewVersionMapping.Indexes.Count;
+        var indexed = Enumerable.Repeat<decimal?>(null, expectedCount).ToList();
+        indexed[0] = iabValue;
+
+        // Map each (Alis/Satis) into fixed indexes defined by the feed contract.
+        var sarrafiyeIndexPairs = new (int AlisIndex, int SatisIndex)[]
+        {
+            (2, 3), (6, 7), (8, 9), (10, 11), (12, 13), (14, 15), (16, 17), (18, 19), (20, 21),
+            (22, 23), (24, 25), (26, 27), (28, 29), (30, 31), (32, 33), (34, 35), (36, 37),
+            (38, 39), (40, 41), (42, 43), (44, 45), (46, 47)
+        };
+
+        var count = Math.Min(filteredPairs.Count, sarrafiyeIndexPairs.Length);
+        for (var i = 0; i < count; i++)
+        {
+            var pair = filteredPairs[i];
+            var alisIndex = sarrafiyeIndexPairs[i].AlisIndex - 1;
+            var satisIndex = sarrafiyeIndexPairs[i].SatisIndex - 1;
+            indexed[alisIndex] = pair.Alis;
+            if (satisIndex < indexed.Count)
+            {
+                indexed[satisIndex] = pair.Satis;
+            }
+        }
+
+        // Clear indexes that are marked "KULLANILMAZ" in the mapping.
+        ClearUnusedIndexes(indexed);
+
+        return indexed;
+    }
+
+    private static void ClearUnusedIndexes(IList<decimal?> indexed)
+    {
+        // Enforce nulls for indexes marked as unused by mapping.
+        foreach (var def in GoldFeedNewVersionMapping.Indexes)
+        {
+            if (!def.IsUsed && def.Index - 1 < indexed.Count)
+            {
+                indexed[def.Index - 1] = null;
+            }
+        }
+    }
+
+    private static List<(decimal Alis, decimal Satis)> ParseSarrafiyePairs(string input)
+    {
+        // Extract the portion after "IAB" and the first "~", then split by "*".
+        var normalized = input
+            .Replace("İAB", "IAB", StringComparison.OrdinalIgnoreCase)
+            .Replace("�AB", "IAB", StringComparison.OrdinalIgnoreCase);
+
+        var iabIndex = normalized.IndexOf("IAB", StringComparison.OrdinalIgnoreCase);
+        if (iabIndex < 0)
+        {
+            return new List<(decimal, decimal)>();
+        }
+
+        var afterIab = normalized[(iabIndex + 3)..];
+        var tildeIndex = afterIab.IndexOf('~');
+        if (tildeIndex < 0)
+        {
+            return new List<(decimal, decimal)>();
+        }
+
         var afterTilde = afterIab[(tildeIndex + 1)..];
         var endIndex = afterTilde.IndexOf("~~~", StringComparison.OrdinalIgnoreCase);
         if (endIndex >= 0)
@@ -201,6 +288,7 @@ public static class GoldFeedNewVersionParser
             afterTilde = afterTilde[..endIndex];
         }
 
+        // Parse all numeric tokens; tolerate mixed tokens using extraction.
         var numbers = new List<decimal>();
         foreach (var token in afterTilde.Split('*', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -216,23 +304,13 @@ public static class GoldFeedNewVersionParser
             }
         }
 
-        var expectedCount = GoldFeedNewVersionMapping.Indexes.Count;
-        var indexed = new List<decimal?>(expectedCount);
-        indexed.Add(iabValue);
-
-        var remainingCount = expectedCount - 1;
-        var takeCount = Math.Min(remainingCount, numbers.Count);
-        for (var i = 0; i < takeCount; i++)
+        var pairs = new List<(decimal Alis, decimal Satis)>();
+        for (var i = 0; i + 1 < numbers.Count; i += 2)
         {
-            indexed.Add(numbers[i]);
+            pairs.Add((numbers[i], numbers[i + 1]));
         }
 
-        if (indexed.Count < expectedCount)
-        {
-            indexed.AddRange(Enumerable.Repeat<decimal?>(null, expectedCount - indexed.Count));
-        }
-
-        return indexed;
+        return pairs;
     }
 
     private static bool TryExtractDecimal(string token, out decimal value)

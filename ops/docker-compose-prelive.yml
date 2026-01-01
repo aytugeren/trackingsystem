@@ -7,7 +7,7 @@ services:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
     env_file:
-      - ./env.backend
+      - ./config/env/env.backend
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Prelive}
       SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Information}
@@ -53,7 +53,7 @@ services:
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     env_file:
-      - ./env.frontend-cashier
+      - ./config/env/env.frontend-cashier
     environment:
       NODE_ENV: ${FRONTEND_NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
@@ -81,7 +81,7 @@ services:
       args:
         API_REWRITE_TARGET: ${API_REWRITE_TARGET:-http://api:8080}
     env_file:
-      - ./env.frontend-dashboard
+      - ./config/env/env.frontend-dashboard
     environment:
       NODE_ENV: ${FRONTEND_NODE_ENV:-production}
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-}

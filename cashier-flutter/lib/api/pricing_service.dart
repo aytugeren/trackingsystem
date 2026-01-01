@@ -28,4 +28,13 @@ class PricingService {
     // PUT returns the latest price payload
     return GoldPrice.fromJson(json);
   }
+
+  Future<GoldFeedLatest?> feedLatest() async {
+    try {
+      final json = await _api.getJson('/api/pricing/feed/latest');
+      return GoldFeedLatest.fromJson(json);
+    } catch (_) {
+      return null;
+    }
+  }
 }

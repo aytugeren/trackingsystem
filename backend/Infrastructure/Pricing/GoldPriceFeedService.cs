@@ -59,6 +59,7 @@ public class GoldPriceFeedService : BackgroundService
 
         var delay = TimeSpan.FromSeconds(Math.Max(15, _options.IntervalSeconds));
 
+        // Prime the cache with a first fetch before entering the loop.
         await RunOnceSafeAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -104,6 +105,7 @@ public class GoldPriceFeedService : BackgroundService
 
     private async Task RunOnceAsync(CancellationToken ct)
     {
+        // Fetch payload -> parse -> store raw + parse status -> optionally update price.
         var payload = await FetchPayloadAsync(ct);
         if (payload is null)
         {
@@ -137,15 +139,14 @@ public class GoldPriceFeedService : BackgroundService
 
         market.GoldFeedNewVersions.Add(entry);
 
-        var wrotePrice = false;
         if (parsed is not null)
         {
+            // Header.Has is the "HAS" price used for global gold price.
             var has = parsed.Header.Has;
             if (has >= _options.MinimumPrice)
             {
                 var writer = scope.ServiceProvider.GetRequiredService<IGoldPriceWriter>();
                 await writer.UpsertAsync(has, null, _options.UserEmail, ct);
-                wrotePrice = true;
                 _logger.LogInformation("Has price updated from feed: {price}", has);
             }
             else
@@ -154,10 +155,8 @@ public class GoldPriceFeedService : BackgroundService
             }
         }
 
-        if (!wrotePrice)
-        {
-            await market.SaveChangesAsync(ct);
-        }
+        // Persist the raw feed + parse result even if price update runs.
+        await market.SaveChangesAsync(ct);
     }
 
     private async Task<string?> FetchPayloadAsync(CancellationToken ct)

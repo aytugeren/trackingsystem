@@ -4,10 +4,10 @@ Param(
 
 $ErrorActionPreference = 'Stop'
 
-# Read connection string from appsettings.{Env}.json or appsettings.json
-$apiDir = Join-Path $PSScriptRoot "..\..\backend\Api"
-$appFile = Join-Path $apiDir "appsettings.$Env.json"
-if (!(Test-Path $appFile)) { $appFile = Join-Path $apiDir "appsettings.json" }
+# Read connection string from centralized appsettings.{Env}.json or appsettings.json
+$cfgDir = Join-Path $PSScriptRoot "..\config\appsettings"
+$appFile = Join-Path $cfgDir "appsettings.$Env.json"
+if (!(Test-Path $appFile)) { $appFile = Join-Path $cfgDir "appsettings.json" }
 $cfg = Get-Content $appFile -Raw | ConvertFrom-Json
 $cs = $cfg.ConnectionStrings.DefaultConnection
 if (-not $cs) { throw "Connection string not found in $appFile" }
