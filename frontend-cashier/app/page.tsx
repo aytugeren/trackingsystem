@@ -19,9 +19,8 @@ export default function Page() {
           <button className="secondary" style={{ width: '100%' }}>İzin İste</button>
         </Link>
         <Link href="/pricing/gold">
-          <button className="secondary" style={{ width: '100%' }}>Has Altın</button>
+          <button className="secondary" style={{ width: '100%' }}>Altın Fiyatları</button>
         </Link>
-        {/* Fiyat Ayarları yönetim ekranına taşındı */}
       </div>
     </main>
   )
