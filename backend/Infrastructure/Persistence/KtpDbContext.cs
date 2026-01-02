@@ -16,6 +16,7 @@ public class KtpDbContext : DbContext
     public DbSet<Leave> Leaves => Set<Leave>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<RoleDef> Roles => Set<RoleDef>();
+    public DbSet<CompanyInfo> CompanyInfos => Set<CompanyInfo>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -121,6 +122,18 @@ public class KtpDbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => x.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<CompanyInfo>(entity =>
+        {
+            entity.ToTable("CompanyInfos");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CompanyName).HasMaxLength(200);
+            entity.Property(x => x.TaxNo).HasMaxLength(20);
+            entity.Property(x => x.Address).HasMaxLength(500);
+            entity.Property(x => x.TradeRegistryNo).HasMaxLength(100);
+            entity.Property(x => x.Phone).HasMaxLength(40);
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
         });
 
         modelBuilder.Entity<Customer>(entity =>

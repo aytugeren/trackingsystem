@@ -149,6 +149,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS IX_SystemSettings_KeyName ON \"SystemSettings\" (\"KeyName\");");
         // Enlarge Value column to store JSON configs (idempotent)
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"SystemSettings\" ALTER COLUMN \"Value\" TYPE text;");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"CompanyInfos\" (\"Id\" uuid PRIMARY KEY, \"CompanyName\" varchar(200) NULL, \"TaxNo\" varchar(20) NULL, \"Address\" varchar(500) NULL, \"TradeRegistryNo\" varchar(100) NULL, \"Phone\" varchar(40) NULL, \"UpdatedAt\" timestamptz NOT NULL DEFAULT now());");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"Status\" integer NOT NULL DEFAULT 0;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
@@ -1782,6 +1783,55 @@ app.MapPut("/api/users/{id:guid}/permissions", async (Guid id, UpdateUserPermiss
     return Results.NoContent();
 }).RequireAuthorization();
 
+// Company info (single row)
+app.MapGet("/api/company-info", async (KtpDbContext db) =>
+{
+    var info = await db.CompanyInfos.AsNoTracking().OrderBy(x => x.UpdatedAt).FirstOrDefaultAsync();
+    return Results.Ok(new
+    {
+        companyName = info?.CompanyName ?? string.Empty,
+        taxNo = info?.TaxNo ?? string.Empty,
+        address = info?.Address ?? string.Empty,
+        tradeRegistryNo = info?.TradeRegistryNo ?? string.Empty,
+        phone = info?.Phone ?? string.Empty
+    });
+}).RequireAuthorization();
+
+app.MapPut("/api/company-info", async (UpdateCompanyInfoRequest req, KtpDbContext db, HttpContext http) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString()))
+    {
+        var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? http.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid);
+        if (u?.AssignedRoleId is Guid rid)
+        {
+            var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid);
+            if (r?.CanManageSettings != true) return Results.Forbid();
+        }
+        else return Results.Forbid();
+    }
+
+    var info = await db.CompanyInfos.FirstOrDefaultAsync();
+    if (info is null)
+    {
+        info = new CompanyInfo { Id = Guid.NewGuid() };
+        db.CompanyInfos.Add(info);
+    }
+
+    info.CompanyName = req.companyName?.Trim();
+    info.TaxNo = req.taxNo?.Trim();
+    info.Address = req.address?.Trim();
+    info.TradeRegistryNo = req.tradeRegistryNo?.Trim();
+    info.Phone = req.phone?.Trim();
+    info.UpdatedAt = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
 // Settings: Milyem Oran�
 app.MapGet("/api/settings/milyem", async (KtpDbContext db) =>
 {
@@ -2361,6 +2411,7 @@ public record RoleUpdateRequest(
     double? workingDayHours);
 public record AssignRoleRequest(Guid? roleId);
 public record UpdateMilyemRequest(double value);
+public record UpdateCompanyInfoRequest(string? companyName, string? taxNo, string? address, string? tradeRegistryNo, string? phone);
 public record UpdateCalcSettingsRequest(
     bool defaultKariHesapla,
     double karMargin,
