@@ -169,6 +169,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"IsForCompany\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"FinalizedAt\" timestamp with time zone NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
@@ -184,6 +185,7 @@ using (var scope = app.Services.CreateScope())
             "END IF; END $$;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"IsForCompany\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
@@ -194,11 +196,15 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Iscilik\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"FinalizedAt\" timestamp with time zone NULL;");
-        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Customers\" (\"Id\" uuid PRIMARY KEY, \"AdSoyad\" varchar(150) NOT NULL, \"NormalizedAdSoyad\" varchar(160) NOT NULL, \"TCKN\" varchar(11) NOT NULL, \"Phone\" varchar(40) NULL, \"Email\" varchar(200) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"LastTransactionAt\" timestamptz NULL);");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Customers\" (\"Id\" uuid PRIMARY KEY, \"AdSoyad\" varchar(150) NOT NULL, \"NormalizedAdSoyad\" varchar(160) NOT NULL, \"TCKN\" varchar(11) NOT NULL, \"IsCompany\" boolean NOT NULL DEFAULT false, \"VknNo\" varchar(10) NULL, \"CompanyName\" varchar(200) NULL, \"Phone\" varchar(40) NULL, \"Email\" varchar(200) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"LastTransactionAt\" timestamptz NULL);");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"IsCompany\" boolean NOT NULL DEFAULT false;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"VknNo\" varchar(10) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"CompanyName\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"Phone\" varchar(40) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"Email\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Customers_TCKN\" ON \"Customers\" (\"TCKN\");");
         await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Customers_NormalizedAdSoyad\" ON \"Customers\" (\"NormalizedAdSoyad\");");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Customers_VknNo\" ON \"Customers\" (\"VknNo\");");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CustomerId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CustomerId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Invoices_CustomerId\" ON \"Invoices\" (\"CustomerId\");");
@@ -410,6 +416,8 @@ app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IM
         var baseQuery = from i in db.Invoices.AsNoTracking()
                         join u in db.Users.AsNoTracking() on i.KasiyerId equals u.Id into uu
                         from u in uu.DefaultIfEmpty()
+                        join c in db.Customers.AsNoTracking() on i.CustomerId equals c.Id into cc
+                        from c in cc.DefaultIfEmpty()
                         select new
                         {
                             id = i.Id,
@@ -418,6 +426,10 @@ app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IM
                             customerId = i.CustomerId,
                             musteriAdSoyad = i.MusteriAdSoyad,
                             tckn = i.TCKN,
+                            isForCompany = i.IsForCompany,
+                            isCompany = c != null && c.IsCompany,
+                            vknNo = c != null ? c.VknNo : null,
+                            companyName = c != null ? c.CompanyName : null,
                             tutar = i.Tutar,
                             odemeSekli = i.OdemeSekli,
                             altinAyar = i.AltinAyar,
@@ -586,6 +598,8 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
         var baseQuery = from e in db.Expenses.AsNoTracking()
                         join u in db.Users.AsNoTracking() on e.KasiyerId equals u.Id into uu
                         from u in uu.DefaultIfEmpty()
+                        join c in db.Customers.AsNoTracking() on e.CustomerId equals c.Id into cc
+                        from c in cc.DefaultIfEmpty()
                         select new
                         {
                             id = e.Id,
@@ -594,6 +608,10 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
                             customerId = e.CustomerId,
                             musteriAdSoyad = e.MusteriAdSoyad,
                             tckn = e.TCKN,
+                            isForCompany = e.IsForCompany,
+                            isCompany = c != null && c.IsCompany,
+                            vknNo = c != null ? c.VknNo : null,
+                            companyName = c != null ? c.CompanyName : null,
                             tutar = e.Tutar,
                             altinAyar = e.AltinAyar,
                             altinSatisFiyati = e.AltinSatisFiyati,
@@ -645,8 +663,29 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
         var max = await db.Invoices.AsNoTracking().MaxAsync(x => (int?)x.SiraNo, ct) ?? 0;
         var next = max + 1;
 
+        var rawTckn = dto.TCKN?.Trim() ?? string.Empty;
+        if (rawTckn.Length != 11 || !rawTckn.All(char.IsDigit))
+            return Results.BadRequest(new { error = "TCKN hatali" });
+
+        var rawCompanyName = dto.CompanyName?.Trim() ?? string.Empty;
+        var rawVkn = dto.VknNo?.Trim() ?? string.Empty;
+        if (dto.IsCompany)
+        {
+            if (string.IsNullOrWhiteSpace(rawCompanyName))
+                return Results.BadRequest(new { error = "CompanyName gerekli" });
+            if (!IsValidVkn(rawVkn))
+                return Results.BadRequest(new { error = "VKN gecersiz" });
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(rawCompanyName) || !string.IsNullOrWhiteSpace(rawVkn))
+                return Results.BadRequest(new { error = "VKN icin IsCompany secilmeli" });
+        }
+
         var normalizedName = CustomerUtil.NormalizeName(dto.MusteriAdSoyad);
         var normalizedTckn = CustomerUtil.NormalizeTckn(dto.TCKN);
+        var normalizedCompanyName = CustomerUtil.NormalizeName(dto.CompanyName);
+        var normalizedVkn = CustomerUtil.NormalizeVkn(dto.VknNo);
         var customerPhone = dto.Telefon?.Trim();
         var customerEmail = dto.Email?.Trim();
         var customer = await db.Customers.FirstOrDefaultAsync(x => x.TCKN == normalizedTckn, ct);
@@ -658,6 +697,9 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
                 AdSoyad = normalizedName,
                 NormalizedAdSoyad = normalizedName,
                 TCKN = normalizedTckn,
+                IsCompany = dto.IsCompany,
+                VknNo = dto.IsCompany && !string.IsNullOrWhiteSpace(normalizedVkn) ? normalizedVkn : null,
+                CompanyName = dto.IsCompany && !string.IsNullOrWhiteSpace(normalizedCompanyName) ? normalizedCompanyName : null,
                 Phone = string.IsNullOrWhiteSpace(customerPhone) ? null : customerPhone,
                 Email = string.IsNullOrWhiteSpace(customerEmail) ? null : customerEmail,
                 CreatedAt = DateTime.UtcNow,
@@ -676,6 +718,14 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
                 customer.Phone = customerPhone;
             if (!string.IsNullOrWhiteSpace(customerEmail))
                 customer.Email = customerEmail;
+            if (dto.IsCompany)
+            {
+                customer.IsCompany = true;
+                if (!string.IsNullOrWhiteSpace(normalizedVkn))
+                    customer.VknNo = normalizedVkn;
+                if (!string.IsNullOrWhiteSpace(normalizedCompanyName))
+                    customer.CompanyName = normalizedCompanyName;
+            }
             customer.LastTransactionAt = DateTime.UtcNow;
         }
 
@@ -686,6 +736,7 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
             SiraNo = next,
             MusteriAdSoyad = customer.AdSoyad,
             TCKN = customer.TCKN,
+            IsForCompany = dto.IsForCompany,
             CustomerId = customer.Id,
             Tutar = dto.Tutar,
             OdemeSekli = dto.OdemeSekli,
@@ -738,8 +789,29 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
         var max = await db.Expenses.AsNoTracking().MaxAsync(x => (int?)x.SiraNo, ct) ?? 0;
         var next = max + 1;
 
+        var rawTckn2 = dto.TCKN?.Trim() ?? string.Empty;
+        if (rawTckn2.Length != 11 || !rawTckn2.All(char.IsDigit))
+            return Results.BadRequest(new { error = "TCKN hatali" });
+
+        var rawCompanyName2 = dto.CompanyName?.Trim() ?? string.Empty;
+        var rawVkn2 = dto.VknNo?.Trim() ?? string.Empty;
+        if (dto.IsCompany)
+        {
+            if (string.IsNullOrWhiteSpace(rawCompanyName2))
+                return Results.BadRequest(new { error = "CompanyName gerekli" });
+            if (!IsValidVkn(rawVkn2))
+                return Results.BadRequest(new { error = "VKN gecersiz" });
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(rawCompanyName2) || !string.IsNullOrWhiteSpace(rawVkn2))
+                return Results.BadRequest(new { error = "VKN icin IsCompany secilmeli" });
+        }
+
         var normalizedName2 = CustomerUtil.NormalizeName(dto.MusteriAdSoyad);
         var normalizedTckn2 = CustomerUtil.NormalizeTckn(dto.TCKN);
+        var normalizedCompanyName2 = CustomerUtil.NormalizeName(dto.CompanyName);
+        var normalizedVkn2 = CustomerUtil.NormalizeVkn(dto.VknNo);
         var customerPhone2 = dto.Telefon?.Trim();
         var customerEmail2 = dto.Email?.Trim();
         var customer = await db.Customers.FirstOrDefaultAsync(x => x.TCKN == normalizedTckn2, ct);
@@ -751,6 +823,9 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
                 AdSoyad = normalizedName2,
                 NormalizedAdSoyad = normalizedName2,
                 TCKN = normalizedTckn2,
+                IsCompany = dto.IsCompany,
+                VknNo = dto.IsCompany && !string.IsNullOrWhiteSpace(normalizedVkn2) ? normalizedVkn2 : null,
+                CompanyName = dto.IsCompany && !string.IsNullOrWhiteSpace(normalizedCompanyName2) ? normalizedCompanyName2 : null,
                 Phone = string.IsNullOrWhiteSpace(customerPhone2) ? null : customerPhone2,
                 Email = string.IsNullOrWhiteSpace(customerEmail2) ? null : customerEmail2,
                 CreatedAt = DateTime.UtcNow,
@@ -769,13 +844,21 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
                 customer.Phone = customerPhone2;
             if (!string.IsNullOrWhiteSpace(customerEmail2))
                 customer.Email = customerEmail2;
+            if (dto.IsCompany)
+            {
+                customer.IsCompany = true;
+                if (!string.IsNullOrWhiteSpace(normalizedVkn2))
+                    customer.VknNo = normalizedVkn2;
+                if (!string.IsNullOrWhiteSpace(normalizedCompanyName2))
+                    customer.CompanyName = normalizedCompanyName2;
+            }
             customer.LastTransactionAt = DateTime.UtcNow;
         }
 
         var entity = new Expense
         {
             Id = Guid.NewGuid(), Tarih = dto.Tarih, SiraNo = next,
-            MusteriAdSoyad = customer.AdSoyad, TCKN = customer.TCKN, CustomerId = customer.Id, Tutar = dto.Tutar,
+            MusteriAdSoyad = customer.AdSoyad, TCKN = customer.TCKN, IsForCompany = dto.IsForCompany, CustomerId = customer.Id, Tutar = dto.Tutar,
             AltinAyar = dto.AltinAyar, KasiyerId = currentUserId,
             CreatedById = currentUserId, CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email,
             Kesildi = false
@@ -858,7 +941,7 @@ app.MapGet("/api/customers/suggest", async (string q, int? limit, KtpDbContext d
     var baseQuery = db.Customers.AsNoTracking()
         .Where(c =>
             (normalizedQuery != string.Empty && c.NormalizedAdSoyad.Contains(normalizedQuery)) ||
-            (!string.IsNullOrEmpty(trimmed) && c.TCKN.Contains(trimmed)));
+            (!string.IsNullOrEmpty(trimmed) && (c.TCKN.Contains(trimmed) || (c.VknNo != null && c.VknNo.Contains(trimmed)))));
 
     var items = await baseQuery
         .OrderByDescending(c => c.LastTransactionAt ?? c.CreatedAt)
@@ -869,6 +952,9 @@ app.MapGet("/api/customers/suggest", async (string q, int? limit, KtpDbContext d
             id = c.Id,
             adSoyad = c.AdSoyad,
             tckn = c.TCKN,
+            isCompany = c.IsCompany,
+            vknNo = c.VknNo,
+            companyName = c.CompanyName,
             phone = c.Phone,
             email = c.Email,
             hasContact = !string.IsNullOrWhiteSpace(c.Phone) || !string.IsNullOrWhiteSpace(c.Email)
@@ -891,7 +977,7 @@ app.MapGet("/api/customers", async (int? page, int? pageSize, string? q, KtpDbCo
     {
         baseQuery = baseQuery.Where(c =>
             (!string.IsNullOrEmpty(normalizedQuery) && c.NormalizedAdSoyad.Contains(normalizedQuery)) ||
-            (!string.IsNullOrEmpty(trimmed) && c.TCKN.Contains(trimmed)));
+            (!string.IsNullOrEmpty(trimmed) && (c.TCKN.Contains(trimmed) || (c.VknNo != null && c.VknNo.Contains(trimmed)))));
     }
 
     var totalCount = await baseQuery.CountAsync(ct);
@@ -905,6 +991,9 @@ app.MapGet("/api/customers", async (int? page, int? pageSize, string? q, KtpDbCo
             id = c.Id,
             adSoyad = c.AdSoyad,
             tckn = c.TCKN,
+            isCompany = c.IsCompany,
+            vknNo = c.VknNo,
+            companyName = c.CompanyName,
             phone = c.Phone,
             email = c.Email,
             lastTransactionAt = c.LastTransactionAt,
@@ -933,6 +1022,9 @@ app.MapGet("/api/customers", async (int? page, int? pageSize, string? q, KtpDbCo
             c.id,
             c.adSoyad,
             c.tckn,
+            c.isCompany,
+            c.vknNo,
+            c.companyName,
             c.phone,
             c.email,
             c.lastTransactionAt,
@@ -1991,6 +2083,26 @@ app.MapPost("/print/multi", async (PrintMultiRequest request, IPrintQueueService
 .Produces(StatusCodes.Status400BadRequest);
 
 app.Run();
+
+static bool IsValidVkn(string vkn)
+{
+    if (string.IsNullOrWhiteSpace(vkn)) return false;
+    if (vkn.Length != 10 || !vkn.All(char.IsDigit)) return false;
+
+    var digits = vkn.Select(c => c - '0').ToArray();
+    var sum = 0;
+    for (var i = 0; i < 9; i++)
+    {
+        var digit = digits[i];
+        var tmp = (digit + 10 - (i + 1)) % 10;
+        var pow = (int)(Math.Pow(2, 9 - i) % 9);
+        var res = (tmp * pow) % 9;
+        if (tmp != 0 && res == 0) res = 9;
+        sum += res;
+    }
+    var checkDigit = (10 - (sum % 10)) % 10;
+    return digits[9] == checkDigit;
+}
 
 static async Task EnsureMarketSchemaAsync(MarketDbContext db)
 {

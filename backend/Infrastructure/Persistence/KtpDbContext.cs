@@ -29,6 +29,7 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.SiraNo);
             entity.Property(x => x.MusteriAdSoyad).HasMaxLength(150);
             entity.Property(x => x.TCKN).HasMaxLength(11);
+            entity.Property(x => x.IsForCompany).IsRequired();
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
             entity.Property(x => x.OdemeSekli).HasConversion<int>();
             entity.Property(x => x.AltinAyar).HasConversion<int>();
@@ -57,6 +58,7 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.SiraNo);
             entity.Property(x => x.MusteriAdSoyad).HasMaxLength(150);
             entity.Property(x => x.TCKN).HasMaxLength(11);
+            entity.Property(x => x.IsForCompany).IsRequired();
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
             entity.Property(x => x.AltinAyar).HasConversion<int>();
             entity.Property(x => x.SafAltinDegeri).HasPrecision(18, 3);
@@ -128,6 +130,9 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.AdSoyad).HasMaxLength(150).IsRequired();
             entity.Property(x => x.NormalizedAdSoyad).HasMaxLength(160).IsRequired();
             entity.Property(x => x.TCKN).HasMaxLength(11).IsRequired();
+            entity.Property(x => x.IsCompany).IsRequired();
+            entity.Property(x => x.VknNo).HasMaxLength(10).IsRequired(false);
+            entity.Property(x => x.CompanyName).HasMaxLength(200).IsRequired(false);
             entity.Property(x => x.Phone).HasMaxLength(40).IsRequired(false);
             entity.Property(x => x.Email).HasMaxLength(200).IsRequired(false);
             entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");

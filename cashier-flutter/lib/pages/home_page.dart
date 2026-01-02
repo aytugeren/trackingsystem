@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as Math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api/api_client.dart';
@@ -9,12 +10,15 @@ import '../api/expense_service.dart';
 import '../api/pricing_service.dart';
 import 'main_menu_page.dart';
 
-enum SuggestSource { name, tckn }
+enum SuggestSource { name, tckn, vkn }
 
 class CustomerSuggestion {
   final String id;
   final String adSoyad;
   final String tckn;
+  final bool isCompany;
+  final String? vknNo;
+  final String? companyName;
   final String? phone;
   final String? email;
   final bool hasContact;
@@ -23,6 +27,9 @@ class CustomerSuggestion {
     required this.id,
     required this.adSoyad,
     required this.tckn,
+    required this.isCompany,
+    this.vknNo,
+    this.companyName,
     this.phone,
     this.email,
     required this.hasContact,
@@ -59,6 +66,11 @@ class _HomePageState extends State<HomePage> {
   // Invoice form state
   final invName = TextEditingController();
   final invTckn = TextEditingController();
+  final invVkn = TextEditingController();
+  final invCompanyName = TextEditingController();
+  bool invIsCompany = false;
+  bool invIsForCompany = false;
+  bool invCompanyChoiceTouched = false;
   final invTutar = TextEditingController();
   final invPhone = TextEditingController();
   final invEmail = TextEditingController();
@@ -72,6 +84,11 @@ class _HomePageState extends State<HomePage> {
   // Expense form state
   final expName = TextEditingController();
   final expTckn = TextEditingController();
+  final expVkn = TextEditingController();
+  final expCompanyName = TextEditingController();
+  bool expIsCompany = false;
+  bool expIsForCompany = false;
+  bool expCompanyChoiceTouched = false;
   final expTutar = TextEditingController();
   final expPhone = TextEditingController();
   final expEmail = TextEditingController();
@@ -105,11 +122,15 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     invName.dispose();
     invTckn.dispose();
+    invVkn.dispose();
+    invCompanyName.dispose();
     invTutar.dispose();
     invPhone.dispose();
     invEmail.dispose();
     expName.dispose();
     expTckn.dispose();
+    expVkn.dispose();
+    expCompanyName.dispose();
     expTutar.dispose();
     expPhone.dispose();
     expEmail.dispose();
@@ -132,6 +153,9 @@ class _HomePageState extends State<HomePage> {
         final emailVal = map['email'] ?? map['Email'];
         final hasContactVal =
             map['hasContact'] ?? map['has_contact'] ?? map['has_contact_info'];
+        final isCompanyVal = map['isCompany'] ?? map['IsCompany'];
+        final vknVal = map['vknNo'] ?? map['VknNo'];
+        final companyVal = map['companyName'] ?? map['CompanyName'];
         final hasContact = hasContactVal is bool
             ? hasContactVal
             : ((phoneVal != null && '$phoneVal'.trim().isNotEmpty) ||
@@ -142,6 +166,9 @@ class _HomePageState extends State<HomePage> {
           adSoyad: '${map['adSoyad'] ?? map['AdSoyad'] ?? map['name'] ?? ''}'
               .trim(),
           tckn: '${map['tckn'] ?? map['TCKN'] ?? ''}'.trim(),
+          isCompany: isCompanyVal == true,
+          vknNo: vknVal == null ? null : '$vknVal'.trim(),
+          companyName: companyVal == null ? null : '$companyVal'.trim(),
           phone: phoneVal == null ? null : '$phoneVal'.trim(),
           email: emailVal == null ? null : '$emailVal'.trim(),
           hasContact: hasContact,
@@ -162,13 +189,17 @@ class _HomePageState extends State<HomePage> {
     _invSuggestTimer = Timer(const Duration(milliseconds: 200), () async {
       final current = source == SuggestSource.name
           ? invName.text.trim()
-          : invTckn.text.trim();
+          : (source == SuggestSource.tckn
+              ? invTckn.text.trim()
+              : invVkn.text.trim());
       if (current != query) return;
       final items = await _fetchSuggestions(query);
       if (!mounted) return;
       final stillCurrent = source == SuggestSource.name
           ? invName.text.trim() == query
-          : invTckn.text.trim() == query;
+          : (source == SuggestSource.tckn
+              ? invTckn.text.trim() == query
+              : invVkn.text.trim() == query);
       if (!stillCurrent) return;
       setState(() => _invSuggestions = items);
     });
@@ -184,13 +215,17 @@ class _HomePageState extends State<HomePage> {
     _expSuggestTimer = Timer(const Duration(milliseconds: 200), () async {
       final current = source == SuggestSource.name
           ? expName.text.trim()
-          : expTckn.text.trim();
+          : (source == SuggestSource.tckn
+              ? expTckn.text.trim()
+              : expVkn.text.trim());
       if (current != query) return;
       final items = await _fetchSuggestions(query);
       if (!mounted) return;
       final stillCurrent = source == SuggestSource.name
           ? expName.text.trim() == query
-          : expTckn.text.trim() == query;
+          : (source == SuggestSource.tckn
+              ? expTckn.text.trim() == query
+              : expVkn.text.trim() == query);
       if (!stillCurrent) return;
       setState(() => _expSuggestions = items);
     });
@@ -200,6 +235,11 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       invName.text = s.adSoyad;
       invTckn.text = s.tckn;
+      invIsCompany = s.isCompany;
+      invVkn.text = s.vknNo ?? '';
+      invCompanyName.text = s.companyName ?? '';
+      invIsForCompany = (s.vknNo ?? '').trim().isNotEmpty;
+      invCompanyChoiceTouched = false;
       invPhone.text = s.phone ?? '';
       invEmail.text = s.email ?? '';
       _invNeedsContact =
@@ -212,6 +252,11 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       expName.text = s.adSoyad;
       expTckn.text = s.tckn;
+      expIsCompany = s.isCompany;
+      expVkn.text = s.vknNo ?? '';
+      expCompanyName.text = s.companyName ?? '';
+      expIsForCompany = (s.vknNo ?? '').trim().isNotEmpty;
+      expCompanyChoiceTouched = false;
       expPhone.text = s.phone ?? '';
       expEmail.text = s.email ?? '';
       _expNeedsContact =
@@ -249,8 +294,17 @@ class _HomePageState extends State<HomePage> {
                           Text(items[i].adSoyad,
                               style:
                                   const TextStyle(fontWeight: FontWeight.w600)),
+                          if ((items[i].companyName ?? '').isNotEmpty)
+                            Text('Şirket: ${items[i].companyName}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.black54)),
                           if (items[i].tckn.isNotEmpty)
                             Text('TCKN: ${items[i].tckn}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.black54)),
+                          if (items[i].isCompany &&
+                              (items[i].vknNo ?? '').isNotEmpty)
+                            Text('VKN: ${items[i].vknNo}',
                                 style: const TextStyle(
                                     fontSize: 12, color: Colors.black54)),
                         ],
@@ -609,6 +663,31 @@ class _HomePageState extends State<HomePage> {
               inputFormatters: const [TurkishUppercaseTextFormatter()],
               onChanged: (v) => _scheduleInvoiceSuggest(SuggestSource.name, v),
             ),
+            SwitchListTile(
+              value: invIsCompany,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('VKN'),
+              onChanged: (v) {
+                setState(() {
+                  invIsCompany = v;
+                  if (!v) {
+                    invVkn.clear();
+                    invCompanyName.clear();
+                    invIsForCompany = false;
+                    invCompanyChoiceTouched = false;
+                  }
+                });
+              },
+            ),
+            if (invIsCompany) ...[
+              TextField(
+                controller: invCompanyName,
+                decoration: const InputDecoration(labelText: 'Şirket Adı'),
+                textCapitalization: TextCapitalization.characters,
+                inputFormatters: const [TurkishUppercaseTextFormatter()],
+              ),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 8),
             TextField(
               controller: invTckn,
@@ -620,6 +699,30 @@ class _HomePageState extends State<HomePage> {
               ],
               onChanged: (v) => _scheduleInvoiceSuggest(SuggestSource.tckn, v),
             ),
+            if (invIsCompany) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: invVkn,
+                decoration: const InputDecoration(labelText: 'VKN (10 hane)'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ],
+                onChanged: (v) {
+                  _scheduleInvoiceSuggest(SuggestSource.vkn, v);
+                  final hasVkn = v.trim().isNotEmpty;
+                  if (!hasVkn) {
+                    setState(() {
+                      invIsForCompany = false;
+                      invCompanyChoiceTouched = false;
+                    });
+                  } else if (!invCompanyChoiceTouched && !invIsForCompany) {
+                    setState(() => invIsForCompany = true);
+                  }
+                },
+              ),
+            ],
             _suggestionList(_invSuggestions, _applyInvoiceSuggestion),
             const SizedBox(height: 8),
             if (_invNeedsContact)
@@ -668,6 +771,35 @@ class _HomePageState extends State<HomePage> {
             _ayarToggle(
                 current: invAyar,
                 onChanged: (v) => setState(() => invAyar = v)),
+            if (invVkn.text.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Kesim Tipi'),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: ToggleButtons(
+                      isSelected: [invIsForCompany, !invIsForCompany],
+                      onPressed: (i) {
+                        setState(() {
+                          invIsForCompany = i == 0;
+                          invCompanyChoiceTouched = true;
+                        });
+                      },
+                      children: const [
+                        Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text('Şirket')),
+                        Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text('Bireysel')),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             _odemeToggle(
                 current: invOdeme,
@@ -716,6 +848,31 @@ class _HomePageState extends State<HomePage> {
               inputFormatters: const [TurkishUppercaseTextFormatter()],
               onChanged: (v) => _scheduleExpenseSuggest(SuggestSource.name, v),
             ),
+            SwitchListTile(
+              value: expIsCompany,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('VKN'),
+              onChanged: (v) {
+                setState(() {
+                  expIsCompany = v;
+                  if (!v) {
+                    expVkn.clear();
+                    expCompanyName.clear();
+                    expIsForCompany = false;
+                    expCompanyChoiceTouched = false;
+                  }
+                });
+              },
+            ),
+            if (expIsCompany) ...[
+              TextField(
+                controller: expCompanyName,
+                decoration: const InputDecoration(labelText: 'Şirket Adı'),
+                textCapitalization: TextCapitalization.characters,
+                inputFormatters: const [TurkishUppercaseTextFormatter()],
+              ),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 8),
             TextField(
               controller: expTckn,
@@ -727,6 +884,30 @@ class _HomePageState extends State<HomePage> {
               ],
               onChanged: (v) => _scheduleExpenseSuggest(SuggestSource.tckn, v),
             ),
+            if (expIsCompany) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: expVkn,
+                decoration: const InputDecoration(labelText: 'VKN (10 hane)'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ],
+                onChanged: (v) {
+                  _scheduleExpenseSuggest(SuggestSource.vkn, v);
+                  final hasVkn = v.trim().isNotEmpty;
+                  if (!hasVkn) {
+                    setState(() {
+                      expIsForCompany = false;
+                      expCompanyChoiceTouched = false;
+                    });
+                  } else if (!expCompanyChoiceTouched && !expIsForCompany) {
+                    setState(() => expIsForCompany = true);
+                  }
+                },
+              ),
+            ],
             _suggestionList(_expSuggestions, _applyExpenseSuggestion),
             const SizedBox(height: 8),
             if (_expNeedsContact)
@@ -776,6 +957,35 @@ class _HomePageState extends State<HomePage> {
             _ayarToggle(
                 current: expAyar,
                 onChanged: (v) => setState(() => expAyar = v)),
+            if (expVkn.text.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Kesim Tipi'),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: ToggleButtons(
+                      isSelected: [expIsForCompany, !expIsForCompany],
+                      onPressed: (i) {
+                        setState(() {
+                          expIsForCompany = i == 0;
+                          expCompanyChoiceTouched = true;
+                        });
+                      },
+                      children: const [
+                        Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text('Şirket')),
+                        Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 16),
+                            child: Text('Bireysel')),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: creatingExp ? null : _previewExpense,
@@ -881,6 +1091,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _previewInvoice() async {
     final name = invName.text.trim();
     final tckn = invTckn.text.trim();
+    final companyName = invCompanyName.text.trim();
+    final vkn = invVkn.text.trim();
     final tutar = _parseAmount(invTutar.text);
     if (name.isEmpty || tckn.isEmpty || tutar == null) {
       _showError('Lütfen tüm alanları doldurun');
@@ -889,6 +1101,16 @@ class _HomePageState extends State<HomePage> {
     if (!_validateTckn(tckn)) {
       _showError('TCKN geçersiz!');
       return;
+    }
+    if (invIsCompany) {
+      if (companyName.isEmpty || vkn.isEmpty) {
+        _showError('Şirket adı ve VKN gerekli');
+        return;
+      }
+      if (!_validateVkn(vkn)) {
+        _showError('VKN geçersiz');
+        return;
+      }
     }
     try {
       setState(() {
@@ -899,6 +1121,10 @@ class _HomePageState extends State<HomePage> {
         tarih: invDate,
         musteriAdSoyad: name,
         tckn: tckn,
+        isCompany: invIsCompany,
+        vknNo: invIsCompany ? vkn : null,
+        companyName: invIsCompany ? companyName : null,
+        isForCompany: invIsForCompany,
         tutar: tutar,
         odemeSekli: invOdeme,
         altinAyar: invAyar,
@@ -926,6 +1152,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _previewExpense() async {
     final name = expName.text.trim();
     final tckn = expTckn.text.trim();
+    final companyName = expCompanyName.text.trim();
+    final vkn = expVkn.text.trim();
     final tutar = _parseAmount(expTutar.text);
     if (name.isEmpty || tckn.isEmpty || tutar == null) {
       _showError('Lütfen tüm alanları doldurun');
@@ -934,6 +1162,16 @@ class _HomePageState extends State<HomePage> {
     if (!_validateTckn(tckn)) {
       _showError('TCKN geçersiz');
       return;
+    }
+    if (expIsCompany) {
+      if (companyName.isEmpty || vkn.isEmpty) {
+        _showError('Şirket adı ve VKN gerekli');
+        return;
+      }
+      if (!_validateVkn(vkn)) {
+        _showError('VKN geçersiz');
+        return;
+      }
     }
     try {
       setState(() {
@@ -944,6 +1182,10 @@ class _HomePageState extends State<HomePage> {
         tarih: expDate,
         musteriAdSoyad: name,
         tckn: tckn,
+        isCompany: expIsCompany,
+        vknNo: expIsCompany ? vkn : null,
+        companyName: expIsCompany ? companyName : null,
+        isForCompany: expIsForCompany,
         tutar: tutar,
         altinAyar: expAyar,
         telefon: expPhone.text.trim().isEmpty ? null : expPhone.text.trim(),
@@ -971,6 +1213,11 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       invName.clear();
       invTckn.clear();
+      invVkn.clear();
+      invCompanyName.clear();
+      invIsCompany = false;
+      invIsForCompany = false;
+      invCompanyChoiceTouched = false;
       invTutar.clear();
       invPhone.clear();
       invEmail.clear();
@@ -990,6 +1237,11 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       expName.clear();
       expTckn.clear();
+      expVkn.clear();
+      expCompanyName.clear();
+      expIsCompany = false;
+      expIsForCompany = false;
+      expCompanyChoiceTouched = false;
       expTutar.clear();
       expPhone.clear();
       expEmail.clear();
@@ -1017,6 +1269,23 @@ class _HomePageState extends State<HomePage> {
     return digits[9] == calc10 && digits[10] == calc11;
   }
 
+  bool _validateVkn(String vkn) {
+    if (!RegExp(r'^\d{10}$').hasMatch(vkn)) return false;
+    final digits =
+        vkn.split('').take(10).map((e) => int.tryParse(e) ?? 0).toList();
+    var sum = 0;
+    for (var i = 0; i < 9; i++) {
+      final digit = digits[i];
+      final tmp = (digit + 10 - (i + 1)) % 10;
+      final pow = (Math.pow(2, 9 - i) % 9).toInt();
+      var res = (tmp * pow) % 9;
+      if (tmp != 0 && res == 0) res = 9;
+      sum += res;
+    }
+    final checkDigit = (10 - (sum % 10)) % 10;
+    return digits[9] == checkDigit;
+  }
+
   Future<void> _showInvoicePreviewDialog() async {
     final name = invName.text.trim();
     final tckn = invTckn.text.trim();
@@ -1037,6 +1306,9 @@ class _HomePageState extends State<HomePage> {
             Text('Tarih: ${_formatDate(invDate)}'),
             Text('Ad Soyad: $name'),
             Text('TCKN: $tckn'),
+            if (invIsCompany)
+              Text('Şirket Adı: ${invCompanyName.text.trim()}'),
+            if (invIsCompany) Text('VKN: ${invVkn.text.trim()}'),
             Text('Tutar: ${_fmtAmount(tutar)} TL'),
             Text(
                 'Ayar: ${invAyar == AltinAyar.Ayar22 ? '22 Ayar' : '24 Ayar'}'),
@@ -1105,6 +1377,9 @@ class _HomePageState extends State<HomePage> {
             Text('Tarih: ${_formatDate(expDate)}'),
             Text('Ad Soyad: $name'),
             Text('TCKN: $tckn'),
+            if (expIsCompany)
+              Text('Şirket Adı: ${expCompanyName.text.trim()}'),
+            if (expIsCompany) Text('VKN: ${expVkn.text.trim()}'),
             Text('Tutar: ${_fmtAmount(tutar)} TL'),
             Text(
                 'Ayar: ${expAyar == AltinAyar.Ayar22 ? '22 Ayar' : '24 Ayar'}'),

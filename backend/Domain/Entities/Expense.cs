@@ -14,6 +14,8 @@ public class Expense
     [MaxLength(11)]
     public string? TCKN { get; set; }
 
+    public bool IsForCompany { get; set; }
+
     public decimal Tutar { get; set; }
 
     // O anki has altin satis fiyati (marjli)

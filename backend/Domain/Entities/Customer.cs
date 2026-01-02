@@ -15,6 +15,14 @@ public class Customer
     [MaxLength(11)]
     public string TCKN { get; set; } = string.Empty;
 
+    public bool IsCompany { get; set; }
+
+    [MaxLength(10)]
+    public string? VknNo { get; set; }
+
+    [MaxLength(200)]
+    public string? CompanyName { get; set; }
+
     [MaxLength(40)]
     public string? Phone { get; set; }
 

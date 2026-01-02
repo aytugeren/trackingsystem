@@ -10,7 +10,7 @@ import { useSearchParams } from 'next/navigation'
 import { authHeaders } from '../../../lib/api'
 
 type TxType = 'invoice' | 'expense'
-type CustomerSuggestion = { id: string; adSoyad: string; tckn: string; phone?: string | null; email?: string | null; hasContact?: boolean }
+type CustomerSuggestion = { id: string; adSoyad: string; tckn: string; isCompany?: boolean; vknNo?: string | null; companyName?: string | null; phone?: string | null; email?: string | null; hasContact?: boolean }
 
 function todayStr() {
   const d = new Date()
@@ -46,8 +46,13 @@ function InvoiceNewInner() {
     return String(r)
   })
   const [tckn, setTckn] = useState<string>('')
+  const [isCompany, setIsCompany] = useState<boolean>(false)
+  const [vknNo, setVknNo] = useState<string>('')
+  const [companyName, setCompanyName] = useState<string>('')
+  const [isForCompany, setIsForCompany] = useState<boolean>(false)
+  const [companyChoiceTouched, setCompanyChoiceTouched] = useState<boolean>(false)
   const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSuggestion[]>([])
-  const [suggestFor, setSuggestFor] = useState<'name' | 'tckn' | null>(null)
+  const [suggestFor, setSuggestFor] = useState<'name' | 'tckn' | 'vkn' | null>(null)
   const [phone, setPhone] = useState<string>('')
   const [email, setEmail] = useState<string>('')
   const [needsContact, setNeedsContact] = useState<boolean>(false)
@@ -59,6 +64,7 @@ function InvoiceNewInner() {
   const [error, setError] = useState('')
   const [activeKeypad, setActiveKeypad] = useState<'amount' | null>(null)
   const [tcknError, setTcknError] = useState<string>('')
+  const [vknError, setVknError] = useState<string>('')
   const [ayar, setAyar] = useState<22 | 24 | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [predictedSira, setPredictedSira] = useState<number | null>(null)
@@ -100,6 +106,22 @@ function InvoiceNewInner() {
     const calc10 = (((d1 + d3 + d5 + d7 + d9) * 7) - (d2 + d4 + d6 + d8)) % 10
     const calc11 = (digits.slice(0, 10).reduce((a, b) => a + b, 0)) % 10
     return d10 === calc10 && d11 === calc11
+  }
+
+  function validateVkn(vkn: string): boolean {
+    if (!/^\d{10}$/.test(vkn)) return false
+    const digits = vkn.split('').map((d) => parseInt(d, 10))
+    let sum = 0
+    for (let i = 0; i < 9; i += 1) {
+      const digit = digits[i]
+      const tmp = (digit + 10 - (i + 1)) % 10
+      const pow = Math.pow(2, 9 - i) % 9
+      let res = (tmp * pow) % 9
+      if (tmp !== 0 && res === 0) res = 9
+      sum += res
+    }
+    const check = (10 - (sum % 10)) % 10
+    return digits[9] === check
   }
 
   function computeBirthYear(): number {
@@ -183,6 +205,10 @@ function InvoiceNewInner() {
       return
     }
     if (!validateTCKN(tckn)) { setError('TCKN geçersiz'); return }
+    if (isCompany) {
+      if (!companyName.trim() || !vknNo.trim()) { setError('Şirket adı ve VKN gerekli'); return }
+      if (!validateVkn(vknNo.trim())) { setError('VKN geçersiz'); return }
+    }
     // doğum yılı kontrolü kaldırıldı
     const amountNum = parseFloat(amount.replace(',', '.'))
     if (Number.isNaN(amountNum)) { setError('Tutar geçersiz'); return }
@@ -195,6 +221,10 @@ function InvoiceNewInner() {
         siraNo: 0,
         musteriAdSoyad: fullName.trim(),
         tckn: tckn,
+        isForCompany,
+        isCompany,
+        vknNo: isCompany ? vknNo.trim() : undefined,
+        companyName: isCompany ? companyName.trim() : undefined,
         tutar: amountNum,
         altinAyar: ayar,
         telefon: phone.trim() || undefined,
@@ -228,7 +258,7 @@ function InvoiceNewInner() {
 
   useEffect(() => {
     const source = suggestFor
-    const query = source === 'name' ? fullName : (source === 'tckn' ? tckn : '')
+    const query = source === 'name' ? fullName : (source === 'tckn' ? tckn : (source === 'vkn' ? vknNo : ''))
     if (!source || !query || query.trim().length < 2 || !isOnline) {
       setCustomerSuggestions([])
       return
@@ -243,19 +273,22 @@ function InvoiceNewInner() {
         if (!res.ok) { setCustomerSuggestions([]); return }
         const data = await res.json()
         const items = Array.isArray(data) ? data : (Array.isArray((data as any)?.items) ? (data as any).items : [])
-        const mapped = (items as any[]).map(it => {
-          const phoneVal = it.phone ?? it.Phone ?? null
-          const emailVal = it.email ?? it.Email ?? null
-          const hasContact = (it.hasContact ?? it.has_contact ?? it.has_contact_info ?? null)
-          return {
-            id: String(it.id ?? it.Id ?? ''),
-            adSoyad: String(it.adSoyad ?? it.AdSoyad ?? it.name ?? ''),
-            tckn: String(it.tckn ?? it.TCKN ?? ''),
-            phone: phoneVal != null ? String(phoneVal) : null,
-            email: emailVal != null ? String(emailVal) : null,
-            hasContact: hasContact != null ? Boolean(hasContact) : Boolean(phoneVal) || Boolean(emailVal)
-          }
-        }).filter(x => x.id)
+          const mapped = (items as any[]).map(it => {
+            const phoneVal = it.phone ?? it.Phone ?? null
+            const emailVal = it.email ?? it.Email ?? null
+            const hasContact = (it.hasContact ?? it.has_contact ?? it.has_contact_info ?? null)
+            return {
+              id: String(it.id ?? it.Id ?? ''),
+              adSoyad: String(it.adSoyad ?? it.AdSoyad ?? it.name ?? ''),
+              tckn: String(it.tckn ?? it.TCKN ?? ''),
+              isCompany: Boolean(it.isCompany ?? it.IsCompany ?? false),
+              vknNo: (it.vknNo ?? it.VknNo) != null ? String(it.vknNo ?? it.VknNo) : null,
+              companyName: (it.companyName ?? it.CompanyName) != null ? String(it.companyName ?? it.CompanyName) : null,
+              phone: phoneVal != null ? String(phoneVal) : null,
+              email: emailVal != null ? String(emailVal) : null,
+              hasContact: hasContact != null ? Boolean(hasContact) : Boolean(phoneVal) || Boolean(emailVal)
+            }
+          }).filter(x => x.id)
         setCustomerSuggestions(mapped)
       } catch (err: any) {
         if (err?.name === 'AbortError') return
@@ -263,7 +296,16 @@ function InvoiceNewInner() {
       }
     }, 200)
     return () => { ctrl.abort(); clearTimeout(timer) }
-  }, [suggestFor, fullName, tckn, apiBase, isOnline])
+  }, [suggestFor, fullName, tckn, vknNo, apiBase, isOnline])
+
+  useEffect(() => {
+    if (!vknNo.trim()) {
+      setIsForCompany(false)
+      setCompanyChoiceTouched(false)
+      return
+    }
+    if (!companyChoiceTouched) setIsForCompany(true)
+  }, [vknNo, companyChoiceTouched])
 
   const formattedHasAltin = savedHasAltin != null
     ? Number(savedHasAltin).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 3 })
@@ -378,7 +420,13 @@ function InvoiceNewInner() {
   function applyCustomerSuggestion(s: CustomerSuggestion) {
     setFullName(s.adSoyad || '')
     setTckn(String(s.tckn || ''))
+    setIsCompany(Boolean(s.isCompany))
+    setVknNo(s.vknNo ? String(s.vknNo) : '')
+    setCompanyName(s.companyName ? String(s.companyName) : '')
+    setIsForCompany(Boolean(s.vknNo))
+    setCompanyChoiceTouched(false)
     setTcknError('')
+    setVknError('')
     setExistingCustomerId(s.id || null)
     setPhone(s.phone ? String(s.phone) : '')
     setEmail(s.email ? String(s.email) : '')
@@ -387,7 +435,7 @@ function InvoiceNewInner() {
     setSuggestFor(null)
   }
 
-  function renderSuggestions(field: 'name' | 'tckn') {
+  function renderSuggestions(field: 'name' | 'tckn' | 'vkn') {
     if (suggestFor !== field || customerSuggestions.length === 0) return null
     return (
       <div style={{ position: 'absolute', zIndex: 30, left: 0, right: 0, top: '100%', marginTop: 4, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 10px 26px rgba(0,0,0,0.12)', maxHeight: 240, overflowY: 'auto' }}>
@@ -400,6 +448,9 @@ function InvoiceNewInner() {
           >
             <div style={{ fontWeight: 700, fontSize: 14, color: '#111' }}>{s.adSoyad || '-'}</div>
             <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>TCKN: {s.tckn || '-'}</div>
+            {s.isCompany && (
+              <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>VKN: {s.vknNo || '-'}</div>
+            )}
           </button>
         ))}
       </div>
@@ -416,6 +467,16 @@ function InvoiceNewInner() {
     if (!validateTCKN(tckn)) {
       setError('TCKN geçersiz')
       return
+    }
+    if (isCompany) {
+      if (!companyName.trim() || !vknNo.trim()) {
+        setError('Şirket adı ve VKN gerekli')
+        return
+      }
+      if (!validateVkn(vknNo.trim())) {
+        setError('VKN geçersiz')
+        return
+      }
     }
     // doğum yılı kontrolü kaldırıldı
     const amountNum = parseFloat(amount.replace(',', '.'))
@@ -466,20 +527,24 @@ function InvoiceNewInner() {
     }
 
     const { firstName, lastName } = splitFullName(fullName)
-  const common: any = {
-    tarih: date,
-    siraNo: 0,
-    musteriAdSoyad: fullName.trim(),
-    tckn: tckn,
-    tutar: amountNum,
-    fullName: fullName.trim(),
-    firstName,
-    lastName,
-    birthYear: computeBirthYear(),
-    altinAyar: ayar,
-    telefon: phone.trim() || undefined,
-    email: email.trim() || undefined
-  }
+    const common: any = {
+      tarih: date,
+      siraNo: 0,
+      musteriAdSoyad: fullName.trim(),
+      tckn: tckn,
+      isForCompany,
+      isCompany,
+      vknNo: isCompany ? vknNo.trim() : undefined,
+      companyName: isCompany ? companyName.trim() : undefined,
+      tutar: amountNum,
+      fullName: fullName.trim(),
+      firstName,
+      lastName,
+      birthYear: computeBirthYear(),
+      altinAyar: ayar,
+      telefon: phone.trim() || undefined,
+      email: email.trim() || undefined
+    }
 
     // If draft exists, finalize it; else fallback to original create
     let res: any = null
@@ -527,10 +592,10 @@ function InvoiceNewInner() {
       }
       setCustomerSuggestions([]); setSuggestFor(null)
       setCustomerSuggestions([]); setSuggestFor(null)
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false)
+      setFullName(''); setBirthYear(''); setTckn(''); setIsCompany(false); setVknNo(''); setCompanyName(''); setIsForCompany(false); setCompanyChoiceTouched(false); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false); setTcknError(''); setVknError('')
     } else if ((res as any).queued) {
       setSuccess('Çevrimdışı kaydedildi, sonra gönderilecek ✅')
-      setFullName(''); setBirthYear(''); setTckn(''); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false)
+      setFullName(''); setBirthYear(''); setTckn(''); setIsCompany(false); setVknNo(''); setCompanyName(''); setIsForCompany(false); setCompanyChoiceTouched(false); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false); setTcknError(''); setVknError('')
     } else {
       setError('Kayıt eklenemedi')
     }
@@ -593,11 +658,50 @@ function InvoiceNewInner() {
           <TouchField label="Ad Soyad" value={fullName} onChange={(v) => { setFullName(v); setSuggestFor('name') }} onFocus={() => { setActiveKeypad(null); setSuggestFor('name') }} upperCaseTr disabled={hasAltinMissing} />
           {renderSuggestions('name')}
         </div>
+        {isCompany && (
+          <TouchField label="Şirket Adı" value={companyName} onChange={(v) => setCompanyName(v)} onFocus={() => setActiveKeypad(null)} upperCaseTr disabled={hasAltinMissing} />
+        )}
         {/* Doğum yılı alanı kaldırıldı */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className={isCompany ? 'primary' : 'secondary'}
+            onClick={() => {
+              const next = !isCompany
+              setIsCompany(next)
+              setVknError('')
+              if (!next) {
+                setVknNo('')
+                setCompanyName('')
+                setIsForCompany(false)
+                setCompanyChoiceTouched(false)
+              }
+            }}
+            disabled={hasAltinMissing}
+          >
+            VKN
+          </button>
+        </div>
         <div style={{ position: 'relative' }}>
           <TouchField label="TCKN" value={tckn} onChange={(v) => { const cleaned = v.replace(/[^0-9]/g, '').slice(0, 11); setTckn(cleaned); setTcknError(''); setSuggestFor('tckn'); setNeedsContact(false); setExistingCustomerId(null); setPhone(''); setEmail(''); }} inputMode="numeric" pattern="\\d*" maxLength={11} onFocus={() => { setActiveKeypad(null); setSuggestFor('tckn') }} error={tcknError} disabled={hasAltinMissing} />
           {renderSuggestions('tckn')}
         </div>
+        {isCompany && (
+          <div style={{ position: 'relative' }}>
+            <TouchField
+              label="VKN"
+              value={vknNo}
+              onChange={(v) => { const cleaned = v.replace(/[^0-9]/g, '').slice(0, 10); setVknNo(cleaned); setVknError(''); setSuggestFor('vkn'); setNeedsContact(false); setExistingCustomerId(null); setPhone(''); setEmail(''); }}
+              inputMode="numeric"
+              pattern="\\d*"
+              maxLength={10}
+              onFocus={() => { setActiveKeypad(null); setSuggestFor('vkn') }}
+              error={vknError}
+              disabled={hasAltinMissing}
+            />
+            {renderSuggestions('vkn')}
+          </div>
+        )}
         {existingCustomerId && (
           <>
             {needsContact && (
@@ -620,6 +724,12 @@ function InvoiceNewInner() {
           <button type="button" className={ayar === 22 ? 'primary' : 'secondary'} onClick={() => setAyar(22)} style={{ flex: 1 }} disabled={hasAltinMissing}>22 Ayar</button>
           <button type="button" className={ayar === 24 ? 'primary' : 'secondary'} onClick={() => setAyar(24)} style={{ flex: 1 }} disabled={hasAltinMissing}>24 Ayar</button>
         </div>
+        {vknNo.trim() && (
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button type="button" className={isForCompany ? 'primary' : 'secondary'} onClick={() => { setIsForCompany(true); setCompanyChoiceTouched(true) }} style={{ flex: 1 }} disabled={hasAltinMissing}>Şirket</button>
+            <button type="button" className={!isForCompany ? 'primary' : 'secondary'} onClick={() => { setIsForCompany(false); setCompanyChoiceTouched(true) }} style={{ flex: 1 }} disabled={hasAltinMissing}>Bireysel</button>
+          </div>
+        )}
 
         {txType === 'invoice' && (
           <div style={{ display: 'flex', gap: 12 }}>
@@ -663,6 +773,26 @@ function InvoiceNewInner() {
                   </button>
                 ) : null}
               </div>
+              {isCompany && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <div><b>Şirket Adı:</b> {companyName || '-'}</div>
+                  {companyName ? (
+                    <button aria-label="Kopyala" title={copied === 'companyName' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('companyName', companyName)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                      {copied === 'companyName' ? <CheckIcon /> : <CopyIcon />}
+                    </button>
+                  ) : null}
+                </div>
+              )}
+              {isCompany && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <div><b>VKN:</b> {vknNo || '-'}</div>
+                  {vknNo ? (
+                    <button aria-label="Kopyala" title={copied === 'vkn' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('vkn', vknNo)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                      {copied === 'vkn' ? <CheckIcon /> : <CopyIcon />}
+                    </button>
+                  ) : null}
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                 <div><b>Tarih:</b> {date || '-'}</div>
                 {date ? (

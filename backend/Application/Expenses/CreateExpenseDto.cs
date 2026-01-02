@@ -6,6 +6,10 @@ public class CreateExpenseDto
     public int SiraNo { get; set; }
     public string? MusteriAdSoyad { get; set; }
     public string? TCKN { get; set; }
+    public bool IsForCompany { get; set; }
+    public bool IsCompany { get; set; }
+    public string? VknNo { get; set; }
+    public string? CompanyName { get; set; }
     public string? Telefon { get; set; }
     public string? Email { get; set; }
     public decimal Tutar { get; set; }

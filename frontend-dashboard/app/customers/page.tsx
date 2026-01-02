@@ -22,6 +22,8 @@ export default function CustomersPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [history, setHistory] = useState<CustomerTransaction[] | null>(null)
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryCustomer, setSummaryCustomer] = useState<Customer | null>(null)
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / pageSize)), [totalCount, pageSize])
 
@@ -74,13 +76,18 @@ export default function CustomersPage() {
     }
   }
 
+  function openSummary(c: Customer) {
+    setSummaryCustomer(c)
+    setSummaryOpen(true)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Müşteriler</h1>
         <div className="flex items-center gap-2">
           <Input
-            placeholder="İsim veya TCKN ile ara"
+            placeholder="İsim, TCKN veya VKN ile ara"
             value={pendingQ}
             onChange={(e) => { setPendingQ(e.target.value); setPage(1) }}
             className="w-64"
@@ -107,6 +114,8 @@ export default function CustomersPage() {
                   <TR>
                     <TH>Ad Soyad</TH>
                     <TH>TCKN</TH>
+                    <TH>Şirket Adı</TH>
+                    <TH>VKN</TH>
                     <TH>İletişim</TH>
                     <TH>İşlem</TH>
                     <TH>Son İşlem</TH>
@@ -118,6 +127,20 @@ export default function CustomersPage() {
                     <TR key={c.id}>
                       <TD className="font-semibold">{c.adSoyad || '—'}</TD>
                       <TD className="font-mono text-xs">{c.tckn || '—'}</TD>
+                      <TD>
+                        {c.companyName ? (
+                          <button type="button" className="font-semibold underline underline-offset-4" onClick={() => openSummary(c)}>
+                            {c.companyName}
+                          </button>
+                        ) : '—'}
+                      </TD>
+                      <TD className="font-mono text-xs">
+                        {c.vknNo ? (
+                          <button type="button" className="underline underline-offset-4" onClick={() => openSummary(c)}>
+                            {c.vknNo}
+                          </button>
+                        ) : '—'}
+                      </TD>
                       <TD>
                         {c.phone || c.email ? (
                           <div className="flex flex-col gap-0.5 text-sm">
@@ -138,7 +161,7 @@ export default function CustomersPage() {
                     </TR>
                   ))}
                   {customers.length === 0 && (
-                    <TR><TD colSpan={5} className="text-center text-muted-foreground">Kayıt bulunamadı</TD></TR>
+                    <TR><TD colSpan={7} className="text-center text-muted-foreground">Kayıt bulunamadı</TD></TR>
                   )}
                 </TBody>
               </Table>
@@ -189,6 +212,22 @@ export default function CustomersPage() {
                   )}
                 </TBody>
               </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Müşteri Özeti</DialogTitle>
+          </DialogHeader>
+          {summaryCustomer && (
+            <div className="space-y-2 text-sm">
+              <div>İsim Soyisim: <b>{summaryCustomer.adSoyad || '-'}</b></div>
+              <div>T.C. Kimlik No: <b>{summaryCustomer.tckn || '-'}</b></div>
+              <div>VKN: <b>{summaryCustomer.vknNo || '-'}</b></div>
+              <div>Şirket Adı: <b>{summaryCustomer.companyName || '-'}</b></div>
             </div>
           )}
         </DialogContent>
