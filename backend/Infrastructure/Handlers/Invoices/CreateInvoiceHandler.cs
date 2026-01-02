@@ -31,6 +31,8 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
 
         var normalizedName = CustomerUtil.NormalizeName(command.Dto.MusteriAdSoyad);
         var normalizedTckn = CustomerUtil.NormalizeTckn(command.Dto.TCKN);
+        var normalizedCompanyName = CustomerUtil.NormalizeName(command.Dto.CompanyName);
+        var normalizedVkn = CustomerUtil.NormalizeVkn(command.Dto.VknNo);
         var phone = command.Dto.Telefon?.Trim();
         var email = command.Dto.Email?.Trim();
         var customer = await _db.Customers.FirstOrDefaultAsync(x => x.TCKN == normalizedTckn, cancellationToken);
@@ -42,6 +44,9 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
                 AdSoyad = normalizedName,
                 NormalizedAdSoyad = normalizedName,
                 TCKN = normalizedTckn,
+                IsCompany = command.Dto.IsCompany,
+                VknNo = command.Dto.IsCompany && !string.IsNullOrWhiteSpace(normalizedVkn) ? normalizedVkn : null,
+                CompanyName = command.Dto.IsCompany && !string.IsNullOrWhiteSpace(normalizedCompanyName) ? normalizedCompanyName : null,
                 Phone = string.IsNullOrWhiteSpace(phone) ? null : phone,
                 Email = string.IsNullOrWhiteSpace(email) ? null : email,
                 CreatedAt = DateTime.UtcNow,
@@ -60,6 +65,14 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
                 customer.Phone = phone;
             if (!string.IsNullOrWhiteSpace(email))
                 customer.Email = email;
+            if (command.Dto.IsCompany)
+            {
+                customer.IsCompany = true;
+                if (!string.IsNullOrWhiteSpace(normalizedVkn))
+                    customer.VknNo = normalizedVkn;
+                if (!string.IsNullOrWhiteSpace(normalizedCompanyName))
+                    customer.CompanyName = normalizedCompanyName;
+            }
             customer.LastTransactionAt = DateTime.UtcNow;
         }
 
@@ -70,6 +83,7 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
             SiraNo = command.Dto.SiraNo,
             MusteriAdSoyad = customer.AdSoyad,
             TCKN = customer.TCKN,
+            IsForCompany = command.Dto.IsForCompany,
             CustomerId = customer.Id,
             Tutar = command.Dto.Tutar,
             OdemeSekli = command.Dto.OdemeSekli,

@@ -10,6 +10,7 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { downloadInvoicesPdf, downloadInvoicesXlsx } from '@/lib/export'
 import { IconCopy, IconCheck } from '@/components/ui/icons'
 
@@ -35,6 +36,9 @@ export default function InvoicesPage() {
   const [nowTick, setNowTick] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Invoice | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryCustomer, setSummaryCustomer] = useState<Invoice | null>(null)
+  const [showTcknFromVkn, setShowTcknFromVkn] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [pricingAlert, setPricingAlert] = useState<string | null>(null)
   async function copy(key: string, text: string) {
@@ -45,6 +49,11 @@ export default function InvoicesPage() {
       setCopied(key)
       setTimeout(() => setCopied(null), 1500)
     } catch {}
+  }
+
+  function openCustomerSummary(inv: Invoice) {
+    setSummaryCustomer(inv)
+    setSummaryOpen(true)
   }
   useEffect(() => {
     let mounted = true
@@ -115,6 +124,14 @@ export default function InvoicesPage() {
       clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    if (!modalOpen) {
+      setShowTcknFromVkn(false)
+      return
+    }
+    setShowTcknFromVkn(false)
+  }, [modalOpen, selected?.id])
 
   const filtered = useMemo(() => {
     const all = (data || []).filter(x => showAll ? true : !(x.kesildi ?? false))
@@ -202,7 +219,7 @@ export default function InvoicesPage() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="q">Müşteri Adı / TCKN</Label>
+              <Label htmlFor="q">Müşteri Adı / TCKN / VKN</Label>
               <Input id="q" placeholder="Ara" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') setEnterTick((t) => t + 1) }} />
             </div>
             <div className="flex items-end">
@@ -236,7 +253,7 @@ export default function InvoicesPage() {
                     <TH>Tarih</TH>
                     <TH>Sıra No</TH>
                     <TH>Müşteri</TH>
-                    <TH>TCKN</TH>
+                    <TH>TCKN / VKN</TH>
                     <TH>Kasiyer</TH>
                     <TH>Ayar</TH>
                     <TH>Has Altın</TH>
@@ -262,8 +279,8 @@ export default function InvoicesPage() {
                     <TR key={x.id} className={rowClass}>
                       <TD>{formatDateTimeTr(x.finalizedAt ?? x.tarih)}</TD>
                       <TD>{x.siraNo}</TD>
-                      <TD>{x.musteriAdSoyad || '-'}</TD>
-                      <TD>{x.tckn || '-'}</TD>
+                      <TD>{x.isForCompany ? (x.companyName || x.musteriAdSoyad || '-') : (x.musteriAdSoyad || '-')}</TD>
+                      <TD>{x.isForCompany ? (x.vknNo || '-') : (x.tckn || '-')}</TD>
                       <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
                       <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
@@ -288,22 +305,68 @@ export default function InvoicesPage() {
                 <div className="bg-white text-slate-900 rounded shadow p-4 w-full max-w-lg space-y-3 dark:bg-slate-900 dark:text-white">
                     <h3 className="text-lg font-semibold">Fatura Bilgileri</h3>
                     <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>İsim Soyisim: <b>{selected.musteriAdSoyad || '-'}</b></div>
-                        {selected.musteriAdSoyad ? (
-                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>
-                            {copied === 'musteri' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
-                        {selected.tckn ? (
-                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
-                            {copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                          </button>
-                        ) : null}
-                      </div>
+                      {!selected.isForCompany && (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>İsim Soyisim: <b>{selected.musteriAdSoyad || '-'}</b></div>
+                          {selected.musteriAdSoyad ? (
+                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>
+                              {copied === 'musteri' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
+                      {selected.isForCompany && (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            Şirket Adı:{' '}
+                            <button
+                              type="button"
+                              className="font-semibold underline underline-offset-4"
+                              onClick={() => openCustomerSummary(selected)}
+                            >
+                              {selected.companyName}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {selected.isForCompany ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            VKN:{' '}
+                            <button
+                              type="button"
+                              className="font-semibold underline underline-offset-4"
+                              onClick={() => setShowTcknFromVkn((v) => !v)}
+                            >
+                              {selected.vknNo || '-'}
+                            </button>
+                          </div>
+                          {selected.vknNo ? (
+                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'vkn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('vkn', String(selected.vknNo))}>
+                              {copied === 'vkn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
+                          {selected.tckn ? (
+                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
+                              {copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
+                      {selected.isForCompany && showTcknFromVkn && (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
+                          {selected.tckn ? (
+                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
+                              {copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
                       <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
                       <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
                       <div className="flex items-center justify-between gap-2">
@@ -430,6 +493,21 @@ export default function InvoicesPage() {
                   </div>
                 </div>
               )}
+              <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Müşteri Özeti</DialogTitle>
+                  </DialogHeader>
+                  {summaryCustomer && (
+                    <div className="space-y-2 text-sm">
+                      <div>İsim Soyisim: <b>{summaryCustomer.musteriAdSoyad || '-'}</b></div>
+                      <div>T.C. Kimlik No: <b>{summaryCustomer.tckn || '-'}</b></div>
+                      <div>VKN: <b>{summaryCustomer.vknNo || '-'}</b></div>
+                      <div>Şirket Adı: <b>{summaryCustomer.companyName || '-'}</b></div>
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
 
               <div className="flex items-center justify-between">
                 <div className="space-x-2">
@@ -449,7 +527,3 @@ export default function InvoicesPage() {
     </div>
   )
 }
-
-
-
-

@@ -34,6 +34,10 @@ class CreateInvoiceDto {
   final int siraNo; // ignored by draft API; server assigns
   final String musteriAdSoyad;
   final String tckn;
+  final bool isCompany;
+  final String? vknNo;
+  final String? companyName;
+  final bool isForCompany;
   final double tutar;
   final OdemeSekli odemeSekli;
   final AltinAyar altinAyar;
@@ -45,6 +49,10 @@ class CreateInvoiceDto {
     this.siraNo = 0,
     required this.musteriAdSoyad,
     required this.tckn,
+    this.isCompany = false,
+    this.vknNo,
+    this.companyName,
+    this.isForCompany = false,
     required this.tutar,
     required this.odemeSekli,
     required this.altinAyar,
@@ -58,10 +66,18 @@ class CreateInvoiceDto {
       'siraNo': siraNo,
       'musteriAdSoyad': musteriAdSoyad,
       'tckn': tckn,
+      'isCompany': isCompany,
+      'isForCompany': isForCompany,
       'tutar': tutar,
       'odemeSekli': odemeSekli.toInt(),
       'altinAyar': altinAyar.toInt(),
     };
+    if (vknNo != null && vknNo!.trim().isNotEmpty) {
+      map['vknNo'] = vknNo;
+    }
+    if (companyName != null && companyName!.trim().isNotEmpty) {
+      map['companyName'] = companyName;
+    }
     if (telefon != null && telefon!.trim().isNotEmpty) {
       map['telefon'] = telefon;
     }
@@ -77,6 +93,10 @@ class CreateExpenseDto {
   final int siraNo; // ignored by draft API; server assigns
   final String musteriAdSoyad;
   final String tckn;
+  final bool isCompany;
+  final String? vknNo;
+  final String? companyName;
+  final bool isForCompany;
   final double tutar;
   final AltinAyar altinAyar;
   final String? telefon;
@@ -87,6 +107,10 @@ class CreateExpenseDto {
     this.siraNo = 0,
     required this.musteriAdSoyad,
     required this.tckn,
+    this.isCompany = false,
+    this.vknNo,
+    this.companyName,
+    this.isForCompany = false,
     required this.tutar,
     required this.altinAyar,
     this.telefon,
@@ -99,9 +123,17 @@ class CreateExpenseDto {
       'siraNo': siraNo,
       'musteriAdSoyad': musteriAdSoyad,
       'tckn': tckn,
+      'isCompany': isCompany,
+      'isForCompany': isForCompany,
       'tutar': tutar,
       'altinAyar': altinAyar.toInt(),
     };
+    if (vknNo != null && vknNo!.trim().isNotEmpty) {
+      map['vknNo'] = vknNo;
+    }
+    if (companyName != null && companyName!.trim().isNotEmpty) {
+      map['companyName'] = companyName;
+    }
     if (telefon != null && telefon!.trim().isNotEmpty) {
       map['telefon'] = telefon;
     }

@@ -51,7 +51,8 @@ public class DbIndexOptimizer : IHostedService
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"IX_Expenses_CustomerId\" ON \"Expenses\" (\"CustomerId\");",
                 // Customers
                 "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"IX_Customers_TCKN\" ON \"Customers\" (\"TCKN\");",
-                "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"IX_Customers_NormalizedAdSoyad\" ON \"Customers\" (\"NormalizedAdSoyad\");"
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"IX_Customers_NormalizedAdSoyad\" ON \"Customers\" (\"NormalizedAdSoyad\");",
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS \"IX_Customers_VknNo\" ON \"Customers\" (\"VknNo\");"
             };
 
             foreach (var cmd in sql)

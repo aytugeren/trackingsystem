@@ -16,4 +16,9 @@ public static class CustomerUtil
     {
         return string.IsNullOrWhiteSpace(tckn) ? string.Empty : tckn.Trim();
     }
+
+    public static string NormalizeVkn(string? vkn)
+    {
+        return string.IsNullOrWhiteSpace(vkn) ? string.Empty : vkn.Trim();
+    }
 }

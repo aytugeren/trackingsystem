@@ -14,6 +14,8 @@ public class Invoice
     [MaxLength(11)]
     public string? TCKN { get; set; }
 
+    public bool IsForCompany { get; set; }
+
     public decimal Tutar { get; set; }
 
     public OdemeSekli OdemeSekli { get; set; }

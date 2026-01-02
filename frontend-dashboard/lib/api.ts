@@ -5,6 +5,10 @@
   customerId?: string | null
   musteriAdSoyad?: string | null
   tckn?: string | null
+  isForCompany?: boolean
+  isCompany?: boolean
+  vknNo?: string | null
+  companyName?: string | null
   tutar: number
   // Backend enums are serialized as strings; old clients may have numbers
   odemeSekli: number | 'Havale' | 'KrediKarti'
@@ -27,6 +31,10 @@ export type Expense = {
   customerId?: string | null
   musteriAdSoyad?: string | null
   tckn?: string | null
+  isForCompany?: boolean
+  isCompany?: boolean
+  vknNo?: string | null
+  companyName?: string | null
   tutar: number
   altinAyar?: number | 'Ayar22' | 'Ayar24'
   altinSatisFiyati?: number | null
@@ -45,6 +53,9 @@ export type Customer = {
   id: string
   adSoyad: string
   tckn: string
+  isCompany?: boolean
+  vknNo?: string | null
+  companyName?: string | null
   phone?: string | null
   email?: string | null
   lastTransactionAt?: string | null
