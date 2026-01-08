@@ -34,7 +34,8 @@ export default function LoginPage() {
       try {
         window.dispatchEvent(new CustomEvent('ktp:auth-changed'))
       } catch {}
-      router.push('/')
+      try { sessionStorage.setItem('ktp_c_login_success', '1') } catch {}
+      window.location.assign('/')
     } catch (err) {
       setError('Giriş başarısız. Bilgileri kontrol edin.')
     } finally {

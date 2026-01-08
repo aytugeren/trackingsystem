@@ -11,6 +11,11 @@ type CompanyInfo = {
   address: string
   tradeRegistryNo: string
   phone: string
+  email: string
+  cityName: string
+  townName: string
+  postalCode: string
+  taxOfficeName: string
 }
 
 function authHeaders(): HeadersInit {
@@ -30,7 +35,12 @@ async function getCompanyInfo(): Promise<CompanyInfo> {
     taxNo: j.taxNo ?? '',
     address: j.address ?? '',
     tradeRegistryNo: j.tradeRegistryNo ?? '',
-    phone: j.phone ?? ''
+    phone: j.phone ?? '',
+    email: j.email ?? '',
+    cityName: j.cityName ?? '',
+    townName: j.townName ?? '',
+    postalCode: j.postalCode ?? '',
+    taxOfficeName: j.taxOfficeName ?? ''
   }
 }
 
@@ -51,7 +61,12 @@ export default function CompanyInfoPage() {
     taxNo: '',
     address: '',
     tradeRegistryNo: '',
-    phone: ''
+    phone: '',
+    email: '',
+    cityName: '',
+    townName: '',
+    postalCode: '',
+    taxOfficeName: ''
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -111,6 +126,26 @@ export default function CompanyInfoPage() {
               <div className="space-y-2">
                 <Label htmlFor="phone">Telefon</Label>
                 <Input id="phone" value={info.phone} onChange={e => setInfo({ ...info, phone: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={info.email} onChange={e => setInfo({ ...info, email: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cityName">İl</Label>
+                <Input id="cityName" value={info.cityName} onChange={e => setInfo({ ...info, cityName: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="townName">İlçe</Label>
+                <Input id="townName" value={info.townName} onChange={e => setInfo({ ...info, townName: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="postalCode">Posta Kodu</Label>
+                <Input id="postalCode" value={info.postalCode} onChange={e => setInfo({ ...info, postalCode: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="taxOfficeName">Vergi Dairesi</Label>
+                <Input id="taxOfficeName" value={info.taxOfficeName} onChange={e => setInfo({ ...info, taxOfficeName: e.target.value })} />
               </div>
             </div>
             <Button onClick={async () => { await saveCompanyInfo(info); if (typeof window !== 'undefined') alert('Firma bilgileri kaydedildi') }}>

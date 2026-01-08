@@ -133,6 +133,11 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.Address).HasMaxLength(500);
             entity.Property(x => x.TradeRegistryNo).HasMaxLength(100);
             entity.Property(x => x.Phone).HasMaxLength(40);
+            entity.Property(x => x.Email).HasMaxLength(200);
+            entity.Property(x => x.CityName).HasMaxLength(100);
+            entity.Property(x => x.TownName).HasMaxLength(100);
+            entity.Property(x => x.PostalCode).HasMaxLength(20);
+            entity.Property(x => x.TaxOfficeName).HasMaxLength(100);
             entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
         });
 

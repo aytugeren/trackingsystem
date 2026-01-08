@@ -7,6 +7,7 @@ using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Infrastructure.Backup;
 using KuyumculukTakipProgrami.Infrastructure.Optimization;
 using KuyumculukTakipProgrami.Infrastructure.Pricing;
+using KuyumculukTakipProgrami.Infrastructure.Integration.Turmob;
 
 namespace KuyumculukTakipProgrami.Infrastructure;
 
@@ -43,6 +44,8 @@ public static class DependencyInjection
         {
             services.AddHostedService<DbIndexOptimizer>();
         }
+
+        services.AddTurmobIntegration(configuration);
 
         return services;
     }

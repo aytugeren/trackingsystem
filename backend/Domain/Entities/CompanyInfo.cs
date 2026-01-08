@@ -21,5 +21,20 @@ public class CompanyInfo
     [MaxLength(40)]
     public string? Phone { get; set; }
 
+    [MaxLength(200)]
+    public string? Email { get; set; }
+
+    [MaxLength(100)]
+    public string? CityName { get; set; }
+
+    [MaxLength(100)]
+    public string? TownName { get; set; }
+
+    [MaxLength(20)]
+    public string? PostalCode { get; set; }
+
+    [MaxLength(100)]
+    public string? TaxOfficeName { get; set; }
+
     public DateTime UpdatedAt { get; set; }
 }

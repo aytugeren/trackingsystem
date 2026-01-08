@@ -34,7 +34,8 @@ export default function LoginPage() {
       localStorage.setItem('ktp_email', resp.email)
       // also set a cookie copy for middleware/SSR (non-HttpOnly since set on client)
       document.cookie = `ktp_token=${resp.token}; Max-Age=${60*60*8}; Path=/` // 8h
-      router.push('/')
+      try { sessionStorage.setItem('ktp_login_success', '1') } catch {}
+      window.location.assign('/')
     } catch (err) {
       setError('Giriş başarısız. Bilgileri kontrol edin.')
     } finally {
