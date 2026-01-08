@@ -81,6 +81,24 @@ export type TurmobSendResult = {
   errorMessage?: string | null
 }
 
+export type PreviewUpdatePayload = {
+  tutar: number
+  gramDegeri: number
+  mode: 'tutar' | 'gram' | string
+  altinAyar?: number | null
+}
+
+export type PreviewUpdateResult = {
+  id: string
+  tutar: number
+  safAltinDegeri?: number | null
+  urunFiyati?: number | null
+  yeniUrunFiyati?: number | null
+  gramDegeri?: number | null
+  iscilik?: number | null
+  altinAyar?: number | null
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
 
 function authHeaders(): HeadersInit {
@@ -131,10 +149,22 @@ export const api = {
     const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ kesildi }) })
     if (!res.ok) throw new Error('Durum güncellenemedi')
   },
+  async updateInvoicePreview(id: string, body: PreviewUpdatePayload): Promise<PreviewUpdateResult> {
+    const url = `${API_BASE}/api/invoices/${id}/preview`
+    const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
+    if (!res.ok) throw new Error('Güncelleme başarısız')
+    return res.json()
+  },
   async setExpenseStatus(id: string, kesildi: boolean): Promise<void> {
     const url = `${API_BASE}/api/expenses/${id}/status`
     const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ kesildi }) })
     if (!res.ok) throw new Error('Durum güncellenemedi')
+  },
+  async updateExpensePreview(id: string, body: PreviewUpdatePayload): Promise<PreviewUpdateResult> {
+    const url = `${API_BASE}/api/expenses/${id}/preview`
+    const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) })
+    if (!res.ok) throw new Error('Güncelleme başarısız')
+    return res.json()
   },
   async finalizeInvoice(id: string): Promise<void> {
     const url = `${API_BASE}/api/invoices/${id}/finalize`

@@ -404,6 +404,86 @@ app.MapPost("/api/invoices/{id:guid}/finalize", async (Guid id, KtpDbContext db,
     return Results.Ok(new { inv.Id, inv.SafAltinDegeri, inv.UrunFiyati, inv.YeniUrunFiyati, inv.GramDegeri, inv.Iscilik, inv.Kesildi });
 }).WithTags("Invoices").RequireAuthorization();
 
+// Update invoice preview fields
+app.MapPut("/api/invoices/{id:guid}/preview", async (Guid id, UpdateInvoicePreviewRequest body, KtpDbContext db, HttpContext http) =>
+{
+    // Permission: admin or role.CanToggleKesildi
+    if (!http.User.IsInRole(Role.Yonetici.ToString()))
+    {
+        var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? http.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid);
+        if (u?.AssignedRoleId is Guid rid)
+        {
+            var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid);
+            if (r?.CanToggleKesildi != true) return Results.Forbid();
+        }
+        else return Results.Forbid();
+    }
+
+    if (body.Tutar <= 0) return Results.BadRequest(new { error = "Tutar 0'dan büyük olmalı." });
+
+    var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
+    if (inv is null) return Results.NotFound();
+    if (!inv.AltinSatisFiyati.HasValue)
+        return Results.BadRequest(new { error = "Altın satış fiyatı bulunamadı." });
+
+    decimal R2(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
+    decimal R3(decimal x) => Math.Round(x, 3, MidpointRounding.AwayFromZero);
+
+    var hasAltin = inv.AltinSatisFiyati!.Value;
+    var ayarValue = body.AltinAyar ?? (int)inv.AltinAyar;
+    if (ayarValue != 22 && ayarValue != 24)
+    {
+        return Results.BadRequest(new { error = "Altın ayarı geçersiz." });
+    }
+    inv.AltinAyar = ayarValue == 22 ? AltinAyar.Ayar22 : AltinAyar.Ayar24;
+    var safOran = inv.AltinAyar == AltinAyar.Ayar22 ? 0.916m : 0.995m;
+    var yeniOran = inv.AltinAyar == AltinAyar.Ayar22 ? 0.99m : 0.998m;
+    var safAltin = R2(hasAltin * safOran);
+    var tutar = R2(body.Tutar);
+    var gramMode = string.Equals(body.Mode, "gram", StringComparison.OrdinalIgnoreCase);
+
+    decimal gram;
+    decimal yeniUrun;
+    if (gramMode)
+    {
+        gram = R3(body.GramDegeri);
+        yeniUrun = R3(gram * safAltin);
+    }
+    else
+    {
+        yeniUrun = R3(tutar * yeniOran);
+        gram = safAltin == 0 ? 0 : R3(yeniUrun / safAltin);
+    }
+
+    var altinHizmet = R2(gram * safAltin);
+    var iscilikKdvli = R2(R2(tutar) - altinHizmet);
+    var iscilik = R3(iscilikKdvli / 1.20m);
+
+    inv.Tutar = tutar;
+    inv.UrunFiyati = tutar;
+    inv.SafAltinDegeri = safAltin;
+    inv.YeniUrunFiyati = yeniUrun;
+    inv.GramDegeri = gram;
+    inv.Iscilik = iscilik;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        inv.Id,
+        tutar = inv.Tutar,
+        safAltinDegeri = inv.SafAltinDegeri,
+        urunFiyati = inv.UrunFiyati,
+        yeniUrunFiyati = inv.YeniUrunFiyati,
+        gramDegeri = inv.GramDegeri,
+        iscilik = inv.Iscilik,
+        altinAyar = (int)inv.AltinAyar
+    });
+}).WithTags("Invoices").RequireAuthorization();
+
 app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IMemoryCache cache, HttpContext http, CancellationToken ct) =>
 {
     // Permission: admin or role.CanUseInvoices
@@ -625,6 +705,86 @@ app.MapPost("/api/expenses/{id:guid}/finalize", async (Guid id, KtpDbContext db)
     // Kesildi durumu kasiyerden de�il, sadece dashboarddan de�i�tirilecek
     await db.SaveChangesAsync();
     return Results.Ok(new { exp.Id, exp.SafAltinDegeri, exp.UrunFiyati, exp.YeniUrunFiyati, exp.GramDegeri, exp.Iscilik, exp.Kesildi });
+}).WithTags("Expenses").RequireAuthorization();
+
+// Update expense preview fields
+app.MapPut("/api/expenses/{id:guid}/preview", async (Guid id, UpdateExpensePreviewRequest body, KtpDbContext db, HttpContext http) =>
+{
+    // Permission: admin or role.CanToggleKesildi
+    if (!http.User.IsInRole(Role.Yonetici.ToString()))
+    {
+        var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? http.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid);
+        if (u?.AssignedRoleId is Guid rid)
+        {
+            var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid);
+            if (r?.CanToggleKesildi != true) return Results.Forbid();
+        }
+        else return Results.Forbid();
+    }
+
+    if (body.Tutar <= 0) return Results.BadRequest(new { error = "Tutar 0'dan büyük olmalı." });
+
+    var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
+    if (exp is null) return Results.NotFound();
+    if (!exp.AltinSatisFiyati.HasValue)
+        return Results.BadRequest(new { error = "Altın satış fiyatı bulunamadı." });
+
+    decimal R2e(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
+    decimal R3e(decimal x) => Math.Round(x, 3, MidpointRounding.AwayFromZero);
+
+    var hasAltin = exp.AltinSatisFiyati!.Value;
+    var ayarValue = body.AltinAyar ?? (int)exp.AltinAyar;
+    if (ayarValue != 22 && ayarValue != 24)
+    {
+        return Results.BadRequest(new { error = "Altın ayarı geçersiz." });
+    }
+    exp.AltinAyar = ayarValue == 22 ? AltinAyar.Ayar22 : AltinAyar.Ayar24;
+    var safOran = exp.AltinAyar == AltinAyar.Ayar22 ? 0.916m : 0.995m;
+    var yeniOran = exp.AltinAyar == AltinAyar.Ayar22 ? 0.99m : 0.998m;
+    var safAltin = R2e(hasAltin * safOran);
+    var tutar = R2e(body.Tutar);
+    var gramMode = string.Equals(body.Mode, "gram", StringComparison.OrdinalIgnoreCase);
+
+    decimal gram;
+    decimal yeniUrun;
+    if (gramMode)
+    {
+        gram = R3e(body.GramDegeri);
+        yeniUrun = R3e(gram * safAltin);
+    }
+    else
+    {
+        yeniUrun = R3e(tutar * yeniOran);
+        gram = safAltin == 0 ? 0 : R3e(yeniUrun / safAltin);
+    }
+
+    var altinHizmet = R2e(gram * safAltin);
+    var iscilikKdvli = R2e(R2e(tutar) - altinHizmet);
+    var iscilik = R3e(iscilikKdvli / 1.20m);
+
+    exp.Tutar = tutar;
+    exp.UrunFiyati = tutar;
+    exp.SafAltinDegeri = safAltin;
+    exp.YeniUrunFiyati = yeniUrun;
+    exp.GramDegeri = gram;
+    exp.Iscilik = iscilik;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        exp.Id,
+        tutar = exp.Tutar,
+        safAltinDegeri = exp.SafAltinDegeri,
+        urunFiyati = exp.UrunFiyati,
+        yeniUrunFiyati = exp.YeniUrunFiyati,
+        gramDegeri = exp.GramDegeri,
+        iscilik = exp.Iscilik,
+        altinAyar = (int)exp.AltinAyar
+    });
 }).WithTags("Expenses").RequireAuthorization();
 
 app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IMemoryCache cache, HttpContext http, CancellationToken ct) =>
@@ -2499,6 +2659,8 @@ public record LoginRequest(string Email, string Password);
 public record CreateUserRequest(string Email, string Password, Role Role);
 public record ResetPasswordRequest(string Password);
 public record UpdateInvoiceStatusRequest(bool Kesildi);
+public record UpdateInvoicePreviewRequest(decimal Tutar, decimal GramDegeri, string Mode, int? AltinAyar);
+public record UpdateExpensePreviewRequest(decimal Tutar, decimal GramDegeri, string Mode, int? AltinAyar);
 public record FinalizeRequest(decimal UrunFiyati);
 public record GoldPriceUpdateRequest(decimal Price);
 
