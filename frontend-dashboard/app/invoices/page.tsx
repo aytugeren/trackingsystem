@@ -148,6 +148,24 @@ function parseTurmobXml(xml: string): PreviewInvoice | null {
   }
 }
 
+function formatXml(xml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml')
+    if (doc.getElementsByTagName('parsererror').length > 0) return xml
+    const serialized = new XMLSerializer().serializeToString(doc)
+    const withLines = serialized.replace(/(>)(<)(\/*)/g, '$1\n$2$3')
+    let indent = 0
+    return withLines.split('\n').map((line) => {
+      if (line.match(/^<\/\w/)) indent = Math.max(indent - 2, 0)
+      const padding = ' '.repeat(indent)
+      if (line.match(/^<\w[^>]*[^/]>.*$/)) indent += 2
+      return `${padding}${line}`
+    }).join('\n')
+  } catch {
+    return xml
+  }
+}
+
 const formatMoney = (value: string | number, suffix = 'TL') => {
   const num = typeof value === 'number' ? value : Number(value || 0)
   if (!Number.isFinite(num)) return `0,00 ${suffix}`
@@ -206,6 +224,7 @@ export default function InvoicesPage() {
   const [turmobDisabled, setTurmobDisabled] = useState(false)
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null)
   const [previewData, setPreviewData] = useState<PreviewInvoice | null>(null)
+  const [xmlView, setXmlView] = useState<'preview' | 'xml'>('preview')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const previewWrapperRef = useRef<HTMLDivElement | null>(null)
@@ -337,6 +356,10 @@ export default function InvoicesPage() {
     setPreviewData(parseTurmobXml(xmlPreview))
   }, [xmlPreview])
 
+  const formattedXml = useMemo(() => {
+    return xmlPreview ? formatXml(xmlPreview) : ''
+  }, [xmlPreview])
+
   useEffect(() => {
     let mounted = true
     if (!xmlPreview || !selected) {
@@ -391,6 +414,7 @@ export default function InvoicesPage() {
     setXmlSendResultKind(null)
     setXmlAction(null)
     setXmlPreview(null)
+    setXmlView('preview')
     setXmlOpen(true)
     setXmlLoading(true)
     try {
@@ -828,7 +852,7 @@ export default function InvoicesPage() {
                       )}
                     </div>
                     <div className="flex-1 relative">
-                      {xmlPreview && previewData && (
+                      {xmlView === 'preview' && xmlPreview && previewData && (
                         <div ref={previewWrapperRef} className="absolute inset-0 overflow-auto bg-slate-100">
                           <div
                             ref={previewPageRef}
@@ -973,9 +997,16 @@ export default function InvoicesPage() {
                         </div>
                         </div>
                       )}
-                      {xmlPreview && !previewData && !xmlLoading && (
+                      {xmlView === 'preview' && xmlPreview && !previewData && !xmlLoading && (
                         <div className="absolute left-4 top-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                           Önizleme hazırlanamadı.
+                        </div>
+                      )}
+                      {xmlView === 'xml' && xmlPreview && (
+                        <div className="absolute inset-0 overflow-auto bg-slate-900 text-slate-100">
+                          <pre className="min-h-full whitespace-pre-wrap break-words p-4 text-xs leading-relaxed">
+                            {formattedXml}
+                          </pre>
                         </div>
                       )}
                     </div>
@@ -985,6 +1016,13 @@ export default function InvoicesPage() {
                       </div>
                     )}
                     <div className="shrink-0 border-t border-slate-800 bg-slate-950 p-3 flex items-center justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setXmlView(v => v === 'preview' ? 'xml' : 'preview')}
+                        disabled={!xmlPreview}
+                      >
+                        {xmlView === 'preview' ? 'XML Görüntüle' : 'Önizlemeye Dön'}
+                      </Button>
                       <Button variant="outline" onClick={() => setXmlOpen(false)}>Kapat</Button>
                       <Button
                         onClick={async () => {
