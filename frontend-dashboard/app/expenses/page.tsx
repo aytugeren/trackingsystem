@@ -16,8 +16,22 @@ type Filters = {
   q: string
 }
 
+const toNumber = (value: string | number) => {
+  if (typeof value === 'number') return value
+  if (!value) return 0
+  const normalized = value.replace(',', '.')
+  const num = Number(normalized)
+  return Number.isFinite(num) ? num : 0
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+const formatInputNumber = (value: number, decimals: number) => {
+  if (!Number.isFinite(value)) return ''
+  return value.toFixed(decimals)
+}
+
 export default function ExpensesPage() {
-  const r2 = (n: number) => Math.round(n * 100) / 100
   const [data, setData] = useState<Expense[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [canCancel, setCanCancel] = useState(false)
@@ -32,6 +46,13 @@ export default function ExpensesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Expense | null>(null)
   const [pricingAlert, setPricingAlert] = useState<string | null>(null)
+  const [editTutar, setEditTutar] = useState('')
+  const [editGram, setEditGram] = useState('')
+  const [editMode, setEditMode] = useState<'tutar' | 'gram'>('tutar')
+  const [editAyar, setEditAyar] = useState<22 | 24>(22)
+  const [editingField, setEditingField] = useState<'tutar' | 'gram' | 'ayar' | null>(null)
+  const [savingField, setSavingField] = useState<'tutar' | 'gram' | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -120,12 +141,96 @@ export default function ExpensesPage() {
 
   const total = useMemo(() => filtered.reduce((a, b) => a + Number(b.tutar), 0), [filtered])
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
-  const ay22 = selected ? ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') : false
-  const hasAyar = Boolean(selected && (selected as any).altinAyar)
-  const safOran = ay22 ? 0.916 : 0.995
+  const safOran = editAyar === 22 ? 0.916 : 0.995
   const safAltinDegeri = selected ? r2(Number(selected.altinSatisFiyati || 0) * safOran) : 0
-  const gramDegeri = safAltinDegeri === 0 ? 0 : r2(Number(selected?.tutar || 0) / safAltinDegeri)
-  const ayarLabel = hasAyar ? (ay22 ? '22 Ayar' : '24 Ayar') : '-'
+
+  useEffect(() => {
+    if (!modalOpen || !selected) return
+    const initialTutar = Number(selected.tutar || 0)
+    const gram = selected.gramDegeri != null
+      ? Number(selected.gramDegeri)
+      : (safAltinDegeri === 0 ? 0 : r2(initialTutar / safAltinDegeri))
+    setEditTutar(formatInputNumber(initialTutar, 2))
+    setEditGram(formatInputNumber(gram, 3))
+    setEditMode(selected.gramDegeri != null ? 'gram' : 'tutar')
+    setEditAyar(selected.altinAyar === 22 || selected.altinAyar === 'Ayar22' ? 22 : 24)
+    setEditingField(null)
+    setEditError(null)
+  }, [modalOpen, selected?.id])
+
+  useEffect(() => {
+    if (!selected) return
+    if (editMode === 'tutar' && (editingField === 'tutar' || selected.gramDegeri == null)) {
+      const gram = safAltinDegeri === 0 ? 0 : r2(toNumber(editTutar) / safAltinDegeri)
+      const next = formatInputNumber(gram, 3)
+      if (next !== editGram) setEditGram(next)
+    }
+  }, [editTutar, editGram, editMode, safAltinDegeri, selected, editingField])
+
+  const expenseCalc = useMemo(() => {
+    if (!selected) return null
+    const tutar = toNumber(editTutar)
+    const gram = editMode === 'gram'
+      ? toNumber(editGram)
+      : (safAltinDegeri === 0 ? 0 : r2(tutar / safAltinDegeri))
+    return { tutar, gram }
+  }, [selected, editTutar, editGram, safAltinDegeri, editMode])
+
+  async function saveExpenseEdits(mode: 'tutar' | 'gram') {
+    if (!selected) return
+    setSavingField(mode)
+    setEditError(null)
+    try {
+      const resp = await api.updateExpensePreview(selected.id, {
+        tutar: toNumber(editTutar),
+        gramDegeri: toNumber(editGram),
+        mode,
+        altinAyar: editAyar
+      })
+      setSelected((prev) => prev ? {
+        ...prev,
+        tutar: resp.tutar,
+        safAltinDegeri: resp.safAltinDegeri ?? null,
+        urunFiyati: resp.urunFiyati ?? null,
+        yeniUrunFiyati: resp.yeniUrunFiyati ?? null,
+        gramDegeri: resp.gramDegeri ?? null,
+        iscilik: resp.iscilik ?? null,
+        altinAyar: editAyar
+      } : prev)
+      setData((prev) => prev ? prev.map((x) => x.id === selected.id ? {
+        ...x,
+        tutar: resp.tutar,
+        safAltinDegeri: resp.safAltinDegeri ?? null,
+        urunFiyati: resp.urunFiyati ?? null,
+        yeniUrunFiyati: resp.yeniUrunFiyati ?? null,
+        gramDegeri: resp.gramDegeri ?? null,
+        iscilik: resp.iscilik ?? null,
+        altinAyar: editAyar
+      } : x) : prev)
+      setEditTutar(formatInputNumber(resp.tutar, 2))
+      setEditGram(formatInputNumber(resp.gramDegeri ?? 0, 3))
+      setEditingField(null)
+      setEditMode(mode)
+    } catch {
+      setEditError('Güncelleme başarısız.')
+    } finally {
+      setSavingField(null)
+    }
+  }
+
+  function cancelExpenseEdits() {
+    if (!selected) return
+    const initialTutar = Number(selected.tutar || 0)
+    const gram = selected.gramDegeri != null
+      ? Number(selected.gramDegeri)
+      : (safAltinDegeri === 0 ? 0 : r2(initialTutar / safAltinDegeri))
+    setEditTutar(formatInputNumber(initialTutar, 2))
+    setEditGram(formatInputNumber(gram, 3))
+    setEditMode(selected.gramDegeri != null ? 'gram' : 'tutar')
+    setEditAyar(selected.altinAyar === 22 || selected.altinAyar === 'Ayar22' ? 22 : 24)
+    setEditingField(null)
+    setEditError(null)
+  }
 
   async function toggleStatus(exp: Expense) {
     try {
@@ -256,13 +361,169 @@ export default function ExpensesPage() {
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
                 <div className="bg-white text-slate-900 rounded shadow p-4 w-full max-w-lg space-y-3 dark:bg-slate-900 dark:text-white">
                     <h3 className="text-lg font-semibold">{t("btn.info.expense")}</h3>
-                    <div className="space-y-2 text-sm">
-                      <div>Tarih: <b>{formatDateTimeTr(selected.finalizedAt ?? selected.tarih)}</b></div>
-                      <div>Tutar: <b>{Number(selected.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                      <div>Gram: <b>{gramDegeri.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>
-                      <div>Ayar: <b>{ayarLabel}</b></div>
-                      <div>İsim Soyisim: <b>{selected.isForCompany ? (selected.companyName || selected.musteriAdSoyad || '-') : (selected.musteriAdSoyad || '-')}</b></div>
-                      <div>TC: <b>{selected.isForCompany ? (selected.vknNo || selected.tckn || '-') : (selected.tckn || '-')}</b></div>
+                    <div className="grid grid-cols-[140px_1fr_auto] items-center gap-x-2 gap-y-2 text-sm">
+                      <div>Tarih:</div>
+                      <div className="font-semibold">{formatDateTimeTr(selected.finalizedAt ?? selected.tarih)}</div>
+                      <span />
+
+                      <div>Tutar:</div>
+                      {editingField === 'tutar' ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editTutar}
+                            inputMode="decimal"
+                            onChange={(e) => {
+                              setEditMode('tutar')
+                              setEditTutar(e.target.value)
+                            }}
+                            className="h-8 w-32 text-right"
+                          />
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={() => saveExpenseEdits('tutar')}
+                            disabled={savingField === 'tutar'}
+                            title="Kaydet"
+                          >
+                            ✅
+                          </button>
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={cancelExpenseEdits}
+                            title="Vazgeç"
+                          >
+                            ❌
+                          </button>
+                        </div>
+                      ) : (
+                        <b className="tabular-nums">{expenseCalc ? expenseCalc.tutar.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b>
+                      )}
+                      {editingField === 'tutar' ? (
+                        <span />
+                      ) : (
+                        <button
+                          className="inline-flex items-center justify-center rounded px-1 text-sm"
+                          onClick={() => {
+                            setEditMode('tutar')
+                            setEditingField('tutar')
+                            setEditError(null)
+                          }}
+                          title="Düzenle"
+                        >
+                          ✏️
+                        </button>
+                      )}
+
+                      <div>Gram:</div>
+                      {editingField === 'gram' ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editGram}
+                            inputMode="decimal"
+                            onChange={(e) => {
+                              setEditMode('gram')
+                              setEditGram(e.target.value)
+                            }}
+                            className="h-8 w-24 text-right"
+                          />
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={() => saveExpenseEdits('gram')}
+                            disabled={savingField === 'gram'}
+                            title="Kaydet"
+                          >
+                            ✅
+                          </button>
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={cancelExpenseEdits}
+                            title="Vazgeç"
+                          >
+                            ❌
+                          </button>
+                        </div>
+                      ) : (
+                        <b className="tabular-nums">{expenseCalc ? expenseCalc.gram.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) : '-'}</b>
+                      )}
+                      {editingField === 'gram' ? (
+                        <span />
+                      ) : (
+                        <button
+                          className="inline-flex items-center justify-center rounded px-1 text-sm"
+                          onClick={() => {
+                            setEditMode('gram')
+                            setEditingField('gram')
+                            setEditError(null)
+                          }}
+                          title="Düzenle"
+                        >
+                          ✏️
+                        </button>
+                      )}
+
+                      {expenseCalc && (
+                        <div className="col-span-3 text-xs text-slate-500">
+                          Hesaplanan Tutar: {expenseCalc.tutar.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })} · Gram: {expenseCalc.gram.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                        </div>
+                      )}
+
+                      <div>Ayar:</div>
+                      {editingField === 'ayar' ? (
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={editAyar}
+                            onChange={(e) => setEditAyar(Number(e.target.value) as 22 | 24)}
+                            className="h-8 rounded border border-slate-300 bg-white px-2 text-sm text-slate-900"
+                          >
+                            <option value={22}>22 Ayar</option>
+                            <option value={24}>24 Ayar</option>
+                          </select>
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={() => saveExpenseEdits('tutar')}
+                            disabled={savingField === 'tutar'}
+                            title="Kaydet"
+                          >
+                            ✅
+                          </button>
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={cancelExpenseEdits}
+                            title="Vazgeç"
+                          >
+                            ❌
+                          </button>
+                        </div>
+                      ) : (
+                        <b>{editAyar === 22 ? '22 Ayar' : '24 Ayar'}</b>
+                      )}
+                      {editingField === 'ayar' ? (
+                        <span />
+                      ) : (
+                        <button
+                          className="inline-flex items-center justify-center rounded px-1 text-sm"
+                          onClick={() => {
+                            setEditingField('ayar')
+                            setEditError(null)
+                          }}
+                          title="Düzenle"
+                        >
+                          ✏️
+                        </button>
+                      )}
+
+                      {editError && (
+                        <div className="col-span-3 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+                          {editError}
+                        </div>
+                      )}
+
+                      <div>İsim Soyisim:</div>
+                      <div className="font-semibold">{selected.isForCompany ? (selected.companyName || selected.musteriAdSoyad || '-') : (selected.musteriAdSoyad || '-')}</div>
+                      <span />
+
+                      <div>TC:</div>
+                      <div className="font-semibold">{selected.isForCompany ? (selected.vknNo || selected.tckn || '-') : (selected.tckn || '-')}</div>
+                      <span />
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>

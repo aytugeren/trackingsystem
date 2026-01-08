@@ -179,12 +179,21 @@ const formatQty = (value: string | number) => {
   return num.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 }
 
+const normalizeAyar = (value: Invoice['altinAyar'] | undefined): 22 | 24 => {
+  return value === 22 || value === 'Ayar22' ? 22 : 24
+}
+
 const toNumber = (value: string | number) => {
   if (typeof value === 'number') return value
   if (!value) return 0
   const normalized = value.replace(',', '.')
   const num = Number(normalized)
   return Number.isFinite(num) ? num : 0
+}
+
+const formatInputNumber = (value: number, decimals: number) => {
+  if (!Number.isFinite(value)) return ''
+  return value.toFixed(decimals)
 }
 
 type Filters = {
@@ -227,6 +236,13 @@ export default function InvoicesPage() {
   const [xmlView, setXmlView] = useState<'preview' | 'xml'>('preview')
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [editTutar, setEditTutar] = useState('')
+  const [editGram, setEditGram] = useState('')
+  const [editMode, setEditMode] = useState<'tutar' | 'gram'>('tutar')
+  const [editAyar, setEditAyar] = useState<22 | 24>(22)
+  const [editingField, setEditingField] = useState<'tutar' | 'gram' | 'ayar' | null>(null)
+  const [savingField, setSavingField] = useState<'tutar' | 'gram' | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
   const previewWrapperRef = useRef<HTMLDivElement | null>(null)
   const previewPageRef = useRef<HTMLDivElement | null>(null)
   async function copy(key: string, text: string) {
@@ -349,6 +365,25 @@ export default function InvoicesPage() {
   }, [modalOpen, selected?.id])
 
   useEffect(() => {
+    if (!modalOpen || !selected) return
+    const initialTutar = Number(selected.tutar || 0)
+    const ayar = normalizeAyar(selected.altinAyar)
+    const safOran = ayar === 22 ? 0.916 : 0.995
+    const yeniOran = ayar === 22 ? 0.99 : 0.998
+    const saf = r2(Number(selected.altinSatisFiyati || 0) * safOran)
+    const yeni = r2(initialTutar * yeniOran)
+    const gram = selected.gramDegeri != null
+      ? Number(selected.gramDegeri)
+      : (saf > 0 ? r2(yeni / saf) : 0)
+    setEditTutar(formatInputNumber(initialTutar, 2))
+    setEditGram(formatInputNumber(gram, 3))
+    setEditMode(selected.gramDegeri != null ? 'gram' : 'tutar')
+    setEditAyar(ayar)
+    setEditingField(null)
+    setEditError(null)
+  }, [modalOpen, selected?.id])
+
+  useEffect(() => {
     if (!xmlPreview) {
       setPreviewData(null)
       return
@@ -356,9 +391,100 @@ export default function InvoicesPage() {
     setPreviewData(parseTurmobXml(xmlPreview))
   }, [xmlPreview])
 
+  useEffect(() => {
+    if (!selected || editMode !== 'tutar') return
+    if (editingField !== 'tutar' && selected.gramDegeri != null) return
+    const safOran = editAyar === 22 ? 0.916 : 0.995
+    const yeniOran = editAyar === 22 ? 0.99 : 0.998
+    const saf = r2(Number(selected.altinSatisFiyati || 0) * safOran)
+    const yeni = r2(toNumber(editTutar) * yeniOran)
+    const gram = saf > 0 ? r2(yeni / saf) : 0
+    const next = formatInputNumber(gram, 3)
+    if (next !== editGram) setEditGram(next)
+  }, [editTutar, editMode, editGram, selected, r2, editAyar, editingField])
+
   const formattedXml = useMemo(() => {
     return xmlPreview ? formatXml(xmlPreview) : ''
   }, [xmlPreview])
+
+  const invoiceCalc = useMemo(() => {
+    if (!selected) return null
+    const safOran = editAyar === 22 ? 0.916 : 0.995
+    const yeniOran = editAyar === 22 ? 0.99 : 0.998
+    const saf = r2(Number(selected.altinSatisFiyati || 0) * safOran)
+    const tutar = toNumber(editTutar)
+    const gramInput = toNumber(editGram)
+    const gram = editMode === 'gram'
+      ? gramInput
+      : (saf > 0 ? r2(r2(tutar * yeniOran) / saf) : 0)
+    const altinHizmet = r2(saf * gram)
+    const yeni = editMode === 'gram' ? altinHizmet : r2(tutar * yeniOran)
+    const iscilikKdvli = r2(tutar - altinHizmet)
+    const iscilik = r2(iscilikKdvli / 1.20)
+    const kdvTutar = r2(iscilikKdvli - iscilik)
+    return { saf, yeni, gram, altinHizmet, iscilik, kdvTutar, tutar }
+  }, [selected, editTutar, editGram, editMode, r2, editAyar])
+
+  async function saveInvoiceEdits(mode: 'tutar' | 'gram') {
+    if (!selected) return
+    setSavingField(mode)
+    setEditError(null)
+    try {
+      const resp = await api.updateInvoicePreview(selected.id, {
+        tutar: toNumber(editTutar),
+        gramDegeri: toNumber(editGram),
+        mode,
+        altinAyar: editAyar
+      })
+      setSelected((prev) => prev ? {
+        ...prev,
+        tutar: resp.tutar,
+        safAltinDegeri: resp.safAltinDegeri ?? null,
+        urunFiyati: resp.urunFiyati ?? null,
+        yeniUrunFiyati: resp.yeniUrunFiyati ?? null,
+        gramDegeri: resp.gramDegeri ?? null,
+        iscilik: resp.iscilik ?? null,
+        altinAyar: editAyar
+      } : prev)
+      setData((prev) => prev ? prev.map((x) => x.id === selected.id ? {
+        ...x,
+        tutar: resp.tutar,
+        safAltinDegeri: resp.safAltinDegeri ?? null,
+        urunFiyati: resp.urunFiyati ?? null,
+        yeniUrunFiyati: resp.yeniUrunFiyati ?? null,
+        gramDegeri: resp.gramDegeri ?? null,
+        iscilik: resp.iscilik ?? null,
+        altinAyar: editAyar
+      } : x) : prev)
+      setEditTutar(formatInputNumber(resp.tutar, 2))
+      setEditGram(formatInputNumber(resp.gramDegeri ?? 0, 3))
+      setEditingField(null)
+      setEditMode(mode)
+    } catch {
+      setEditError('Güncelleme başarısız.')
+    } finally {
+      setSavingField(null)
+    }
+  }
+
+  function cancelInvoiceEdits() {
+    if (!selected) return
+    const initialTutar = Number(selected.tutar || 0)
+    const ayar = normalizeAyar(selected.altinAyar)
+    const safOran = ayar === 22 ? 0.916 : 0.995
+    const yeniOran = ayar === 22 ? 0.99 : 0.998
+    const saf = r2(Number(selected.altinSatisFiyati || 0) * safOran)
+    const yeni = r2(initialTutar * yeniOran)
+    const gram = selected.gramDegeri != null
+      ? Number(selected.gramDegeri)
+      : (saf > 0 ? r2(yeni / saf) : 0)
+    setEditTutar(formatInputNumber(initialTutar, 2))
+    setEditGram(formatInputNumber(gram, 3))
+    setEditMode(selected.gramDegeri != null ? 'gram' : 'tutar')
+    setEditAyar(ayar)
+    setEditingField(null)
+    setEditError(null)
+  }
 
   useEffect(() => {
     let mounted = true
@@ -637,21 +763,24 @@ export default function InvoicesPage() {
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
                 <div className="bg-white text-slate-900 rounded shadow p-4 w-full max-w-lg space-y-3 dark:bg-slate-900 dark:text-white">
                     <h3 className="text-lg font-semibold">Fatura Bilgileri</h3>
-                    <div className="space-y-2 text-sm">
+                    <div className="grid grid-cols-[140px_1fr_auto] items-center gap-x-2 gap-y-2 text-sm">
                       {!selected.isForCompany && (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>İsim Soyisim: <b>{selected.musteriAdSoyad || '-'}</b></div>
+                        <div className="contents">
+                          <div>İsim Soyisim:</div>
+                          <div className="font-semibold">{selected.musteriAdSoyad || '-'}</div>
                           {selected.musteriAdSoyad ? (
                             <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>
                               {copied === 'musteri' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                             </button>
-                          ) : null}
+                          ) : (
+                            <span />
+                          )}
                         </div>
                       )}
                       {selected.isForCompany && (
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="contents">
+                          <div>Şirket Adı:</div>
                           <div>
-                            Şirket Adı:{' '}
                             <button
                               type="button"
                               className="font-semibold underline underline-offset-4"
@@ -660,12 +789,13 @@ export default function InvoicesPage() {
                               {selected.companyName}
                             </button>
                           </div>
+                          <span />
                         </div>
                       )}
                       {selected.isForCompany ? (
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="contents">
+                          <div>VKN:</div>
                           <div>
-                            VKN:{' '}
                             <button
                               type="button"
                               className="font-semibold underline underline-offset-4"
@@ -678,126 +808,250 @@ export default function InvoicesPage() {
                             <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'vkn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('vkn', String(selected.vknNo))}>
                               {copied === 'vkn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                             </button>
-                          ) : null}
+                          ) : (
+                            <span />
+                          )}
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
+                        <div className="contents">
+                          <div>T.C. Kimlik No:</div>
+                          <div className="font-semibold">{selected.tckn || '-'}</div>
                           {selected.tckn ? (
                             <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
                               {copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                             </button>
-                          ) : null}
+                          ) : (
+                            <span />
+                          )}
                         </div>
                       )}
                       {selected.isForCompany && showTcknFromVkn && (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
+                        <div className="contents">
+                          <div>T.C. Kimlik No:</div>
+                          <div className="font-semibold">{selected.tckn || '-'}</div>
                           {selected.tckn ? (
                             <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>
                               {copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
                             </button>
-                          ) : null}
+                          ) : (
+                            <span />
+                          )}
                         </div>
                       )}
-                      <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
-                      <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>Ürün Fiyatı: <b>{selected.tutar.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b></div>
-                        {selected.tutar ? (
-                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tutar' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tutar', String(selected.tutar || 0))}>
-                            {copied === 'tutar' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                          </button>
-                        ) : null}
-                      </div>
-                      {(() => {
-                        const r2 = (n: number) => Math.round(n * 100) / 100;
-
-                        const has = Number(selected.altinSatisFiyati || 0);
-                        const ay22 =
-                          (selected as any).altinAyar === 22 ||
-                          (selected as any).altinAyar === "Ayar22";
-
-                        // 22 ayar için saf oran 0.916, 24 ayar için 0.995
-                        const safOran = ay22 ? 0.916 : 0.995;
-                        const yeniOran = ay22 ? 0.99 : 0.998;
-
-                        const rawSaf = has * safOran; // Saf altın fiyatı
-                        const u = Number(selected.tutar || 0); // Yeni ürün fiyatı
-                        const rawYeni = u * yeniOran; // Yeni ürünün altın karşılığı
-
-                        const saf = r2(rawSaf);
-                        const yeni = r2(rawYeni);
-
-                        // Gram = yeni ürün değeri / saf altın fiyatı
-                        const gram = saf > 0 ? r2(yeni / saf) : 0;
-
-                        // Altın hizmet bedeli = saf * gram (değer değil oranla çarpım)
-                        const altinHizmet = r2(saf * gram);
-
-                        // İşçilik KDV dâhil
-                        const iscilikKdvli = r2(u - altinHizmet);
-
-                        // KDV’siz işçilik
-                        const isc = r2(iscilikKdvli / 1.20);
-
-                        return (
-                          <div className="mt-2 space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                Saf Altın Değeri: <b>{saf.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
-                              </div>
-                              <button
-                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
-                                title={copied === "saf" ? "Kopyalandı" : "Saf Altın Değeri kopyala"}
-                                aria-label="Saf Altın Değeri"
-                                onClick={() => copy("saf", String(saf))}
-                              >
-                                {copied === "saf" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                              </button>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                Yeni Ürün Fiyatı: <b>{yeni.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
-                              </div>
-                              <button
-                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
-                                title={copied === "yeni" ? "Kopyalandı" : "Yeni Ürün Fiyatı kopyala"}
-                                aria-label="Yeni Ürün Fiyatı"
-                                onClick={() => copy("yeni", String(yeni))}
-                              >
-                                {copied === "yeni" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                              </button>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                Gram Değeri: <b>{gram.toLocaleString("tr-TR")}</b>
-                              </div>
-                              <button
-                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
-                                title={copied === "gram" ? "Kopyalandı" : "Gram Değeri kopyala"}
-                                aria-label="Gram Değeri"
-                                onClick={() => copy("gram", String(gram))}
-                              >
-                                {copied === "gram" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                              </button>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                İşçilik (KDV&apos;siz): <b>{isc.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
-                              </div>
-                              <button
-                                className="inline-flex items-center justify-center align-middle p-1 leading-none"
-                                title={copied === "iscilik" ? "Kopyalandı" : "İşçilik kopyala"}
-                                aria-label="İşçilik (KDV&apos;siz)"
-                                onClick={() => copy("iscilik", String(isc))}
-                              >
-                                {copied === "iscilik" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                              </button>
-                            </div>
+                      <div className="contents">
+                        <div>Ayar:</div>
+                        {editingField === 'ayar' ? (
+                          <div className="flex items-center gap-1">
+                            <select
+                              value={editAyar}
+                              onChange={(e) => setEditAyar(Number(e.target.value) as 22 | 24)}
+                              className="h-8 rounded border border-slate-300 bg-white px-2 text-sm text-slate-900"
+                            >
+                              <option value={22}>22 Ayar</option>
+                              <option value={24}>24 Ayar</option>
+                            </select>
+                            <button
+                              className="inline-flex items-center justify-center rounded px-1 text-sm"
+                              onClick={() => saveInvoiceEdits('tutar')}
+                              disabled={savingField === 'tutar'}
+                              title="Kaydet"
+                            >
+                              ✅
+                            </button>
+                            <button
+                              className="inline-flex items-center justify-center rounded px-1 text-sm"
+                              onClick={cancelInvoiceEdits}
+                              title="Vazgeç"
+                            >
+                              ❌
+                            </button>
                           </div>
-                        );
-                      })()}
+                        ) : (
+                          <b>{editAyar === 22 ? '22 Ayar' : '24 Ayar'}</b>
+                        )}
+                        {editingField === 'ayar' ? (
+                          <span />
+                        ) : (
+                          <button
+                            className="inline-flex items-center justify-center rounded px-1 text-sm"
+                            onClick={() => {
+                              setEditingField('ayar')
+                              setEditError(null)
+                            }}
+                            title="Düzenle"
+                          >
+                            ✏️
+                          </button>
+                        )}
+                      </div>
+                      <div className="contents">
+                        <div>Gram:</div>
+                        <div className="flex items-center gap-2">
+                          {editingField === 'gram' ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={editGram}
+                                inputMode="decimal"
+                                onChange={(e) => {
+                                  setEditMode('gram')
+                                  setEditGram(e.target.value)
+                                }}
+                                className="h-8 w-28 text-right"
+                              />
+                              <button
+                                className="inline-flex items-center justify-center rounded px-1 text-sm"
+                                onClick={() => saveInvoiceEdits('gram')}
+                                disabled={savingField === 'gram'}
+                                title="Kaydet"
+                              >
+                                ✅
+                              </button>
+                              <button
+                                className="inline-flex items-center justify-center rounded px-1 text-sm"
+                                onClick={cancelInvoiceEdits}
+                                title="Vazgeç"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <b className="tabular-nums">{invoiceCalc ? invoiceCalc.gram.toLocaleString("tr-TR") : '-'}</b>
+                              <button
+                                className="inline-flex items-center justify-center rounded px-1 text-sm"
+                                onClick={() => {
+                                  setEditMode('gram')
+                                  setEditingField('gram')
+                                  setEditError(null)
+                                }}
+                                title="Düzenle"
+                              >
+                                ✏️
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {invoiceCalc ? (
+                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'gram' ? 'Kopyalandı' : 'Gram kopyala'} aria-label="Gram" onClick={() => copy('gram', String(invoiceCalc.gram))}>
+                            {copied === 'gram' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                      </div>
+                      {editError && (
+                        <div className="col-span-3 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+                          {editError}
+                        </div>
+                      )}
+                      {invoiceCalc && (
+                        <div className="col-span-3 mt-2 space-y-1">
+                          <div className="grid grid-cols-[140px_1fr_auto] items-center gap-2">
+                            <div>Ürün Has Değeri:</div>
+                            <div className="font-semibold tabular-nums">{invoiceCalc.yeni.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</div>
+                            <button
+                              className="inline-flex items-center justify-center align-middle p-1 leading-none"
+                              title={copied === "yeni" ? "Kopyalandı" : "Ürün Has Değeri kopyala"}
+                              aria-label="Ürün Has Değeri"
+                              onClick={() => copy("yeni", String(invoiceCalc.yeni))}
+                            >
+                              {copied === "yeni" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-[140px_1fr_auto] items-center gap-2">
+                            <div>İşçilik (KDV&apos;siz):</div>
+                            <div className="font-semibold tabular-nums">{invoiceCalc.iscilik.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</div>
+                            <button
+                              className="inline-flex items-center justify-center align-middle p-1 leading-none"
+                              title={copied === "iscilik" ? "Kopyalandı" : "İşçilik kopyala"}
+                              aria-label="İşçilik (KDV&apos;siz)"
+                              onClick={() => copy("iscilik", String(invoiceCalc.iscilik))}
+                            >
+                              {copied === "iscilik" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-[140px_1fr_auto] items-center gap-2">
+                            <div>KDV Tutarı:</div>
+                            <div className="font-semibold tabular-nums">{invoiceCalc.kdvTutar.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</div>
+                            <button
+                              className="inline-flex items-center justify-center align-middle p-1 leading-none"
+                              title={copied === "kdv" ? "Kopyalandı" : "KDV Tutarı kopyala"}
+                              aria-label="KDV Tutarı"
+                              onClick={() => copy("kdv", String(invoiceCalc.kdvTutar))}
+                            >
+                              {copied === "kdv" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-[140px_1fr_auto] items-center gap-2 font-semibold">
+                            <div>Ürün Tutarı:</div>
+                            <div className="flex items-center gap-2">
+                              {editingField === 'tutar' ? (
+                                <div className="flex items-center gap-1 font-normal">
+                                  <Input
+                                    value={editTutar}
+                                    inputMode="decimal"
+                                    onChange={(e) => {
+                                      setEditMode('tutar')
+                                      setEditTutar(e.target.value)
+                                    }}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                  <button
+                                    className="inline-flex items-center justify-center rounded px-1 text-sm"
+                                    onClick={() => saveInvoiceEdits('tutar')}
+                                    disabled={savingField === 'tutar'}
+                                    title="Kaydet"
+                                  >
+                                    ✅
+                                  </button>
+                                  <button
+                                    className="inline-flex items-center justify-center rounded px-1 text-sm"
+                                    onClick={cancelInvoiceEdits}
+                                    title="Vazgeç"
+                                  >
+                                    ❌
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <b className="tabular-nums">{invoiceCalc.tutar.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b>
+                                  <button
+                                    className="inline-flex items-center justify-center rounded px-1 text-sm"
+                                    onClick={() => {
+                                      setEditMode('tutar')
+                                      setEditingField('tutar')
+                                      setEditError(null)
+                                    }}
+                                    title="Düzenle"
+                                  >
+                                    ✏️
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tutar' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tutar', String(invoiceCalc.tutar))}>
+                              {copied === 'tutar' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          </div>
+                          <div className="text-slate-400">----------------------------------</div>
+                          <div className="grid grid-cols-[140px_1fr] items-center gap-2">
+                            <div>Has Altın Fiyatı:</div>
+                            <div className="font-semibold tabular-nums">{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</div>
+                          </div>
+                          <div className="grid grid-cols-[140px_1fr_auto] items-center gap-2">
+                            <div>Has Altın Değeri:</div>
+                            <div className="font-semibold tabular-nums">{invoiceCalc.saf.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</div>
+                            <button
+                              className="inline-flex items-center justify-center align-middle p-1 leading-none"
+                              title={copied === "saf" ? "Kopyalandı" : "Has Altın Değeri kopyala"}
+                              aria-label="Has Altın Değeri"
+                              onClick={() => copy("saf", String(invoiceCalc.saf))}
+                            >
+                              {copied === "saf" ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>
