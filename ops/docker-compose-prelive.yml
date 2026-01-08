@@ -7,7 +7,7 @@ services:
       context: ../backend
       dockerfile: ../ops/backend/Dockerfile
     env_file:
-      - ./config/env/env.backend
+      - ./config/env/env.backend.prelive
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Prelive}
       SERILOG__MINIMUMLEVEL: ${SERILOG__MINIMUMLEVEL:-Information}
