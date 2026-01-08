@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using KuyumculukTakipProgrami.Application.DTOs;
 using Microsoft.Extensions.Logging;
+using System.Net.Http.Headers;
 
 namespace KuyumculukTakipProgrami.Infrastructure.Integration.Turmob;
 
@@ -51,21 +52,31 @@ public sealed class TurmobSoapClient
         string soapAction,
         CancellationToken cancellationToken)
     {
+        var timeoutSeconds = Math.Max(environment.TimeoutSeconds, 60);
+
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(environment.TimeoutSeconds));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
             var client = _httpClientFactory.CreateClient("TurmobSoap");
+            var content = new StringContent(xmlPayload, Encoding.UTF8);
+            content.Headers.ContentType = new MediaTypeHeaderValue("text/xml")
+            {
+                CharSet = "utf-8"
+            };
             var request = new HttpRequestMessage(HttpMethod.Post, environment.ServiceUrl)
             {
-                Content = new StringContent(xmlPayload, Encoding.UTF8, "text/xml")
+                Content = content
             };
-            request.Headers.Add("SOAPAction", $"\"{soapAction}\"");
+            request.Headers.Accept.Clear();
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/xml"));
+            request.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
 
             if (options.Logging.LogRequest)
             {
                 _logger.LogInformation("TURMOB request sent. Action: {Action}, SOAPAction: {SoapAction}, Length: {Length}", action, soapAction, xmlPayload.Length);
+                _logger.LogInformation("TURMOB request XML: {XmlPayload}", xmlPayload);
             }
 
             var response = await client.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
@@ -77,6 +88,7 @@ public sealed class TurmobSoapClient
                     "TURMOB response received. Status: {StatusCode}, Length: {Length}",
                     response.StatusCode,
                     responseContent.Length);
+                _logger.LogInformation("TURMOB response XML: {ResponseXml}", responseContent);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -98,12 +110,12 @@ public sealed class TurmobSoapClient
         }
         catch (OperationCanceledException)
         {
-            return TurmobSendResult.Failed("TURMOB request timed out.");
+            return TurmobSendResult.Failed($"TURMOB request timed out after {timeoutSeconds} seconds.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "TURMOB SOAP request failed.");
-            return TurmobSendResult.Failed("TURMOB SOAP request failed.");
+            _logger.LogError(ex, "TURMOB SOAP request failed. Detail: {Detail}", GetExceptionDetail(ex));
+            return TurmobSendResult.Failed($"TURMOB SOAP request failed. {GetExceptionDetail(ex)}");
         }
     }
 
@@ -153,6 +165,14 @@ public sealed class TurmobSoapClient
         {
             return null;
         }
+    }
+
+    private static string GetExceptionDetail(Exception ex)
+    {
+        var inner = ex.InnerException?.Message;
+        return string.IsNullOrWhiteSpace(inner)
+            ? ex.Message
+            : $"{ex.Message} | Inner: {inner}";
     }
 
     private sealed record TurmobSoapSendResult(bool IsSuccess, string? ErrorMessage);

@@ -24,11 +24,15 @@ using KuyumculukTakipProgrami.Domain.Entities;
 using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.Caching.Memory;
+using System.Net;
 using System.Net.Mime;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+// TURMOB endpoint rejects older TLS versions.
+ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
 var builder = WebApplication.CreateBuilder(args);
 // Logging: limit console output to errors only
