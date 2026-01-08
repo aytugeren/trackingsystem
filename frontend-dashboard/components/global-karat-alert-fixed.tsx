@@ -44,16 +44,15 @@ export default function GlobalKaratAlertFixed() {
     }
   }, [])
 
-  const monthKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}` })()
   const toAyar = (v: Invoice['altinAyar'] | Expense['altinAyar']): 22 | 24 | null => (v===22||v==='Ayar22')?22:(v===24||v==='Ayar24')?24:null
   const diffs = useMemo(() => {
-    const invs = (invoices||[]).filter(x => (x.kesildi ?? false) && x.tarih?.startsWith(monthKey))
-    const exps = (expenses||[]).filter(x => (x.kesildi ?? false) && x.tarih?.startsWith(monthKey))
+    const invs = (invoices||[]).filter(x => (x.kesildi ?? false))
+    const exps = (expenses||[]).filter(x => (x.kesildi ?? false))
     let inv22=0, inv24=0, exp22=0, exp24=0
     for (const i of invs) { const a = toAyar(i.altinAyar); if (a===22) inv22 += Number(i.gramDegeri ?? 0); else if (a===24) inv24 += Number(i.gramDegeri ?? 0) }
     for (const e of exps) { const a = toAyar(e.altinAyar); if (a===22) exp22 += Number(e.gramDegeri ?? 0); else if (a===24) exp24 += Number(e.gramDegeri ?? 0) }
     return { diff22: Math.max(0, inv22-exp22), diff24: Math.max(0, inv24-exp24) }
-  }, [invoices, expenses, monthKey])
+  }, [invoices, expenses])
 
   const thr = cfg?.alertThreshold || 0
   const trig22 = diffs.diff22 > thr
