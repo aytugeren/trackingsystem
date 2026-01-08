@@ -334,18 +334,15 @@ export default function InvoicesPage() {
         const res = await fetch(`${base}/api/pricing/status`, { cache: 'no-store' })
         if (!mounted) return
         if (!res.ok) {
-          setPricingAlert('Şu anda güncel fiyatları çekilemiyor.')
+          setPricingAlert(null)
           return
         }
         const json = await res.json()
-        if (json?.hasAlert) {
-          setPricingAlert(json?.message || 'Şu anda güncel fiyatları çekilemiyor.')
-        } else {
-          setPricingAlert(null)
-        }
+        if (json?.hasAlert && json?.message) setPricingAlert(json.message)
+        else setPricingAlert(null)
       } catch {
         if (!mounted) return
-        setPricingAlert('Şu anda güncel fiyatları çekilemiyor.')
+        setPricingAlert(null)
       }
     }
     loadPricingAlert()
