@@ -1,5 +1,6 @@
 import './globals.css'
 import GlobalKaratAlert from '../components/GlobalKaratAlert'
+import LoginSuccessAlert from '../components/LoginSuccessAlert'
 
 export const metadata = {
   title: 'Kuyumculuk - Kasiyer',
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <GlobalKaratAlert />
+        <LoginSuccessAlert />
         {children}
       </body>
     </html>

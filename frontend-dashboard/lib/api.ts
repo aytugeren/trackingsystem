@@ -71,6 +71,16 @@ export type CustomerTransaction = {
   tutar: number
 }
 
+export type TurmobPreview = {
+  action: string
+  xml: string
+}
+
+export type TurmobSendResult = {
+  status: 'Success' | 'Failed' | 'Skipped' | string
+  errorMessage?: string | null
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || ''
 
 function authHeaders(): HeadersInit {
@@ -161,6 +171,18 @@ export const api = {
     const url = `${API_BASE}/api/expenses/${id}`
     const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
     if (!res.ok) throw new Error('Gider silinemedi')
+  },
+  async previewTurmobInvoice(id: string): Promise<TurmobPreview> {
+    const url = `${API_BASE}/api/turmob/invoices/${id}/preview`
+    const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('XML oluşturulamadı')
+    return res.json()
+  },
+  async sendTurmobInvoice(id: string): Promise<TurmobSendResult> {
+    const url = `${API_BASE}/api/turmob/invoices/${id}/send`
+    const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Gönderme başarısız')
+    return res.json()
   },
   async login(email: string, password: string): Promise<{ token: string; role: string; email: string }> {
     const url = `${API_BASE}/api/auth/login`

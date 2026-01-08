@@ -1,6 +1,6 @@
 ﻿"use client"
 import { t } from '@/lib/i18n'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type Invoice, formatDateTimeTr } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,161 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { downloadInvoicesPdf, downloadInvoicesXlsx } from '@/lib/export'
 import { IconCopy, IconCheck } from '@/components/ui/icons'
+import { toast } from 'sonner'
+import QRCode from 'qrcode'
+import Swal from 'sweetalert2'
+import 'sweetalert2/dist/sweetalert2.min.css'
+
+type CompanyInfo = {
+  companyName?: string | null
+  taxNo?: string | null
+  address?: string | null
+  tradeRegistryNo?: string | null
+  phone?: string | null
+  email?: string | null
+  cityName?: string | null
+  townName?: string | null
+  postalCode?: string | null
+  taxOfficeName?: string | null
+}
+
+type PreviewLine = {
+  name: string
+  quantity: string
+  unit: string
+  unitPrice: string
+  discountRate: string
+  discountAmount: string
+  vatRate: string
+  vatAmount: string
+  otherTaxes: string
+  lineTotal: string
+}
+
+type PreviewInvoice = {
+  isArchive: boolean
+  companyTaxCode: string
+  companyAddress: string
+  companyCity: string
+  companyPostalCode: string
+  companyTaxOffice: string
+  companyEmail: string
+  externalCode: string
+  invoiceDate: string
+  invoiceType: string
+  orderNumber: string
+  receiverName: string
+  receiverTaxCode: string
+  receiverCity: string
+  receiverPostalCode: string
+  receiverTaxOffice: string
+  receiverEmail: string
+  sendingType: string
+  scenarioType: string
+  totalLineExtension: string
+  totalDiscount: string
+  totalPayable: string
+  totalTaxInclusive: string
+  totalVat: string
+  details: PreviewLine[]
+}
+
+const getNodeText = (root: ParentNode, localName: string) => {
+  const el = (root as Document).getElementsByTagNameNS
+    ? (root as Document).getElementsByTagNameNS('*', localName)[0]
+    : null
+  return el?.textContent?.trim() || ''
+}
+
+const getChildText = (root: ParentNode | null, localName: string) => {
+  if (!root) return ''
+  const el = (root as Element).getElementsByTagNameNS('*', localName)[0]
+  return el?.textContent?.trim() || ''
+}
+
+function parseTurmobXml(xml: string): PreviewInvoice | null {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml')
+    const archive = doc.getElementsByTagNameNS('*', 'ArchiveInvoice')[0]
+    const invoice = archive || doc.getElementsByTagNameNS('*', 'Invoice')[0]
+    if (!invoice) return null
+    const isArchive = Boolean(archive)
+
+    const companyAddressNode = invoice.getElementsByTagNameNS('*', 'CompanyBranchAddress')[0]
+    const receiverNode = invoice.getElementsByTagNameNS('*', 'Receiver')[0]
+    const receiverBranchNode = invoice.getElementsByTagNameNS('*', 'ReceiverBranchAddress')[0]
+
+    const detailsRootName = isArchive ? 'ArchiveInvoiceDetail' : 'InvoiceDetail'
+    const detailNodes = Array.from(invoice.getElementsByTagNameNS('*', detailsRootName))
+
+    const details = detailNodes.map((detail) => {
+      const productNode = detail.getElementsByTagNameNS('*', 'Product')[0]
+      return {
+        name: getChildText(productNode, 'ProductName'),
+        quantity: getChildText(detail, 'Quantity'),
+        unit: getChildText(productNode, 'MeasureUnit'),
+        unitPrice: getChildText(productNode, 'UnitPrice'),
+        discountRate: '0',
+        discountAmount: '0',
+        vatRate: getChildText(detail, 'VATRate'),
+        vatAmount: getChildText(detail, 'VATAmount'),
+        otherTaxes: '0',
+        lineTotal: getChildText(detail, 'LineExtensionAmount')
+      }
+    })
+
+    return {
+      isArchive,
+      companyTaxCode: getNodeText(doc, 'CompanyTaxCode'),
+      companyAddress: getChildText(companyAddressNode, 'BoulevardAveneuStreetName'),
+      companyCity: getChildText(companyAddressNode, 'CityName'),
+      companyPostalCode: getChildText(companyAddressNode, 'PostalCode'),
+      companyTaxOffice: getChildText(companyAddressNode, 'TaxOfficeName'),
+      companyEmail: getChildText(companyAddressNode, 'EMail'),
+      externalCode: getChildText(invoice, isArchive ? 'ExternalArchiveInvoiceCode' : 'ExternalInvoiceCode'),
+      invoiceDate: getChildText(invoice, 'InvoiceDate'),
+      invoiceType: getChildText(invoice, 'InvoiceType'),
+      orderNumber: getChildText(invoice, 'OrderNumber'),
+      receiverName: getChildText(receiverNode, 'ReceiverName'),
+      receiverTaxCode: getChildText(receiverNode, 'ReceiverTaxCode'),
+      receiverCity: getChildText(receiverBranchNode, 'CityName'),
+      receiverPostalCode: getChildText(receiverBranchNode, 'PostalCode'),
+      receiverTaxOffice: getChildText(receiverBranchNode, 'TaxOfficeName'),
+      receiverEmail: getChildText(receiverBranchNode, 'EMail'),
+      sendingType: getChildText(receiverNode, 'SendingType'),
+      scenarioType: getChildText(invoice, 'ScenarioType') || 'TR1.2',
+      totalLineExtension: getChildText(invoice, 'TotalLineExtensionAmount'),
+      totalDiscount: getChildText(invoice, 'TotalDiscountAmount'),
+      totalPayable: getChildText(invoice, 'TotalPayableAmount'),
+      totalTaxInclusive: getChildText(invoice, 'TotalTaxInclusiveAmount'),
+      totalVat: getChildText(invoice, 'TotalVATAmount'),
+      details
+    }
+  } catch {
+    return null
+  }
+}
+
+const formatMoney = (value: string | number, suffix = 'TL') => {
+  const num = typeof value === 'number' ? value : Number(value || 0)
+  if (!Number.isFinite(num)) return `0,00 ${suffix}`
+  const formatted = num.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `${formatted} ${suffix}`
+}
+
+const formatQty = (value: string | number) => {
+  const num = typeof value === 'number' ? value : Number(value || 0)
+  if (!Number.isFinite(num)) return '0,00'
+  return num.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
+}
+
+const toNumber = (value: string | number) => {
+  if (typeof value === 'number') return value
+  if (!value) return 0
+  const normalized = value.replace(',', '.')
+  const num = Number(normalized)
+  return Number.isFinite(num) ? num : 0
+}
 
 type Filters = {
   start?: string
@@ -25,7 +180,6 @@ export default function InvoicesPage() {
   const r2 = (n: number) => Math.round(n * 100) / 100
   const [data, setData] = useState<Invoice[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [canCancel, setCanCancel] = useState(false)
   const [canToggle, setCanToggle] = useState(false)
   const [filters, setFilters] = useState<Filters>({ method: 'all', q: '' })
   const [page, setPage] = useState(1)
@@ -41,6 +195,21 @@ export default function InvoicesPage() {
   const [showTcknFromVkn, setShowTcknFromVkn] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [pricingAlert, setPricingAlert] = useState<string | null>(null)
+  const [xmlOpen, setXmlOpen] = useState(false)
+  const [xmlLoading, setXmlLoading] = useState(false)
+  const [xmlAction, setXmlAction] = useState<string | null>(null)
+  const [xmlPreview, setXmlPreview] = useState<string | null>(null)
+  const [xmlError, setXmlError] = useState<string | null>(null)
+  const [xmlSendLoading, setXmlSendLoading] = useState(false)
+  const [xmlSendResult, setXmlSendResult] = useState<string | null>(null)
+  const [xmlSendResultKind, setXmlSendResultKind] = useState<'error' | 'info' | null>(null)
+  const [turmobDisabled, setTurmobDisabled] = useState(false)
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null)
+  const [previewData, setPreviewData] = useState<PreviewInvoice | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const previewWrapperRef = useRef<HTMLDivElement | null>(null)
+  const previewPageRef = useRef<HTMLDivElement | null>(null)
   async function copy(key: string, text: string) {
     try {
       const s = (text ?? '').toString().trim()
@@ -49,6 +218,13 @@ export default function InvoicesPage() {
       setCopied(key)
       setTimeout(() => setCopied(null), 1500)
     } catch {}
+  }
+
+  function authHeaders(): HeadersInit {
+    try {
+      const token = localStorage.getItem('ktp_token') || (typeof document !== 'undefined' ? (document.cookie.split('; ').find(x => x.startsWith('ktp_token='))?.split('=')[1] || '') : '')
+      return token ? { Authorization: `Bearer ${token}` } : {}
+    } catch { return {} }
   }
 
   function openCustomerSummary(inv: Invoice) {
@@ -80,6 +256,26 @@ export default function InvoicesPage() {
     return () => clearInterval(h)
   }, [])
 
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE || ''
+        const res = await fetch(`${base}/api/company-info`, { cache: 'no-store', headers: { ...authHeaders() } })
+        if (!mounted) return
+        if (res.ok) {
+          setCompanyInfo(await res.json())
+        } else {
+          setCompanyInfo(null)
+        }
+      } catch {
+        if (!mounted) return
+        setCompanyInfo(null)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
   // Load minimal permissions for current user
   useEffect(() => {
     let mounted = true
@@ -89,7 +285,7 @@ export default function InvoicesPage() {
         const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''
         const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} })
         if (!mounted) return
-        if (res.ok) { const j = await res.json(); setCanCancel(Boolean(j?.canCancelInvoice) || String(j?.role) === 'Yonetici'); setCanToggle(Boolean(j?.canToggleKesildi) || String(j?.role) === 'Yonetici') }
+        if (res.ok) { const j = await res.json(); setCanToggle(Boolean(j?.canToggleKesildi) || String(j?.role) === 'Yonetici') }
       } catch {}
     })()
     return () => { mounted = false }
@@ -133,6 +329,31 @@ export default function InvoicesPage() {
     setShowTcknFromVkn(false)
   }, [modalOpen, selected?.id])
 
+  useEffect(() => {
+    if (!xmlPreview) {
+      setPreviewData(null)
+      return
+    }
+    setPreviewData(parseTurmobXml(xmlPreview))
+  }, [xmlPreview])
+
+  useEffect(() => {
+    let mounted = true
+    if (!xmlPreview || !selected) {
+      setQrDataUrl(null)
+      setPdfUrl(null)
+      return () => { mounted = false }
+    }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const url = `${origin}/invoice-sample.pdf?invoiceId=${selected.id}`
+    setPdfUrl(url)
+    QRCode.toDataURL(url, { width: 180, margin: 0 })
+      .then((dataUrl) => { if (mounted) setQrDataUrl(dataUrl) })
+      .catch(() => { if (mounted) setQrDataUrl(null) })
+    return () => { mounted = false }
+  }, [xmlPreview, selected?.id])
+
+
   const filtered = useMemo(() => {
     const all = (data || []).filter(x => showAll ? true : !(x.kesildi ?? false))
     return all.filter((x) => {
@@ -163,6 +384,79 @@ export default function InvoicesPage() {
       setError('Durum güncellenemedi')
     }
   }
+
+  async function openXmlPreview(inv: Invoice) {
+    setXmlError(null)
+    setXmlSendResult(null)
+    setXmlSendResultKind(null)
+    setXmlAction(null)
+    setXmlPreview(null)
+    setXmlOpen(true)
+    setXmlLoading(true)
+    try {
+      const resp = await api.previewTurmobInvoice(inv.id)
+      setXmlAction(resp.action)
+      setXmlPreview(resp.xml)
+    } catch {
+      setXmlError('XML oluşturulamadı')
+    } finally {
+      setXmlLoading(false)
+    }
+  }
+
+  async function markInvoiceSent(inv: Invoice) {
+    try {
+      await api.setInvoiceStatus(inv.id, true)
+      setData((prev) => prev ? prev.map(x => x.id === inv.id ? { ...x, kesildi: true } : x) : prev)
+      setSelected((prev) => prev && prev.id === inv.id ? { ...prev, kesildi: true } : prev)
+      try { window.dispatchEvent(new CustomEvent('ktp:tx-updated')) } catch {}
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function sendTurmob(inv: Invoice) {
+    setXmlSendLoading(true)
+    setXmlSendResult(null)
+    setXmlSendResultKind(null)
+    try {
+      const resp = await api.sendTurmobInvoice(inv.id)
+      if (resp.status === 'Success') {
+        setTurmobDisabled(false)
+        toast.success('Fatura başarıyla gönderildi')
+        const ok = await markInvoiceSent(inv)
+        if (ok) {
+          setXmlOpen(false)
+          setModalOpen(false)
+          setSelected(null)
+        } else {
+          setXmlSendResult('Gönderildi ama durum güncellenemedi')
+          setXmlSendResultKind('info')
+        }
+      } else if (resp.status === 'Skipped') {
+        setTurmobDisabled(true)
+        const ok = await markInvoiceSent(inv)
+        if (ok) {
+          toast.success('TURMOB kapalı, fatura kesildi')
+          setXmlOpen(false)
+          setModalOpen(false)
+          setSelected(null)
+        } else {
+          setXmlSendResult('TURMOB kapalı ama durum güncellenemedi')
+          setXmlSendResultKind('info')
+        }
+      } else {
+        setXmlSendResult(resp.errorMessage ? `Gönderilemedi: ${resp.errorMessage}` : 'Gönderilemedi')
+        setXmlSendResultKind('error')
+      }
+    } catch {
+      setXmlSendResult('Gönderme başarısız')
+      setXmlSendResultKind('error')
+    } finally {
+      setXmlSendLoading(false)
+    }
+  }
   function openFinalize(inv: Invoice) {
     setSelected(inv)
     setModalOpen(true)
@@ -173,13 +467,28 @@ export default function InvoicesPage() {
     setSelected(null)
   }
 
-  async function cancelInvoice(inv: Invoice) {
+  async function deleteInvoice(inv: Invoice) {
     if (!inv || inv.kesildi) return false
-    const ok = typeof window !== 'undefined' ? window.confirm('Bu faturayı iptal edip veritabanından silmek istiyor musunuz?') : true
-    if (!ok) return false
+    const result = await Swal.fire({
+      title: 'Fatura silinsin mi?',
+      text: 'Bu işlem geri alınamaz.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sil',
+      cancelButtonText: 'Vazgeç',
+      reverseButtons: true,
+      showClass: { popup: 'swal2-show' },
+      hideClass: { popup: 'swal2-hide' }
+    })
+    if (!result.isConfirmed) return false
     try {
       await api.deleteInvoice(inv.id)
       setData(prev => prev ? prev.filter(x => x.id !== inv.id) : prev)
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE || ''
+        const bust = `&ts=${Date.now()}`
+        await fetch(`${base}/api/invoices?page=1&pageSize=500${bust}`, { cache: 'no-store', headers: { ...authHeaders() } })
+      } catch {}
       return true
     } catch {
       setError('Fatura silinemedi')
@@ -468,31 +777,228 @@ export default function InvoicesPage() {
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>
-                      {canToggle && selected && (
+                      {canToggle && selected && (turmobDisabled || !selected.kesildi) && (
                         <Button
                           onClick={async () => {
-                            await toggleStatus(selected)
-                            closeModal()
+                            if (turmobDisabled) {
+                              await toggleStatus(selected)
+                              closeModal()
+                              return
+                            }
+                            if (!selected.kesildi) {
+                              await openXmlPreview(selected)
+                            }
                           }}
                         >
-                          {selected.kesildi ? 'Geri Al' : 'Gönder'}
+                          {turmobDisabled ? (selected.kesildi ? 'Geri Al' : 'Gönder') : 'Gönder'}
                         </Button>
                       )}
-                      {canCancel && selected && (
+                      {selected && !selected.kesildi && (
                         <Button
                           variant="default"
                           onClick={async () => {
-                            const ok = await cancelInvoice(selected)
+                            const ok = await deleteInvoice(selected)
                             if (ok) closeModal()
                           }}
                         >
-                          İptal Et
+                          Sil
                         </Button>
                       )}
                     </div>
                   </div>
                 </div>
               )}
+              <Dialog open={xmlOpen} onOpenChange={setXmlOpen}>
+                <DialogContent className="fixed inset-0 w-screen h-screen max-w-none max-h-none p-0 overflow-hidden">
+                  <div className="flex h-full flex-col">
+                    <div className="shrink-0 border-b border-slate-800 bg-slate-950 px-4 py-3 text-white">
+                      <DialogHeader>
+                        <DialogTitle>XML Önizleme</DialogTitle>
+                      </DialogHeader>
+                      {xmlAction && (
+                        <div className="mt-1 text-sm text-slate-200">İşlem: <b>{xmlAction}</b></div>
+                      )}
+                      {xmlError && (
+                        <div className="mt-2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                          {xmlError}
+                        </div>
+                      )}
+                      {xmlLoading && (
+                        <div className="mt-2 text-sm text-slate-300">XML hazırlanıyor...</div>
+                      )}
+                    </div>
+                    <div className="flex-1 relative">
+                      {xmlPreview && previewData && (
+                        <div ref={previewWrapperRef} className="absolute inset-0 overflow-auto bg-slate-100">
+                          <div
+                            ref={previewPageRef}
+                            className="mx-auto w-[820px] min-h-[1120px] bg-white border border-slate-700 px-6 py-5 text-[11px] leading-[1.25] text-slate-900"
+                          >
+                          <div className="grid grid-cols-[1.25fr_0.9fr_0.9fr] gap-6">
+                            <div className="border-y border-slate-800 py-2 text-[10px] uppercase">
+                              <div className="font-semibold">{companyInfo?.companyName || 'Firma Adı'}</div>
+                              <div>{companyInfo?.address || previewData.companyAddress || '-'}</div>
+                              <div>{(companyInfo?.postalCode || previewData.companyPostalCode || '-') + ' ' + (companyInfo?.cityName || previewData.companyCity || '')}</div>
+                              <div>Telefon: {companyInfo?.phone || '-'}</div>
+                              <div>E-Posta: {companyInfo?.email || previewData.companyEmail || '-'}</div>
+                              <div>Vergi Dairesi: {companyInfo?.taxOfficeName || previewData.companyTaxOffice || '-'}</div>
+                              <div>VKN: {companyInfo?.taxNo || previewData.companyTaxCode || '-'}</div>
+                            </div>
+                            <div className="flex flex-col items-center gap-2 pt-1 text-center">
+                              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-slate-400 text-[10px] font-semibold">GİB</div>
+                              <div className="text-base font-semibold">e-Arşiv Fatura</div>
+                              <div className="text-[11px] italic text-slate-600">e-imza</div>
+                            </div>
+                            <div className="flex flex-col items-end gap-4">
+                              <div className="flex flex-col items-end gap-2">
+                                {qrDataUrl ? (
+                                  <img src={qrDataUrl} alt="QR" className="h-[140px] w-[140px] border border-slate-300" />
+                                ) : (
+                                  <div className="flex h-[140px] w-[140px] items-center justify-center border border-dashed border-slate-300 text-[10px] text-slate-400">QR</div>
+                                )}
+                                {pdfUrl ? (
+                                  <div className="text-[10px] text-slate-500">PDF: {pdfUrl}</div>
+                                ) : null}
+                              </div>
+                              <img src="/erenkuyumculuklogo.png" alt="Eren Kuyumculuk" className="h-[80px] w-auto object-contain" />
+                              <div className="grid w-full max-w-[210px] grid-cols-[1fr_1fr] border border-slate-700 text-[10px]">
+                                <div className="border-b border-r border-slate-700 px-2 py-1 font-semibold">Özelleştirme No:</div>
+                                <div className="border-b border-slate-700 px-2 py-1">{previewData.scenarioType || 'TR1.2'}</div>
+                                <div className="border-b border-r border-slate-700 px-2 py-1 font-semibold">Fatura No:</div>
+                                <div className="border-b border-slate-700 px-2 py-1">{previewData.externalCode || '-'}</div>
+                                <div className="border-b border-r border-slate-700 px-2 py-1 font-semibold">Fatura Tipi:</div>
+                                <div className="border-b border-slate-700 px-2 py-1">{previewData.invoiceType || 'SATIS'}</div>
+                                <div className="border-b border-r border-slate-700 px-2 py-1 font-semibold">Gönderim Şekli:</div>
+                                <div className="border-b border-slate-700 px-2 py-1">{previewData.sendingType || 'KAGIT'}</div>
+                                <div className="border-b border-r border-slate-700 px-2 py-1 font-semibold">Düzenleme Tarihi:</div>
+                                <div className="border-b border-slate-700 px-2 py-1">{previewData.invoiceDate || '-'}</div>
+                                <div className="border-b border-r border-slate-700 px-2 py-1 font-semibold">Düzenleme Zamanı:</div>
+                                <div className="border-b border-slate-700 px-2 py-1">00:00:00</div>
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Son Ödeme Tarihi:</div>
+                                <div className="px-2 py-1">{previewData.invoiceDate || '-'}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-6 border-y border-slate-800 py-2 text-[10px] uppercase">
+                            <div className="font-semibold">SAYIN</div>
+                            <div className="font-semibold">{previewData.receiverName || '-'}</div>
+                            <div>{previewData.receiverCity ? `${previewData.receiverCity} ${previewData.receiverPostalCode || ''}` : '-'}</div>
+                            <div>Vergi Dairesi: {previewData.receiverTaxOffice || '-'}</div>
+                            <div>{previewData.receiverTaxCode?.length === 11 ? 'TCKN' : 'VKN'}: {previewData.receiverTaxCode || '-'}</div>
+                          </div>
+
+                          <div className="mt-2 text-[10px]">
+                            <b>ETTN:</b> -
+                          </div>
+
+                          <div className="mt-3 border border-slate-700">
+                            <div className="grid grid-cols-[36px_1.2fr_1.2fr_0.8fr_0.9fr_0.6fr_0.7fr_0.6fr_0.7fr_0.9fr_1fr] border-b border-slate-700 bg-slate-50 text-[9px] font-semibold">
+                              <div className="border-r border-slate-700 px-1 py-1">Sıra No</div>
+                              <div className="border-r border-slate-700 px-1 py-1">Mal Hizmet</div>
+                              <div className="border-r border-slate-700 px-1 py-1">Açıklama</div>
+                              <div className="border-r border-slate-700 px-1 py-1">Miktar</div>
+                              <div className="border-r border-slate-700 px-1 py-1">Birim Fiyat</div>
+                              <div className="border-r border-slate-700 px-1 py-1">İskonto Oranı</div>
+                              <div className="border-r border-slate-700 px-1 py-1">İskonto Tutarı</div>
+                              <div className="border-r border-slate-700 px-1 py-1">KDV Oranı</div>
+                              <div className="border-r border-slate-700 px-1 py-1">KDV Tutarı</div>
+                              <div className="border-r border-slate-700 px-1 py-1">Diğer Vergiler</div>
+                              <div className="px-1 py-1 text-right">Mal Hizmet Tutarı</div>
+                            </div>
+                            {previewData.details.length === 0 ? (
+                              <div className="px-2 py-3 text-center text-[10px] text-slate-500">Kalem bulunamadı</div>
+                            ) : previewData.details.map((line, idx) => (
+                              <div key={`${line.name}-${idx}`} className="grid grid-cols-[36px_1.2fr_1.2fr_0.8fr_0.9fr_0.6fr_0.7fr_0.6fr_0.7fr_0.9fr_1fr] border-b border-slate-700 text-[9px]">
+                                <div className="border-r border-slate-700 px-1 py-1">{idx + 1}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">{line.name || '-'}</div>
+                                <div className="border-r border-slate-700 px-1 py-1"></div>
+                                <div className="border-r border-slate-700 px-1 py-1">{formatQty(line.quantity)}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">{formatMoney(line.unitPrice)}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">%{formatQty(line.discountRate)}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">{formatMoney(line.discountAmount)}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">%{formatQty(line.vatRate)}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">{formatMoney(line.vatAmount)}</div>
+                                <div className="border-r border-slate-700 px-1 py-1">{formatMoney(line.otherTaxes)}</div>
+                                <div className="px-1 py-1 text-right">{formatMoney(line.lineTotal)}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-2 flex justify-end">
+                            <div className="w-full max-w-[320px] border border-slate-700 text-[10px]">
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Mal Hizmet Toplam Tutarı</div>
+                                <div className="px-2 py-1 text-right">{formatMoney(previewData.totalLineExtension)}</div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Toplam İskonto</div>
+                                <div className="px-2 py-1 text-right">{formatMoney(previewData.totalDiscount)}</div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">KDV Matrahı %0.00</div>
+                                <div className="px-2 py-1 text-right">
+                                  {formatMoney(previewData.details.filter(x => toNumber(x.vatRate) === 0).reduce((acc, cur) => acc + toNumber(cur.lineTotal), 0))}
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">KDV Matrahı %20.00</div>
+                                <div className="px-2 py-1 text-right">
+                                  {formatMoney(previewData.details.filter(x => toNumber(x.vatRate) !== 0).reduce((acc, cur) => acc + toNumber(cur.lineTotal), 0))}
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Hesaplanan KDV(%0.00)</div>
+                                <div className="px-2 py-1 text-right">{formatMoney(0)}</div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Hesaplanan KDV(%20.00)</div>
+                                <div className="px-2 py-1 text-right">{formatMoney(previewData.totalVat)}</div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px] border-b border-slate-700">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Vergiler Dahil Toplam Tutar</div>
+                                <div className="px-2 py-1 text-right">{formatMoney(previewData.totalTaxInclusive)}</div>
+                              </div>
+                              <div className="grid grid-cols-[1fr_120px]">
+                                <div className="border-r border-slate-700 px-2 py-1 font-semibold">Ödenecek Tutar</div>
+                                <div className="px-2 py-1 text-right">{formatMoney(previewData.totalPayable)}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 border border-slate-700 px-2 py-1 text-[10px]">
+                            <div><b>Vergi İstisna Muafiyet Sebebi:</b> 351 -</div>
+                            <div><b>Not:</b> Yalnız {formatMoney(previewData.totalPayable).replace(' TL', '')} TL&apos;dir</div>
+                          </div>
+                        </div>
+                        </div>
+                      )}
+                      {xmlPreview && !previewData && !xmlLoading && (
+                        <div className="absolute left-4 top-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                          Önizleme hazırlanamadı.
+                        </div>
+                      )}
+                    </div>
+                    {xmlSendResult && (
+                      <div className={`mx-4 rounded border px-3 py-2 text-sm ${xmlSendResultKind === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-slate-50'}`}>
+                        {xmlSendResult}
+                      </div>
+                    )}
+                    <div className="shrink-0 border-t border-slate-800 bg-slate-950 p-3 flex items-center justify-end gap-2">
+                      <Button variant="outline" onClick={() => setXmlOpen(false)}>Kapat</Button>
+                      <Button
+                        onClick={async () => {
+                          if (!selected) return
+                          await sendTurmob(selected)
+                        }}
+                        disabled={xmlSendLoading || !xmlPreview}
+                      >
+                        {xmlSendLoading ? 'Gönderiliyor...' : 'Onayla ve Gönder'}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
                 <DialogContent className="max-w-md">
                   <DialogHeader>

@@ -8,9 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { downloadExpensesPdf, downloadExpensesXlsx } from '@/lib/export'
-import { IconCopy, IconCheck } from '@/components/ui/icons'
 
 type Filters = {
   start?: string
@@ -33,26 +31,7 @@ export default function ExpensesPage() {
   const [nowTick, setNowTick] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Expense | null>(null)
-  const [summaryOpen, setSummaryOpen] = useState(false)
-  const [summaryCustomer, setSummaryCustomer] = useState<Expense | null>(null)
-  const [showTcknFromVkn, setShowTcknFromVkn] = useState(false)
-  const [urunFiyati, setUrunFiyati] = useState<string>('') 
-  const [copied, setCopied] = useState<string | null>(null)
   const [pricingAlert, setPricingAlert] = useState<string | null>(null)
-  async function copy(key: string, text: string) {
-    try {
-      const s = (text ?? '').toString().trim()
-      const forClipboard = /^-?\d+\.\d+$/.test(s) ? s.replace(/\./g, ',') : s
-      await navigator.clipboard.writeText(forClipboard)
-      setCopied(key)
-      setTimeout(() => setCopied(null), 1500)
-    } catch {}
-  }
-
-  function openCustomerSummary(exp: Expense) {
-    setSummaryCustomer(exp)
-    setSummaryOpen(true)
-  }
 
   useEffect(() => {
     let mounted = true
@@ -78,14 +57,6 @@ export default function ExpensesPage() {
     const h = setInterval(() => setNowTick(t => t + 1), 1000)
     return () => clearInterval(h)
   }, [])
-
-  useEffect(() => {
-    if (!modalOpen) {
-      setShowTcknFromVkn(false)
-      return
-    }
-    setShowTcknFromVkn(false)
-  }, [modalOpen, selected?.id])
 
   useEffect(() => {
     let mounted = true
@@ -145,10 +116,16 @@ export default function ExpensesPage() {
       }
       return true
     })
-  }, [data, filters, showAll])
+  }, [data, filters, showAll, nowTick])
 
   const total = useMemo(() => filtered.reduce((a, b) => a + Number(b.tutar), 0), [filtered])
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  const ay22 = selected ? ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') : false
+  const hasAyar = Boolean(selected && (selected as any).altinAyar)
+  const safOran = ay22 ? 0.916 : 0.995
+  const safAltinDegeri = selected ? r2(Number(selected.altinSatisFiyati || 0) * safOran) : 0
+  const gramDegeri = safAltinDegeri === 0 ? 0 : r2(Number(selected?.tutar || 0) / safAltinDegeri)
+  const ayarLabel = hasAyar ? (ay22 ? '22 Ayar' : '24 Ayar') : '-'
 
   async function toggleStatus(exp: Expense) {
     try {
@@ -162,10 +139,9 @@ export default function ExpensesPage() {
   }
   function openFinalize(exp: Expense) {
     setSelected(exp)
-    setUrunFiyati(String(exp.tutar))
     setModalOpen(true)
   }
-  function closeModal() { setModalOpen(false); setSelected(null); setUrunFiyati('') }
+  function closeModal() { setModalOpen(false); setSelected(null) }
   async function cancelExpense(exp: Expense) {
     if (!exp || exp.kesildi) return false
     const ok = typeof window !== 'undefined' ? window.confirm('Bu gideri iptal edip veritabanından silmek istiyor musunuz?') : true
@@ -281,129 +257,12 @@ export default function ExpensesPage() {
                 <div className="bg-white text-slate-900 rounded shadow p-4 w-full max-w-lg space-y-3 dark:bg-slate-900 dark:text-white">
                     <h3 className="text-lg font-semibold">{t("btn.info.expense")}</h3>
                     <div className="space-y-2 text-sm">
-                      {!selected.isForCompany && (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>İsim Soyisim: <b>{selected.musteriAdSoyad || '-'}</b></div>
-                          {selected.musteriAdSoyad ? (
-                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'musteri' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('musteri', String(selected.musteriAdSoyad))}>{copied === 'musteri' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
-                          ) : null}
-                        </div>
-                      )}
-                      {selected.isForCompany && (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            Şirket Adı:{' '}
-                            <button
-                              type="button"
-                              className="font-semibold underline underline-offset-4"
-                              onClick={() => openCustomerSummary(selected)}
-                            >
-                              {selected.companyName}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {selected.isForCompany ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            VKN:{' '}
-                            <button
-                              type="button"
-                              className="font-semibold underline underline-offset-4"
-                              onClick={() => setShowTcknFromVkn((v) => !v)}
-                            >
-                              {selected.vknNo || '-'}
-                            </button>
-                          </div>
-                          {selected.vknNo ? (
-                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'vkn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('vkn', String(selected.vknNo))}>
-                              {copied === 'vkn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
-                          {selected.tckn ? (
-                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>{copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
-                          ) : null}
-                        </div>
-                      )}
-                      {selected.isForCompany && showTcknFromVkn && (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>T.C. Kimlik No: <b>{selected.tckn || '-'}</b></div>
-                          {selected.tckn ? (
-                            <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tckn' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tckn', String(selected.tckn))}>{copied === 'tckn' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}</button>
-                          ) : null}
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between gap-2">
-                        <div>Has Altın Fiyatı: <b>{selected.altinSatisFiyati != null ? Number(selected.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</b></div>
-                        {selected.altinSatisFiyati ? (
-                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'altinSatisFiyati' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('altinSatisFiyati', String(selected.altinSatisFiyati))}>
-                            {copied === 'altinSatisFiyati' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                          </button>
-                        ) : null}
-                      </div>
-                      <div>Ayar: <b>{(selected as any).altinAyar ? (((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</b></div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div>Ürün Fiyatı: <b>{selected.tutar.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })}</b></div>
-                        {selected.tutar ? (
-                          <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'tutar' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('tutar', String(selected.tutar || 0))}>
-                            {copied === 'tutar' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                          </button>
-                        ) : null}
-                      </div>
-                      {(() => {
-                        const r2 = (n: number) => Math.round(n * 100) / 100
-                        const has = Number(selected.altinSatisFiyati || 0)
-                        const ay22 = ((selected as any).altinAyar === 22 || (selected as any).altinAyar === 'Ayar22')
-                        const rawSaf = has * (ay22 ? 0.916 : 0.995)
-                        const u = Number(selected.tutar || 0)
-                        const rawYeni = u * (ay22 ? 0.99 : 0.998)
-                        const saf = r2(rawSaf)
-                        const yeni = r2(rawYeni)
-                        const gram = saf ? r2(yeni / saf) : 0
-                        const altinHizmet = r2(gram * saf)
-                        const iscilikKdvli = r2(r2(u) - altinHizmet)
-                        const isc = r2(iscilikKdvli / 1.20)
-                        return (
-                          <div className="mt-2 space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div>Saf Altın Değeri: <b>{saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                              {saf ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'saf' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('saf', String(saf))}>
-                                  {copied === 'saf' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>Yeni Ürün Fiyatı: <b>{yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                              {yeni ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('yeni', String(yeni))}>
-                                  {copied === 'yeni' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>Gram Değeri: <b>{gram.toLocaleString('tr-TR')}</b></div>
-                              {gram ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'gram' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('gram', String(gram))}>
-                                  {copied === 'gram' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <div>İşçilik (KDV&apos;siz): <b>{isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
-                              {isc ? (
-                                <button className="inline-flex items-center justify-center align-middle p-1 leading-none" title={copied === 'isc' ? 'Kopyalandı' : 'Kopyala'} aria-label="Kopyala" onClick={() => copy('isc', String(isc))}>
-                                  {copied === 'isc' ? <IconCheck width={14} height={14} /> : <IconCopy width={14} height={14} />}
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        )
-                      })()}
+                      <div>Tarih: <b>{formatDateTimeTr(selected.finalizedAt ?? selected.tarih)}</b></div>
+                      <div>Tutar: <b>{Number(selected.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</b></div>
+                      <div>Gram: <b>{gramDegeri.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>
+                      <div>Ayar: <b>{ayarLabel}</b></div>
+                      <div>İsim Soyisim: <b>{selected.isForCompany ? (selected.companyName || selected.musteriAdSoyad || '-') : (selected.musteriAdSoyad || '-')}</b></div>
+                      <div>TC: <b>{selected.isForCompany ? (selected.vknNo || selected.tckn || '-') : (selected.tckn || '-')}</b></div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                       <Button variant="outline" onClick={closeModal}>{t("modal.close")}</Button>
@@ -432,22 +291,6 @@ export default function ExpensesPage() {
                   </div>
                 </div>
               )}
-              <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-                <DialogContent className="max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Müşteri Özeti</DialogTitle>
-                  </DialogHeader>
-                  {summaryCustomer && (
-                    <div className="space-y-2 text-sm">
-                      <div>İsim Soyisim: <b>{summaryCustomer.musteriAdSoyad || '-'}</b></div>
-                      <div>T.C. Kimlik No: <b>{summaryCustomer.tckn || '-'}</b></div>
-                      <div>VKN: <b>{summaryCustomer.vknNo || '-'}</b></div>
-                      <div>Şirket Adı: <b>{summaryCustomer.companyName || '-'}</b></div>
-                    </div>
-                  )}
-                </DialogContent>
-              </Dialog>
-
               <div className="flex items-center justify-between">
                 <div className="space-x-2">
                   <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Önceki</Button>

@@ -39,6 +39,7 @@ export function MainNav({ onNavigate, collapsed = false }: { onNavigate?: () => 
     ...(perms?.canManageCashier ? [{ href: '/users/permissions', label: 'Kullanici Yetkileri', icon: IconShield } as NavItem] : []),
     ...(perms?.canManageCashier ? [{ href: '/users/roles', label: 'Roller', icon: IconTarget } as NavItem] : []),
     ...(perms?.canManageSettings ? [{ href: '/settings', label: 'Ayarlar', icon: IconCog } as NavItem] : []),
+    ...(perms?.canManageSettings ? [{ href: '/settings/company-info', label: 'Firma Bilgileri', icon: IconHome } as NavItem] : []),
     ...(perms?.canManageSettings ? [{ href: '/settings/pricing', label: 'Fiyat Ayarları', icon: IconChart } as NavItem] : []),
     ...(perms?.canManageKarat ? [{ href: '/settings/karat', label: 'Karat Ayarlari', icon: IconTarget } as NavItem] : []),
   ]

@@ -6,9 +6,11 @@ using KuyumculukTakipProgrami.Infrastructure;
 using KuyumculukTakipProgrami.Infrastructure.Persistence;
 using KuyumculukTakipProgrami.Infrastructure.Pricing;
 using KuyumculukTakipProgrami.Infrastructure.Util;
+using KuyumculukTakipProgrami.Infrastructure.Integration.Turmob;
 using Microsoft.EntityFrameworkCore;
 using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
+using KuyumculukTakipProgrami.Application.Interfaces;
 using KuyumculukTakipProgrami.Domain.Entities.Market;
 using System.Globalization;
 using System.Threading;
@@ -26,6 +28,7 @@ using System.Net.Mime;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 // Logging: limit console output to errors only
@@ -149,6 +152,12 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS IX_SystemSettings_KeyName ON \"SystemSettings\" (\"KeyName\");");
         // Enlarge Value column to store JSON configs (idempotent)
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"SystemSettings\" ALTER COLUMN \"Value\" TYPE text;");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"CompanyInfos\" (\"Id\" uuid PRIMARY KEY, \"CompanyName\" varchar(200) NULL, \"TaxNo\" varchar(20) NULL, \"Address\" varchar(500) NULL, \"TradeRegistryNo\" varchar(100) NULL, \"Phone\" varchar(40) NULL, \"Email\" varchar(200) NULL, \"CityName\" varchar(100) NULL, \"TownName\" varchar(100) NULL, \"PostalCode\" varchar(20) NULL, \"TaxOfficeName\" varchar(100) NULL, \"UpdatedAt\" timestamptz NOT NULL DEFAULT now());");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"Email\" varchar(200) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"CityName\" varchar(100) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"TownName\" varchar(100) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"PostalCode\" varchar(20) NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"TaxOfficeName\" varchar(100) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"Status\" integer NOT NULL DEFAULT 0;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
@@ -463,6 +472,47 @@ app.MapGet("/api/invoices/next-sirano", async (KtpDbContext db, CancellationToke
     var max = await db.Invoices.AsNoTracking().MaxAsync(x => (int?)x.SiraNo, ct) ?? 0;
     return Results.Ok(new { next = max + 1 });
 }).WithTags("Invoices").RequireAuthorization();
+
+// TURMOB preview and send
+app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
+    Guid id,
+    TurmobInvoiceBuilder builder,
+    TurmobInvoiceMapper mapper,
+    IOptionsMonitor<TurmobOptions> options,
+    CancellationToken ct) =>
+{
+    var dto = await builder.BuildAsync(id, ct);
+    if (dto is null) return Results.NotFound();
+
+    var environment = options.CurrentValue.GetSelectedEnvironment() ?? new TurmobEnvironmentOptions();
+
+    try
+    {
+        var xml = dto.IsArchive
+            ? mapper.MapToArchiveInvoiceXml(dto, environment)
+            : mapper.MapToInvoiceXml(dto, environment);
+        var action = dto.IsArchive ? "SendArchiveInvoice" : "SendInvoice";
+
+        return Results.Ok(new { action, xml });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { error = "XML preview failed.", detail = ex.Message });
+    }
+}).WithTags("Turmob").RequireAuthorization();
+
+app.MapPost("/api/turmob/invoices/{id:guid}/send", async (
+    Guid id,
+    TurmobInvoiceBuilder builder,
+    ITurmobInvoiceGateway gateway,
+    CancellationToken ct) =>
+{
+    var dto = await builder.BuildAsync(id, ct);
+    if (dto is null) return Results.NotFound();
+
+    var result = await gateway.SendAsync(dto);
+    return Results.Ok(result);
+}).WithTags("Turmob").RequireAuthorization();
 
 // Expenses
 app.MapPost("/api/expenses", async (CreateExpenseDto dto, ICreateExpenseHandler handler, KtpDbContext db, HttpContext http, CancellationToken ct) =>
@@ -1782,6 +1832,65 @@ app.MapPut("/api/users/{id:guid}/permissions", async (Guid id, UpdateUserPermiss
     return Results.NoContent();
 }).RequireAuthorization();
 
+// Company info (single row)
+app.MapGet("/api/company-info", async (KtpDbContext db) =>
+{
+    var info = await db.CompanyInfos.AsNoTracking().OrderBy(x => x.UpdatedAt).FirstOrDefaultAsync();
+    return Results.Ok(new
+    {
+        companyName = info?.CompanyName ?? string.Empty,
+        taxNo = info?.TaxNo ?? string.Empty,
+        address = info?.Address ?? string.Empty,
+        tradeRegistryNo = info?.TradeRegistryNo ?? string.Empty,
+        phone = info?.Phone ?? string.Empty,
+        email = info?.Email ?? string.Empty,
+        cityName = info?.CityName ?? string.Empty,
+        townName = info?.TownName ?? string.Empty,
+        postalCode = info?.PostalCode ?? string.Empty,
+        taxOfficeName = info?.TaxOfficeName ?? string.Empty
+    });
+}).RequireAuthorization();
+
+app.MapPut("/api/company-info", async (UpdateCompanyInfoRequest req, KtpDbContext db, HttpContext http) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString()))
+    {
+        var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? http.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid);
+        if (u?.AssignedRoleId is Guid rid)
+        {
+            var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid);
+            if (r?.CanManageSettings != true) return Results.Forbid();
+        }
+        else return Results.Forbid();
+    }
+
+    var info = await db.CompanyInfos.FirstOrDefaultAsync();
+    if (info is null)
+    {
+        info = new CompanyInfo { Id = Guid.NewGuid() };
+        db.CompanyInfos.Add(info);
+    }
+
+    info.CompanyName = req.companyName?.Trim();
+    info.TaxNo = req.taxNo?.Trim();
+    info.Address = req.address?.Trim();
+    info.TradeRegistryNo = req.tradeRegistryNo?.Trim();
+    info.Phone = req.phone?.Trim();
+    info.Email = req.email?.Trim();
+    info.CityName = req.cityName?.Trim();
+    info.TownName = req.townName?.Trim();
+    info.PostalCode = req.postalCode?.Trim();
+    info.TaxOfficeName = req.taxOfficeName?.Trim();
+    info.UpdatedAt = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization();
+
 // Settings: Milyem Oran�
 app.MapGet("/api/settings/milyem", async (KtpDbContext db) =>
 {
@@ -2361,6 +2470,17 @@ public record RoleUpdateRequest(
     double? workingDayHours);
 public record AssignRoleRequest(Guid? roleId);
 public record UpdateMilyemRequest(double value);
+public record UpdateCompanyInfoRequest(
+    string? companyName,
+    string? taxNo,
+    string? address,
+    string? tradeRegistryNo,
+    string? phone,
+    string? email,
+    string? cityName,
+    string? townName,
+    string? postalCode,
+    string? taxOfficeName);
 public record UpdateCalcSettingsRequest(
     bool defaultKariHesapla,
     double karMargin,

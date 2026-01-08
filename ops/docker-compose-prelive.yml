@@ -29,6 +29,19 @@ services:
       Backup__BusyStart: ${BACKUP_BUSY_START:-09:00}
       Backup__BusyEnd: ${BACKUP_BUSY_END:-19:30}
       Optimization__EnableIndexCreation: ${OPTIMIZATION_ENABLE_INDEX_CREATION:-false}
+      # TURMOB integration
+      Turmob__Enabled: ${TURMOB__ENABLED:-false}
+      Turmob__Environment: ${TURMOB__ENVIRONMENT:-Test}
+      Turmob__Test__ServiceUrl: ${TURMOB__TEST__SERVICEURL:-https://einvoiceserviceturmobtest.luca.com.tr/InvoiceService/ServiceContract/InvoiceService.svc}
+      Turmob__Test__TimeoutSeconds: ${TURMOB__TEST__TIMEOUTSECONDS:-30}
+      Turmob__Test__TemplateCode: ${TURMOB__TEST__TEMPLATECODE:-}
+      Turmob__Prod__ServiceUrl: ${TURMOB__PROD__SERVICEURL:-}
+      Turmob__Prod__TimeoutSeconds: ${TURMOB__PROD__TIMEOUTSECONDS:-30}
+      Turmob__Prod__TemplateCode: ${TURMOB__PROD__TEMPLATECODE:-}
+      Turmob__Retry__Count: ${TURMOB__RETRY__COUNT:-3}
+      Turmob__Retry__DelaySeconds: ${TURMOB__RETRY__DELAYSECONDS:-5}
+      Turmob__Logging__LogRequest: ${TURMOB__LOGGING__LOGREQUEST:-true}
+      Turmob__Logging__LogResponse: ${TURMOB__LOGGING__LOGRESPONSE:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
