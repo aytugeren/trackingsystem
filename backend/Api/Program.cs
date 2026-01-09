@@ -35,10 +35,19 @@ using Microsoft.Extensions.Options;
 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
 var builder = WebApplication.CreateBuilder(args);
-// Logging: limit console output to errors only
+// Logging: allow env-configured minimum level (fallback to Error)
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
-builder.Logging.SetMinimumLevel(LogLevel.Error);
+var logLevelRaw =
+    builder.Configuration["Logging:LogLevel:Default"] ??
+    builder.Configuration["Serilog:MinimumLevel"] ??
+    builder.Configuration["SERILOG:MINIMUMLEVEL"];
+var minimumLevel = LogLevel.Error;
+if (!string.IsNullOrWhiteSpace(logLevelRaw) && Enum.TryParse(logLevelRaw, true, out LogLevel parsedLevel))
+{
+    minimumLevel = parsedLevel;
+}
+builder.Logging.SetMinimumLevel(minimumLevel);
 builder.Logging.AddFilter("KuyumculukTakipProgrami.Infrastructure.Pricing.GoldPriceFeedService", LogLevel.Information);
 
 // Services
