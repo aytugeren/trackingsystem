@@ -30,7 +30,7 @@ export default function LoginPage() {
       localStorage.setItem('ktp_c_token', resp.token)
       localStorage.setItem('ktp_c_role', resp.role)
       localStorage.setItem('ktp_c_email', resp.email)
-      document.cookie = `ktp_c_token=${resp.token}; Max-Age=${60 * 60 * 8}; Path=/`
+      document.cookie = `ktp_c_token=${resp.token}; Max-Age=${60 * 60 * 24 * 30}; Path=/`
       try {
         window.dispatchEvent(new CustomEvent('ktp:auth-changed'))
       } catch {}

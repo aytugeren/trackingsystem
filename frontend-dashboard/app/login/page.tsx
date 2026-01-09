@@ -33,7 +33,7 @@ export default function LoginPage() {
       localStorage.setItem('ktp_role', resp.role)
       localStorage.setItem('ktp_email', resp.email)
       // also set a cookie copy for middleware/SSR (non-HttpOnly since set on client)
-      document.cookie = `ktp_token=${resp.token}; Max-Age=${60*60*8}; Path=/` // 8h
+      document.cookie = `ktp_token=${resp.token}; Max-Age=${60 * 60 * 24 * 30}; Path=/` // 30d
       try { sessionStorage.setItem('ktp_login_success', '1') } catch {}
       window.location.assign('/')
     } catch (err) {
