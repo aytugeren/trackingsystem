@@ -1,17 +1,17 @@
 "use client"
 import { useEffect, useMemo, useState } from 'react'
-import { api, type Expense, type Invoice } from '@/lib/api'
+import { api, type DashboardSummary } from '@/lib/api'
 
 export default function GlobalKaratAlert() {
-  const [invoices, setInvoices] = useState<Invoice[] | null>(null)
-  const [expenses, setExpenses] = useState<Expense[] | null>(null)
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [cfg, setCfg] = useState<{ alertThreshold: number } | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
 
   const loadTx = async () => {
     try {
-      const [inv, exp] = await Promise.all([api.listAllInvoices(), api.listAllExpenses()])
-      setInvoices(inv); setExpenses(exp)
+      const monthKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}` })()
+      const data = await api.dashboardSummary({ mode: 'monthly', months: [monthKey] })
+      setSummary(data)
     } catch {}
   }
   const loadCfg = async () => {
@@ -44,23 +44,21 @@ export default function GlobalKaratAlert() {
     }
   }, [])
 
-  const monthKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}` })()
-  const toAyar = (v: Invoice['altinAyar'] | Expense['altinAyar']): 22 | 24 | null => (v===22||v==='Ayar22')?22:(v===24||v==='Ayar24')?24:null
   const diffs = useMemo(() => {
-    const invs = (invoices||[]).filter(x => (x.kesildi ?? false) && x.tarih?.startsWith(monthKey))
-    const exps = (expenses||[]).filter(x => (x.kesildi ?? false) && x.tarih?.startsWith(monthKey))
-    let inv22=0, inv24=0, exp22=0, exp24=0
-    for (const i of invs) { const a = toAyar(i.altinAyar); if (a===22) inv22 += Number(i.gramDegeri ?? 0); else if (a===24) inv24 += Number(i.gramDegeri ?? 0) }
-    for (const e of exps) { const a = toAyar(e.altinAyar); if (a===22) exp22 += Number(e.gramDegeri ?? 0); else if (a===24) exp24 += Number(e.gramDegeri ?? 0) }
-    return { diff22: Math.max(0, inv22-exp22), diff24: Math.max(0, inv24-exp24) }
-  }, [invoices, expenses, monthKey])
+    const rows = summary?.karatRows ?? []
+    const row22 = rows.find((x) => x.ayar === 22)
+    const row24 = rows.find((x) => x.ayar === 24)
+    const diff22 = row22 ? Math.max(0, Number(row22.inv) - Number(row22.exp)) : 0
+    const diff24 = row24 ? Math.max(0, Number(row24.inv) - Number(row24.exp)) : 0
+    return { diff22, diff24 }
+  }, [summary])
 
   const show = cfg && (diffs.diff22 > (cfg.alertThreshold||0) || diffs.diff24 > (cfg.alertThreshold||0))
   if (!show) return null
   return (
     <div className="border-b bg-amber-100 border-amber-200 dark:bg-amber-950 dark:border-amber-900">
       <div className="px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
-        DÝKKAT! Faturalanan altýn ile gider altýný arasýnda fark var. Gider kesiniz.
+        DÄ°KKAT! Faturalanan altÄ±n ile gider altÄ±nÄ± arasÄ±nda fark var. Gider kesiniz.
       </div>
     </div>
   )

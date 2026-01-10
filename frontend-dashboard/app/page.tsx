@@ -1,114 +1,67 @@
 ﻿"use client"
-import Link from 'next/link'
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Dispatch, SetStateAction } from 'react'
-import { api, toDateOnlyString, type Expense, type Invoice } from '@/lib/api'
+import { api, toDateOnlyString, type DashboardSummary } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 
 export default function HomePage() {
-  const [invoices, setInvoices] = useState<Invoice[] | null>(null)
-  const [expenses, setExpenses] = useState<Expense[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
   
   const [showFullscreen, setShowFullscreen] = useState(false)
-  const [period, setPeriod] = useState<'daily' | 'monthly' | 'yearly'>('daily')
-  // Monthly multi-select support (max 3 months)
-  const __now0 = new Date()
-  const __defaultMonth = `${__now0.getFullYear()}-${String(__now0.getMonth() + 1).padStart(2, '0')}`
-  const [selectedMonths, setSelectedMonths] = useState<string[]>([__defaultMonth])
+  const [filterMode, setFilterMode] = useState<'all' | 'yearly' | 'monthly' | 'daily'>('all')
+  const [selectedYears, setSelectedYears] = useState<string[]>([])
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([])
+  const [selectedDay, setSelectedDay] = useState<string>(toDateOnlyString(new Date()))
   const [karatCfg, setKaratCfg] = useState<{ ranges: { min: number; max: number; colorHex: string }[]; alertThreshold: number } | null>(null)
   
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => { try { document.body.style.overflow = showFullscreen ? 'hidden' : '' } catch {} return () => { try { document.body.style.overflow = '' } catch {} } }, [showFullscreen])
 
+  const fetchSummary = useCallback(async () => {
+    const params = {
+      mode: filterMode,
+      years: selectedYears,
+      months: selectedMonths,
+      day: filterMode === 'daily' ? selectedDay : undefined,
+    }
+    return api.dashboardSummary(params)
+  }, [filterMode, selectedYears, selectedMonths, selectedDay])
+
   useEffect(() => {
-    let mounted = true
-    async function load() {
+    let alive = true
+    const load = async () => {
       try {
-        setError(null)
-        const [inv, exp] = await Promise.all([api.listAllInvoices(), api.listAllExpenses()])
-        if (!mounted) return
-        setInvoices(inv)
-        setExpenses(exp)
+        const data = await fetchSummary()
+        if (!alive) return
+        setSummary(data)
       } catch {
-        if (!mounted) return
-        setError('Veri alınamadı')
+        if (!alive) return
       }
     }
     load()
-    return () => { mounted = false }
-  }, [])
+    return () => { alive = false }
+  }, [fetchSummary])
   // Auto-refresh while fullscreen overlay is open (every 10s)
   useEffect(() => {
     if (!showFullscreen) return
     let alive = true
     const fetchNow = async () => {
       try {
-        const [inv, exp] = await Promise.all([api.listAllInvoices(), api.listAllExpenses()])
+        const data = await fetchSummary()
         if (!alive) return
-        setInvoices(inv)
-        setExpenses(exp)
+        setSummary(data)
       } catch {}
     }
     fetchNow()
     const h = setInterval(fetchNow, 10000)
     return () => { alive = false; clearInterval(h) }
-  }, [showFullscreen])
+  }, [showFullscreen, fetchSummary])
 
-  const now = new Date()
-  const todayKey = toDateOnlyString(now)
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const yearKey = `${now.getFullYear()}-`
-
-  const matchByPeriod = useCallback((d: string) => {
-    switch (period) {
-      case 'yearly': return d.startsWith(yearKey)
-      case 'monthly': return d.startsWith(monthKey)
-      default: return d.startsWith(todayKey)
-    }
-  }, [period, todayKey, monthKey, yearKey])
-
-    const { income, outgo, net } = useMemo(() => {
-    const invs = (invoices || []).filter((x) => matchByPeriod(x.tarih))
-    const exps = (expenses || []).filter((x) => matchByPeriod(x.tarih))
-    const incomeSum = invs.reduce((a, b) => a + Number(b.tutar), 0)
-    const outgoSum = exps.reduce((a, b) => a + Number(b.tutar), 0)
-    return { income: incomeSum, outgo: outgoSum, net: incomeSum - outgoSum }
-  }, [invoices, expenses, matchByPeriod])
-
-  const detailed = useMemo(() => {
-    const invs = (invoices || []).filter((x) => matchByPeriod(x.tarih))
-    const exps = (expenses || []).filter((x) => matchByPeriod(x.tarih))
-    const invGrams = invs.reduce((a, b) => a + Number(b.gramDegeri ?? 0), 0)
-    const expGrams = exps.reduce((a, b) => a + Number(b.gramDegeri ?? 0), 0)
-    const pendingInv = invs.filter((x) => !(x.kesildi ?? false)).length
-    const pendingExp = exps.filter((x) => !(x.kesildi ?? false)).length
-    return { invGrams, expGrams, pendingInv, pendingExp }
-  }, [invoices, expenses, matchByPeriod])
-
-  const cashierStats = useMemo(() => {
-    const invs = (invoices || []).filter((x) => matchByPeriod(x.tarih) && (x.kesildi ?? false))
-    const exps = (expenses || []).filter((x) => matchByPeriod(x.tarih) && (x.kesildi ?? false))
-    const map = new Map<string, { invoice: number; expense: number }>()
-    for (const inv of invs) {
-      const key = (inv.kasiyerAdSoyad || 'Bilinmiyor') as string
-      const cur = map.get(key) || { invoice: 0, expense: 0 }
-      cur.invoice += 1
-      map.set(key, cur)
-    }
-    for (const exp of exps) {
-      const key = (exp.kasiyerAdSoyad || 'Bilinmiyor') as string
-      const cur = map.get(key) || { invoice: 0, expense: 0 }
-      cur.expense += 1
-      map.set(key, cur)
-    }
-    return Array.from(map.entries()).sort((a, b) => (b[1].invoice + b[1].expense) - (a[1].invoice + a[1].expense))
-  }, [invoices, expenses, matchByPeriod])
   
   function openFullscreen() {
     setShowFullscreen(true)
@@ -120,35 +73,18 @@ export default function HomePage() {
     } catch {}
   }
 
-  // Helpers for monthly multi-select filtering
-  const matchByMonths = useCallback((dateStr: string) => {
-    if (period !== 'monthly') return matchByPeriod(dateStr)
-    const months = (selectedMonths && selectedMonths.length > 0) ? selectedMonths : [monthKey]
-    return months.some((m) => dateStr.startsWith(m))
-  }, [period, selectedMonths, monthKey, matchByPeriod])
+  const availableYears = summary?.availableYears ?? []
+  const availableMonths = summary?.availableMonths ?? []
 
-  // 22/24 ayar özetleri (sadece kesilmiş işlemler)
-    const karatSummary = useMemo(() => {
-    const invs = (invoices || []).filter((x) => matchByMonths(x.tarih) && (x.kesildi ?? false))
-    const exps = (expenses || []).filter((x) => matchByMonths(x.tarih) && (x.kesildi ?? false))
-    const toAyarNum = (v: Invoice['altinAyar'] | Expense['altinAyar']): 22 | 24 | null => {
-      if (v === 22 || v === 'Ayar22') return 22
-      if (v === 24 || v === 'Ayar24') return 24
-      return null
-    }
-    let inv22 = 0, inv24 = 0, exp22 = 0, exp24 = 0
-    for (const i of invs) {
-      const a = toAyarNum(i.altinAyar)
-      if (a === 22) inv22 += Number(i.gramDegeri ?? 0)
-      else if (a === 24) inv24 += Number(i.gramDegeri ?? 0)
-    }
-    for (const e of exps) {
-      const a = toAyarNum(e.altinAyar)
-      if (a === 22) exp22 += Number(e.gramDegeri ?? 0)
-      else if (a === 24) exp24 += Number(e.gramDegeri ?? 0)
-    }
-    return { inv22, inv24, exp22, exp24 }
-  }, [invoices, expenses, matchByMonths])  // Load karat settings
+  useEffect(() => {
+    if (selectedYears.length === 0) return
+    setSelectedMonths((prev) => prev.filter((m) => selectedYears.includes(m.slice(0, 4))))
+  }, [selectedYears])
+
+  const karatRows = summary?.karatRows ?? []
+  const karatLabelFor = (ayar: number) => (Number.isFinite(ayar) ? `${ayar} Ayar` : 'Bilinmiyor')
+
+  // Load karat settings
   useEffect(() => {
     let mounted = true
     async function loadKarat() {
@@ -183,19 +119,20 @@ export default function HomePage() {
     return r?.colorHex
   }
 
-  const diff22 = Math.max(0, karatSummary.inv22 - karatSummary.exp22)
-  const diff24 = Math.max(0, karatSummary.inv24 - karatSummary.exp24)
-  const showAlert = karatCfg ? (diff22 > karatCfg.alertThreshold || diff24 > karatCfg.alertThreshold) : false
+  const formatDiff = (diff: number) => {
+    const sign = diff > 0 ? '+' : ''
+    return `${sign}${diff.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`
+  }
 
   return (
     <div className="space-y-8">
       <section className="rounded-xl border bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))] p-6 shadow-sm transition-colors duration-200">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Yönetim Paneli</h1>
-            <p className="text-sm text-muted-foreground">Fatura ve giderlerinizi kolayca görüntüleyin.</p>
+            <p className="text-sm text-muted-foreground">Tüm yıllar dahil özet ve detaylı karat kırılımı.</p>
           </div>
-          <div className="flex flex-col gap-3 items-end">            <div>
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               className="h-10 tracking-tight text-[color:hsl(var(--card-foreground))] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))]"
               variant="outline"
@@ -203,160 +140,141 @@ export default function HomePage() {
             >
               Tam Ekran
             </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Dönem:</span>
-              <button
-                className={`px-3 py-2 rounded border ${period === 'daily' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
-                onClick={() => setPeriod('daily')}
-              >
-                Günlük
-              </button>
-              <button
-                className={`px-3 py-2 rounded border ${period === 'monthly' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
-                onClick={() => setPeriod('monthly')}
-              >
-                Aylık
-              </button>
-              <button
-                className={`px-3 py-2 rounded border ${period === 'yearly' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
-                onClick={() => setPeriod('yearly')}
-              >
-                Yıllık
-              </button>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Link href="/invoices">
-                <Button className="h-6 tracking-tight text-[color:hsl(var(--card-foreground))] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))]">Faturalar</Button>
-              </Link>
-              <Link href="/expenses">
-                <Button
-                  className="h-6 tracking-tight text-[color:hsl(var(--card-foreground))] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))]"
-                  variant="outline"
-                >
-                  Giderler
-                </Button>
-              </Link>
-            </div>
           </div>
+        </div>
+        <div className="mt-5 flex flex-col gap-4 rounded-lg border border-dashed border-[color:hsl(var(--border))] p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Görünüm:</span>
+            <button
+              className={`px-3 py-2 rounded border ${filterMode === 'all' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+              onClick={() => setFilterMode('all')}
+            >
+              Tüm Yıllar
+            </button>
+            <button
+              className={`px-3 py-2 rounded border ${filterMode === 'yearly' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+              onClick={() => setFilterMode('yearly')}
+            >
+              Yıl Bazlı
+            </button>
+            <button
+              className={`px-3 py-2 rounded border ${filterMode === 'monthly' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+              onClick={() => setFilterMode('monthly')}
+            >
+              Ay Bazlı
+            </button>
+            <button
+              className={`px-3 py-2 rounded border ${filterMode === 'daily' ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+              onClick={() => setFilterMode('daily')}
+            >
+              Günlük
+            </button>
+          </div>
+          {(filterMode === 'yearly' || filterMode === 'monthly') && (
+            <div className="flex flex-col gap-2">
+              <div className="text-sm text-muted-foreground">Yıllar</div>
+              <YearMultiSelect
+                years={availableYears}
+                selectedYears={selectedYears}
+                setSelectedYears={setSelectedYears}
+                onClear={() => setSelectedYears([])}
+              />
+            </div>
+          )}
+          {filterMode === 'monthly' && (
+            <div className="flex flex-col gap-2">
+              <div className="text-sm text-muted-foreground">Aylar (çoklu seçim)</div>
+              <MonthMultiSelect
+                months={availableMonths}
+                selectedMonths={selectedMonths}
+                setSelectedMonths={setSelectedMonths}
+                onClear={() => setSelectedMonths([])}
+              />
+            </div>
+          )}
+          {filterMode === 'daily' && (
+            <div className="flex flex-col gap-2">
+              <div className="text-sm text-muted-foreground">Tarih</div>
+              <input
+                type="date"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+                className="h-10 max-w-[220px] rounded border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))] px-3 text-sm"
+              />
+            </div>
+          )}
         </div>
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Seçili Dönem Özeti</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <SummaryCard title="Toplam Gelir" emoji="💰" value={invoices ? income : null} error={error} />
-          <SummaryCard title="Toplam Gider" emoji="💸" value={expenses ? outgo : null} error={error} />
-          <SummaryCard title="Net Kazanç" emoji="📈" value={invoices && expenses ? net : null} error={error} />
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Bekleyen İşlemler</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {!summary ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <>
+              <Card className="transition-all animate-in fade-in-50">
+                <CardHeader className="py-3"><CardTitle className="text-base">Bekleyen Fatura</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-semibold tabular-nums">{(summary?.pendingInvoices ?? 0).toLocaleString('tr-TR')}</div>
+                </CardContent>
+              </Card>
+              <Card className="transition-all animate-in fade-in-50">
+                <CardHeader className="py-3"><CardTitle className="text-base">Bekleyen Gider</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-semibold tabular-nums">{(summary?.pendingExpenses ?? 0).toLocaleString('tr-TR')}</div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Detaylı Özet</h2>
-        <div className="grid gap-4 sm:grid-cols-4">
-          <Card className="transition-all animate-in fade-in-50">
-            <CardHeader className="py-3"><CardTitle className="text-base">Faturalanan Altın (gr)</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-2xl font-semibold tabular-nums">{detailed.invGrams.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-            </CardContent>
-          </Card>
-          <Card className="transition-all animate-in fade-in-50">
-            <CardHeader className="py-3"><CardTitle className="text-base">Gider Altını (gr)</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-2xl font-semibold tabular-nums">{detailed.expGrams.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-            </CardContent>
-          </Card>
-          <Card className="transition-all animate-in fade-in-50">
-            <CardHeader className="py-3"><CardTitle className="text-base">Bekleyen Fatura</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-2xl font-semibold tabular-nums">{detailed.pendingInv.toLocaleString('tr-TR')}</div>
-            </CardContent>
-          </Card>
-          <Card className="transition-all animate-in fade-in-50">
-            <CardHeader className="py-3"><CardTitle className="text-base">Bekleyen Gider</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-2xl font-semibold tabular-nums">{detailed.pendingExp.toLocaleString('tr-TR')}</div>
-            </CardContent>
-          </Card>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">Karat Bazlı Özet (gr)</h2>
+          <span className="text-xs text-muted-foreground">Yeni ürünler otomatik eklenir</span>
         </div>
-      </section>
-
-      {period === 'monthly' && (
-        <section>
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Ay Seçimi</h2>
-          <MonthMultiSelect selectedMonths={selectedMonths} setSelectedMonths={setSelectedMonths} />
-        </section>
-      )}
-
-      {period === 'monthly' && (
-        <section>
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Aylık Karat Özeti (22/24 Ayar)</h2>
-          <div className="grid gap-4 sm:grid-cols-4">
-            <Card className="transition-all animate-in fade-in-50">
-              <CardHeader className="py-3"><CardTitle className="text-base">22 Ayar - Fatura (gr)</CardTitle></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold tabular-nums">{karatSummary.inv22.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-              </CardContent>
-            </Card>
-            <Card className="transition-all animate-in fade-in-50">
-              <CardHeader className="py-3"><CardTitle className="text-base">22 Ayar - Gider (gr)</CardTitle></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold tabular-nums">{karatSummary.exp22.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-              </CardContent>
-            </Card>
-            <Card className="transition-all animate-in fade-in-50">
-              <CardHeader className="py-3"><CardTitle className="text-base">24 Ayar - Fatura (gr)</CardTitle></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold tabular-nums">{karatSummary.inv24.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-              </CardContent>
-            </Card>
-            <Card className="transition-all animate-in fade-in-50">
-              <CardHeader className="py-3"><CardTitle className="text-base">24 Ayar - Gider (gr)</CardTitle></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold tabular-nums">{karatSummary.exp24.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Card className="transition-all animate-in fade-in-50" style={{ backgroundColor: colorForDiff(diff22) }}>
-              <CardHeader className="py-3"><CardTitle className="text-base">22 Ayar - Fark (gr)</CardTitle></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold tabular-nums">{diff22.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-              </CardContent>
-            </Card>
-            <Card className="transition-all animate-in fade-in-50" style={{ backgroundColor: colorForDiff(diff24) }}>
-              <CardHeader className="py-3"><CardTitle className="text-base">24 Ayar - Fark (gr)</CardTitle></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold tabular-nums">{diff24.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-      )}
-
-      <section>
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Kasiyer Bazlı İstatistikler</h2>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {(!invoices && !expenses) ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {!summary ? (
             <Skeleton className="h-32 w-full" />
-          ) : cashierStats.length === 0 ? (
+          ) : karatRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">Kayıt bulunamadı.</p>
-          ) : cashierStats.map(([name, s]) => (
-            <Card key={name} className="transition-all animate-in fade-in-50">
-              <CardHeader className="py-3">
-                <CardTitle className="text-base">{name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm text-muted-foreground">Fatura</div>
-                <div className="text-2xl font-semibold tabular-nums">{s.invoice}</div>
-                <Separator className="my-2" />
-                <div className="text-sm text-muted-foreground">Gider</div>
-                <div className="text-2xl font-semibold tabular-nums">{s.expense}</div>
-              </CardContent>
-            </Card>
-          ))}
+          ) : karatRows.map((row) => {
+            const diff = row.inv - row.exp
+            const highlight = diff < 0 && Boolean(colorForDiff(Math.abs(diff)))
+            return (
+              <Card
+                key={row.ayar}
+                className={`transition-all animate-in fade-in-50 ${highlight ? 'text-black border-black/10' : ''}`}
+                style={{ backgroundColor: diff < 0 ? colorForDiff(Math.abs(diff)) : undefined }}
+              >
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base">{karatLabelFor(row.ayar)}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div>
+                    <div className={`text-sm ${highlight ? 'text-black/60' : 'text-muted-foreground'}`}>Faturalanan Tutar (gr)</div>
+                    <div className="text-2xl font-semibold tabular-nums">{row.inv.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <Separator className={highlight ? 'bg-black/10' : ''} />
+                  <div>
+                    <div className={`text-sm ${highlight ? 'text-black/60' : 'text-muted-foreground'}`}>Gider Altını (gr)</div>
+                    <div className="text-2xl font-semibold tabular-nums">{row.exp.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <Separator className={highlight ? 'bg-black/10' : ''} />
+                  <div>
+                    <div className={`text-sm ${highlight ? 'text-black/60' : 'text-muted-foreground'}`}>Aradaki Fark (gr)</div>
+                    <div className="text-2xl font-semibold tabular-nums">{formatDiff(diff)}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
-      </section>      {mounted && showFullscreen && createPortal((
+      </section>
+
+      {mounted && showFullscreen && createPortal((
         <div
           className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black text-white"
           role="dialog"
@@ -374,11 +292,11 @@ export default function HomePage() {
             <div className="grid gap-8 sm:grid-cols-2 w-full max-w-4xl">
               <div className="rounded-xl bg-white/10 backdrop-blur p-8 shadow-lg border border-white/20">
                 <div className="text-sm text-white/70 mb-2">Bekleyen Fatura</div>
-                <div className="text-6xl font-bold tabular-nums">{(invoices || []).filter(x => !(x.kesildi ?? false)).length.toLocaleString('tr-TR')}</div>
+                <div className="text-6xl font-bold tabular-nums">{(summary?.pendingInvoices ?? 0).toLocaleString('tr-TR')}</div>
               </div>
               <div className="rounded-xl bg-white/10 backdrop-blur p-8 shadow-lg border border-white/20">
                 <div className="text-sm text-white/70 mb-2">Bekleyen Gider</div>
-                <div className="text-6xl font-bold tabular-nums">{(expenses || []).filter(x => !(x.kesildi ?? false)).length.toLocaleString('tr-TR')}</div>
+                <div className="text-6xl font-bold tabular-nums">{(summary?.pendingExpenses ?? 0).toLocaleString('tr-TR')}</div>
               </div>
             </div>
             <div className="text-white/50 text-sm">Ekrana dokunarak çıkabilirsiniz • 10 sn&#39;de bir güncellenir</div>
@@ -390,80 +308,88 @@ export default function HomePage() {
   )
 }
 
-function MonthMultiSelect({ selectedMonths, setSelectedMonths }: { selectedMonths: string[]; setSelectedMonths: Dispatch<SetStateAction<string[]>> }) {
-  // Build last 12 months including current
-  const items: { key: string; label: string }[] = []
-  const now = new Date()
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const label = d.toLocaleString('tr-TR', { month: 'long', year: 'numeric' })
-    items.push({ key, label })
+function YearMultiSelect({
+  years,
+  selectedYears,
+  setSelectedYears,
+  onClear,
+}: {
+  years: string[]
+  selectedYears: string[]
+  setSelectedYears: Dispatch<SetStateAction<string[]>>
+  onClear: () => void
+}) {
+  const toggle = (y: string) => {
+    setSelectedYears((prev) => (prev.includes(y) ? prev.filter((x) => x !== y) : [...prev, y]))
   }
-  const toggle = (k: string) => {
-    setSelectedMonths((prev) => {
-      const has = prev.includes(k)
-      if (has) return prev.filter((x) => x !== k)
-      if (prev.length >= 3) return prev // max 3
-      return [...prev, k]
-    })
-  }
-  const isDisabled = (k: string) => !selectedMonths.includes(k) && selectedMonths.length >= 3
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {items.map((m) => {
-        const active = selectedMonths.includes(m.key)
+      {years.length === 0 ? (
+        <span className="text-sm text-muted-foreground">Yıl verisi bulunamadı.</span>
+      ) : years.map((y) => {
+        const active = selectedYears.includes(y)
         return (
           <button
-            key={m.key}
-            title={m.label}
-            className={`px-2 py-1 rounded border text-sm ${active ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'} ${isDisabled(m.key) ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => !isDisabled(m.key) && toggle(m.key)}
+            key={y}
+            className={`px-3 py-1.5 rounded border text-sm ${active ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+            onClick={() => toggle(y)}
           >
-            {m.key}
+            {y}
           </button>
         )
       })}
-      <span className="text-xs text-muted-foreground">(En fazla 3 ay seçilebilir)</span>
+      <button
+        className="px-3 py-1.5 rounded border text-sm bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]"
+        onClick={onClear}
+      >
+        Tümünü Göster
+      </button>
     </div>
   )
 }
 
-function SummaryCard({ title, value, error, emoji }: { title: string; value: number | null; error: string | null; emoji: string }) {
+function MonthMultiSelect({
+  months,
+  selectedMonths,
+  setSelectedMonths,
+  onClear,
+}: {
+  months: string[]
+  selectedMonths: string[]
+  setSelectedMonths: Dispatch<SetStateAction<string[]>>
+  onClear: () => void
+}) {
+  const toggle = (k: string) => {
+    setSelectedMonths((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]))
+  }
+  const labelFor = (key: string) => {
+    const [y, m] = key.split('-')
+    const d = new Date(Number(y), Number(m) - 1, 1)
+    return d.toLocaleString('tr-TR', { month: 'long', year: 'numeric' })
+  }
   return (
-    <Card className="transition-all animate-in fade-in-50">
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="text-base flex items-center gap-2">
-          <span className="text-xl">{emoji}</span>
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {error ? (
-          <p className="text-sm text-red-600">{error}</p>
-        ) : value === null ? (
-          <Skeleton className="h-8 w-40" />
-        ) : (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Toplam</span>
-            <p className="text-2xl font-semibold tabular-nums">{value.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-wrap items-center gap-2">
+      {months.length === 0 ? (
+        <span className="text-sm text-muted-foreground">Ay verisi bulunamadı.</span>
+      ) : months.map((m) => {
+        const active = selectedMonths.includes(m)
+        return (
+          <button
+            key={m}
+            title={labelFor(m)}
+            className={`px-2 py-1 rounded border text-sm ${active ? 'bg-black text-white' : 'bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]'}`}
+            onClick={() => toggle(m)}
+          >
+            {m}
+          </button>
+        )
+      })}
+      <button
+        className="px-2 py-1 rounded border text-sm bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))]"
+        onClick={onClear}
+      >
+        Tümünü Göster
+      </button>
+    </div>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

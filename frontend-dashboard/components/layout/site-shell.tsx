@@ -9,7 +9,7 @@ import { IconMenu } from '@/components/ui/icons'
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
@@ -91,9 +91,6 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
               <button onClick={logout} className="h-9 inline-flex items-center rounded-md border px-3 text-sm hover:bg-accent">
                 Çıkış
               </button>
-              <Link href="/invoices" className="hidden sm:inline-flex h-9 items-center rounded-md border px-3 text-sm hover:bg-accent">
-                Hızlı Erişim: Faturalar
-              </Link>
             </div>
           </div>
         </header>

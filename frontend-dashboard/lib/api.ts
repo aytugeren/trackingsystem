@@ -49,6 +49,19 @@ export type Expense = {
   odemeSekli: number | 'Havale' | 'KrediKarti'
 }
 
+export type DashboardSummary = {
+  income: number
+  outgo: number
+  net: number
+  invGrams: number
+  expGrams: number
+  karatRows: { ayar: number; inv: number; exp: number }[]
+  availableYears: string[]
+  availableMonths: string[]
+  pendingInvoices: number
+  pendingExpenses: number
+}
+
 export type Customer = {
   id: string
   adSoyad: string
@@ -118,6 +131,15 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const api = {
+  dashboardSummary: (params?: { mode?: string; years?: string[]; months?: string[]; day?: string }) => {
+    const search = new URLSearchParams()
+    if (params?.mode) search.set('mode', params.mode)
+    if (params?.years && params.years.length > 0) search.set('years', params.years.join(','))
+    if (params?.months && params.months.length > 0) search.set('months', params.months.join(','))
+    if (params?.day) search.set('day', params.day)
+    const suffix = search.toString()
+    return getJson<DashboardSummary>(`/api/dashboard/summary${suffix ? `?${suffix}` : ''}`)
+  },
   listInvoices: (page = 1, pageSize = 20) => getJson<Paginated<Invoice>>(`/api/invoices?page=${page}&pageSize=${pageSize}`),
   listExpenses: (page = 1, pageSize = 20) => getJson<Paginated<Expense>>(`/api/expenses?page=${page}&pageSize=${pageSize}`),
   async listAllInvoices(): Promise<Invoice[]> {

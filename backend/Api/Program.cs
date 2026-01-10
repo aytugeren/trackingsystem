@@ -861,6 +861,191 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
     return Results.Ok(cached);
 }).WithTags("Expenses").RequireAuthorization();
 
+app.MapGet("/api/dashboard/summary", async (
+    string? mode,
+    string? years,
+    string? months,
+    string? day,
+    KtpDbContext db,
+    IMemoryCache cache,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    // Permission: admin or role.CanUseInvoices + role.CanUseExpenses
+    if (!http.User.IsInRole(Role.Yonetici.ToString()))
+    {
+        var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? http.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, ct);
+        if (u?.AssignedRoleId is Guid rid)
+        {
+            var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid, ct);
+            if (r?.CanUseInvoices != true || r?.CanUseExpenses != true) return Results.Forbid();
+        }
+        else return Results.Forbid();
+    }
+
+    var normalizedMode = string.IsNullOrWhiteSpace(mode) ? "all" : mode.Trim().ToLowerInvariant();
+    if (normalizedMode != "all" && normalizedMode != "yearly" && normalizedMode != "monthly" && normalizedMode != "daily")
+    {
+        normalizedMode = "all";
+    }
+
+    var yearList = (years ?? string.Empty)
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(x => int.TryParse(x, out var y) ? (int?)y : null)
+        .Where(x => x.HasValue && x.Value > 0)
+        .Select(x => x!.Value)
+        .Distinct()
+        .OrderBy(x => x)
+        .ToList();
+    var yearSet = new HashSet<int>(yearList);
+
+    var monthKeys = new HashSet<int>();
+    var monthList = (months ?? string.Empty)
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    foreach (var m in monthList)
+    {
+        var parts = m.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2) continue;
+        if (!int.TryParse(parts[0], out var y) || !int.TryParse(parts[1], out var mo)) continue;
+        if (y <= 0 || mo < 1 || mo > 12) continue;
+        monthKeys.Add((y * 100) + mo);
+    }
+
+    DateOnly? dayFilter = null;
+    if (!string.IsNullOrWhiteSpace(day) && DateOnly.TryParse(day, out var parsedDay))
+    {
+        dayFilter = parsedDay;
+    }
+
+    var yearsKey = yearSet.Count > 0 ? string.Join("-", yearSet.OrderBy(x => x)) : "all";
+    var monthsKey = monthKeys.Count > 0 ? string.Join("-", monthKeys.OrderBy(x => x)) : "all";
+    var dayKey = dayFilter.HasValue ? dayFilter.Value.ToString("yyyy-MM-dd") : "all";
+    var cacheKey = $"dashboard:summary:{normalizedMode}:{yearsKey}:{monthsKey}:{dayKey}";
+
+    if (!cache.TryGetValue(cacheKey, out object? cached))
+    {
+        IQueryable<Invoice> invQuery = db.Invoices.AsNoTracking();
+        IQueryable<Expense> expQuery = db.Expenses.AsNoTracking();
+
+        switch (normalizedMode)
+        {
+            case "daily":
+                if (dayFilter.HasValue)
+                {
+                    invQuery = invQuery.Where(x => x.Tarih == dayFilter.Value);
+                    expQuery = expQuery.Where(x => x.Tarih == dayFilter.Value);
+                }
+                break;
+            case "monthly":
+                if (monthKeys.Count > 0)
+                {
+                    invQuery = invQuery.Where(x => monthKeys.Contains((x.Tarih.Year * 100) + x.Tarih.Month));
+                    expQuery = expQuery.Where(x => monthKeys.Contains((x.Tarih.Year * 100) + x.Tarih.Month));
+                }
+                else if (yearSet.Count > 0)
+                {
+                    invQuery = invQuery.Where(x => yearSet.Contains(x.Tarih.Year));
+                    expQuery = expQuery.Where(x => yearSet.Contains(x.Tarih.Year));
+                }
+                break;
+            case "yearly":
+                if (yearSet.Count > 0)
+                {
+                    invQuery = invQuery.Where(x => yearSet.Contains(x.Tarih.Year));
+                    expQuery = expQuery.Where(x => yearSet.Contains(x.Tarih.Year));
+                }
+                break;
+        }
+
+        var income = await invQuery.Select(x => (decimal?)x.Tutar).SumAsync(ct) ?? 0m;
+        var outgo = await expQuery.Select(x => (decimal?)x.Tutar).SumAsync(ct) ?? 0m;
+        var invGrams = await invQuery.Select(x => (decimal?)x.GramDegeri).SumAsync(ct) ?? 0m;
+        var expGrams = await expQuery.Select(x => (decimal?)x.GramDegeri).SumAsync(ct) ?? 0m;
+
+        var invKarat = await invQuery
+            .Where(x => x.Kesildi)
+            .GroupBy(x => x.AltinAyar)
+            .Select(g => new { ayar = (int)g.Key, gram = g.Sum(x => (decimal?)x.GramDegeri) ?? 0m })
+            .ToListAsync(ct);
+        var expKarat = await expQuery
+            .Where(x => x.Kesildi)
+            .GroupBy(x => x.AltinAyar)
+            .Select(g => new { ayar = (int)g.Key, gram = g.Sum(x => (decimal?)x.GramDegeri) ?? 0m })
+            .ToListAsync(ct);
+
+        var karatMap = new Dictionary<int, (decimal inv, decimal exp)>();
+        foreach (var row in invKarat)
+        {
+            if (!karatMap.TryGetValue(row.ayar, out var cur)) cur = (0m, 0m);
+            karatMap[row.ayar] = (row.gram, cur.exp);
+        }
+        foreach (var row in expKarat)
+        {
+            if (!karatMap.TryGetValue(row.ayar, out var cur)) cur = (0m, 0m);
+            karatMap[row.ayar] = (cur.inv, row.gram);
+        }
+        var karatRows = karatMap
+            .Select(x => new { ayar = x.Key, inv = x.Value.inv, exp = x.Value.exp })
+            .OrderByDescending(x => x.ayar)
+            .ToList();
+
+        var invYears = await db.Invoices.AsNoTracking().Select(x => x.Tarih.Year).Distinct().ToListAsync(ct);
+        var expYears = await db.Expenses.AsNoTracking().Select(x => x.Tarih.Year).Distinct().ToListAsync(ct);
+        var availableYears = invYears.Concat(expYears)
+            .Distinct()
+            .OrderByDescending(x => x)
+            .Select(x => x.ToString())
+            .ToList();
+
+        IQueryable<Invoice> invMonthQuery = db.Invoices.AsNoTracking();
+        IQueryable<Expense> expMonthQuery = db.Expenses.AsNoTracking();
+        if (yearSet.Count > 0)
+        {
+            invMonthQuery = invMonthQuery.Where(x => yearSet.Contains(x.Tarih.Year));
+            expMonthQuery = expMonthQuery.Where(x => yearSet.Contains(x.Tarih.Year));
+        }
+        var invMonths = await invMonthQuery
+            .Select(x => new { x.Tarih.Year, x.Tarih.Month })
+            .Distinct()
+            .ToListAsync(ct);
+        var expMonths = await expMonthQuery
+            .Select(x => new { x.Tarih.Year, x.Tarih.Month })
+            .Distinct()
+            .ToListAsync(ct);
+        var monthSet = new HashSet<int>();
+        foreach (var m in invMonths) monthSet.Add((m.Year * 100) + m.Month);
+        foreach (var m in expMonths) monthSet.Add((m.Year * 100) + m.Month);
+        var availableMonths = monthSet
+            .OrderByDescending(x => x)
+            .Select(x => $"{x / 100}-{(x % 100).ToString().PadLeft(2, '0')}")
+            .ToList();
+
+        var pendingInvoices = await db.Invoices.AsNoTracking().CountAsync(x => !x.Kesildi, ct);
+        var pendingExpenses = await db.Expenses.AsNoTracking().CountAsync(x => !x.Kesildi, ct);
+
+        cached = new
+        {
+            income,
+            outgo,
+            net = income - outgo,
+            invGrams,
+            expGrams,
+            karatRows,
+            availableYears,
+            availableMonths,
+            pendingInvoices,
+            pendingExpenses
+        };
+        cache.Set(cacheKey, cached, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10) });
+    }
+
+    return Results.Ok(cached);
+}).WithTags("Dashboard").RequireAuthorization();
+
 // Cashier: create draft invoice with definitive, gapless SiraNo
 app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbContext db, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
 {

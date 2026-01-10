@@ -1,17 +1,16 @@
 "use client"
 import { useEffect, useMemo, useState } from 'react'
-import { api, type Expense, type Invoice } from '@/lib/api'
+import { api, type DashboardSummary } from '@/lib/api'
 
 export default function GlobalKaratAlertFixed() {
-  const [invoices, setInvoices] = useState<Invoice[] | null>(null)
-  const [expenses, setExpenses] = useState<Expense[] | null>(null)
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [cfg, setCfg] = useState<{ alertThreshold: number } | null>(null)
   const [refreshTick, setRefreshTick] = useState(0)
 
   const loadTx = async () => {
     try {
-      const [inv, exp] = await Promise.all([api.listAllInvoices(), api.listAllExpenses()])
-      setInvoices(inv); setExpenses(exp)
+      const data = await api.dashboardSummary({ mode: 'all' })
+      setSummary(data)
     } catch {}
   }
   const loadCfg = async () => {
@@ -44,15 +43,14 @@ export default function GlobalKaratAlertFixed() {
     }
   }, [])
 
-  const toAyar = (v: Invoice['altinAyar'] | Expense['altinAyar']): 22 | 24 | null => (v===22||v==='Ayar22')?22:(v===24||v==='Ayar24')?24:null
   const diffs = useMemo(() => {
-    const invs = (invoices||[]).filter(x => (x.kesildi ?? false))
-    const exps = (expenses||[]).filter(x => (x.kesildi ?? false))
-    let inv22=0, inv24=0, exp22=0, exp24=0
-    for (const i of invs) { const a = toAyar(i.altinAyar); if (a===22) inv22 += Number(i.gramDegeri ?? 0); else if (a===24) inv24 += Number(i.gramDegeri ?? 0) }
-    for (const e of exps) { const a = toAyar(e.altinAyar); if (a===22) exp22 += Number(e.gramDegeri ?? 0); else if (a===24) exp24 += Number(e.gramDegeri ?? 0) }
-    return { diff22: Math.max(0, inv22-exp22), diff24: Math.max(0, inv24-exp24) }
-  }, [invoices, expenses])
+    const rows = summary?.karatRows ?? []
+    const row22 = rows.find((x) => x.ayar === 22)
+    const row24 = rows.find((x) => x.ayar === 24)
+    const diff22 = row22 ? Math.max(0, Number(row22.inv) - Number(row22.exp)) : 0
+    const diff24 = row24 ? Math.max(0, Number(row24.inv) - Number(row24.exp)) : 0
+    return { diff22, diff24 }
+  }, [summary])
 
   const thr = cfg?.alertThreshold || 0
   const trig22 = diffs.diff22 > thr
