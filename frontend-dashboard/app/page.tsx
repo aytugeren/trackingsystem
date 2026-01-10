@@ -241,7 +241,7 @@ export default function HomePage() {
           ) : karatRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">Kayıt bulunamadı.</p>
           ) : karatRows.map((row) => {
-            const diff = row.inv - row.exp
+            const diff = row.exp - row.inv
             const highlight = diff < 0 && Boolean(colorForDiff(Math.abs(diff)))
             return (
               <Card
