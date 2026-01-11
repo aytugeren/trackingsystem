@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Application.Interfaces;
+using KuyumculukTakipProgrami.Application.Gold;
 using KuyumculukTakipProgrami.Domain.Entities.Market;
 using System.Globalization;
 using System.Threading;
@@ -171,6 +172,9 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"TownName\" varchar(100) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"PostalCode\" varchar(20) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"CompanyInfos\" ADD COLUMN IF NOT EXISTS \"TaxOfficeName\" varchar(100) NULL;");
+        // Opening inventory table (accounting baseline)
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"GoldOpeningInventories\" (\"Id\" uuid PRIMARY KEY, \"Date\" timestamptz NOT NULL, \"Karat\" integer NOT NULL, \"Gram\" numeric(18,3) NOT NULL, \"Description\" varchar(250) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now());");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_GoldOpeningInventories_Karat\" ON \"GoldOpeningInventories\" (\"Karat\");");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"Status\" integer NOT NULL DEFAULT 0;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
@@ -1045,6 +1049,50 @@ app.MapGet("/api/dashboard/summary", async (
 
     return Results.Ok(cached);
 }).WithTags("Dashboard").RequireAuthorization();
+
+app.MapGet("/api/gold/stock", async (
+    IGoldStockService stockService,
+    KtpDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    // Permission: admin or role.CanUseInvoices + role.CanUseExpenses
+    if (!http.User.IsInRole(Role.Yonetici.ToString()))
+    {
+        var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? http.User.FindFirst("sub")?.Value;
+        if (!Guid.TryParse(sub, out var uid)) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == uid, ct);
+        if (u?.AssignedRoleId is Guid rid)
+        {
+            var r = await db.Roles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == rid, ct);
+            if (r?.CanUseInvoices != true || r?.CanUseExpenses != true) return Results.Forbid();
+        }
+        else return Results.Forbid();
+    }
+
+    var rows = await stockService.GetStockAsync(ct);
+    return Results.Ok(rows);
+}).WithTags("Gold").RequireAuthorization();
+
+app.MapPost("/api/gold/opening-inventory", async (
+    GoldOpeningInventoryRequest req,
+    IGoldStockService stockService,
+    KtpDbContext db,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+
+    if (req.Karat <= 0) return Results.BadRequest(new { error = "Karat gecersiz" });
+    if (req.Gram < 0) return Results.BadRequest(new { error = "Gram negatif olamaz" });
+    if (req.Date == default) return Results.BadRequest(new { error = "Acilis tarihi gecersiz" });
+
+    var desc = string.IsNullOrWhiteSpace(req.Description) ? "Muhasebe acilis bakiyesi" : req.Description.Trim();
+    var row = await stockService.UpsertOpeningAsync(new GoldOpeningInventoryInput(req.Karat, req.Date, req.Gram, desc), ct);
+    return Results.Ok(row);
+}).WithTags("Gold").RequireAuthorization();
 
 // Cashier: create draft invoice with definitive, gapless SiraNo
 app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbContext db, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
@@ -2857,6 +2905,7 @@ public record UpdateInvoicePreviewRequest(decimal Tutar, decimal GramDegeri, str
 public record UpdateExpensePreviewRequest(decimal Tutar, decimal GramDegeri, string Mode, int? AltinAyar);
 public record FinalizeRequest(decimal UrunFiyati);
 public record GoldPriceUpdateRequest(decimal Price);
+public record GoldOpeningInventoryRequest(int Karat, decimal Gram, DateTime Date, string? Description);
 
 public record KaratRange(double min, double max, string colorHex);
 public record KaratDiffSettings

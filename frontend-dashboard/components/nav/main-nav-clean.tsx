@@ -34,6 +34,7 @@ export function MainNav({ onNavigate, collapsed = false }: { onNavigate?: () => 
   }, [role])
 
   const adminItems: NavItem[] = [
+    ...(role === 'Yonetici' ? [{ href: '/muhasebe', label: 'Muhasebe', icon: IconChart } as NavItem] : []),
     ...(perms?.canManageCashier ? [{ href: '/cashiers', label: 'Kasiyerler', icon: IconUsers } as NavItem] : []),
     ...(perms?.canAccessLeavesAdmin ? [{ href: '/leaves', label: 'Izin Yonetimi', icon: IconCalendar } as NavItem] : []),
     ...(perms?.canManageCashier ? [{ href: '/users/permissions', label: 'Kullanici Yetkileri', icon: IconShield } as NavItem] : []),

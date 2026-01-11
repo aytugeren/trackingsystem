@@ -62,6 +62,23 @@ export type DashboardSummary = {
   pendingExpenses: number
 }
 
+export type GoldStockRow = {
+  karat: number
+  openingGram: number
+  expenseGram: number
+  invoiceGram: number
+  cashGram: number
+  openingDate?: string | null
+  description?: string | null
+}
+
+export type GoldOpeningInventoryRequest = {
+  karat: number
+  gram: number
+  date: string
+  description?: string
+}
+
 export type Customer = {
   id: string
   adSoyad: string
@@ -130,6 +147,17 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json()
 }
 
+async function sendJson<T>(path: string, method: 'POST' | 'PUT', body: unknown): Promise<T> {
+  const url = `${API_BASE}${path}`
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error('API error')
+  return res.json()
+}
+
 export const api = {
   dashboardSummary: (params?: { mode?: string; years?: string[]; months?: string[]; day?: string }) => {
     const search = new URLSearchParams()
@@ -139,6 +167,12 @@ export const api = {
     if (params?.day) search.set('day', params.day)
     const suffix = search.toString()
     return getJson<DashboardSummary>(`/api/dashboard/summary${suffix ? `?${suffix}` : ''}`)
+  },
+  goldStock: () => {
+    return getJson<GoldStockRow[]>('/api/gold/stock')
+  },
+  saveOpeningInventory: (payload: GoldOpeningInventoryRequest) => {
+    return sendJson<GoldStockRow | null>('/api/gold/opening-inventory', 'POST', payload)
   },
   listInvoices: (page = 1, pageSize = 20) => getJson<Paginated<Invoice>>(`/api/invoices?page=${page}&pageSize=${pageSize}`),
   listExpenses: (page = 1, pageSize = 20) => getJson<Paginated<Expense>>(`/api/expenses?page=${page}&pageSize=${pageSize}`),

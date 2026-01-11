@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Dispatch, SetStateAction } from 'react'
-import { api, toDateOnlyString, type DashboardSummary } from '@/lib/api'
+import { api, toDateOnlyString, type DashboardSummary, type GoldStockRow } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,13 +10,14 @@ import { Separator } from '@/components/ui/separator'
 
 export default function HomePage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [goldStock, setGoldStock] = useState<GoldStockRow[] | null>(null)
+  const [goldStockError, setGoldStockError] = useState('')
   
   const [showFullscreen, setShowFullscreen] = useState(false)
   const [filterMode, setFilterMode] = useState<'all' | 'yearly' | 'monthly' | 'daily'>('all')
   const [selectedYears, setSelectedYears] = useState<string[]>([])
   const [selectedMonths, setSelectedMonths] = useState<string[]>([])
   const [selectedDay, setSelectedDay] = useState<string>(toDateOnlyString(new Date()))
-  const [karatCfg, setKaratCfg] = useState<{ ranges: { min: number; max: number; colorHex: string }[]; alertThreshold: number } | null>(null)
   
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
@@ -32,6 +33,10 @@ export default function HomePage() {
     return api.dashboardSummary(params)
   }, [filterMode, selectedYears, selectedMonths, selectedDay])
 
+  const fetchGoldStock = useCallback(async () => {
+    return api.goldStock()
+  }, [])
+
   useEffect(() => {
     let alive = true
     const load = async () => {
@@ -46,6 +51,23 @@ export default function HomePage() {
     load()
     return () => { alive = false }
   }, [fetchSummary])
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        setGoldStockError('')
+        const data = await fetchGoldStock()
+        if (!alive) return
+        setGoldStock(data)
+      } catch {
+        if (!alive) return
+        setGoldStockError('Altin stok bilgisi alinamadi.')
+      }
+    }
+    load()
+    return () => { alive = false }
+  }, [fetchGoldStock])
   // Auto-refresh while fullscreen overlay is open (every 10s)
   useEffect(() => {
     if (!showFullscreen) return
@@ -81,48 +103,11 @@ export default function HomePage() {
     setSelectedMonths((prev) => prev.filter((m) => selectedYears.includes(m.slice(0, 4))))
   }, [selectedYears])
 
-  const karatRows = summary?.karatRows ?? []
+  const formatGram = (value: number) => value.toLocaleString('tr-TR', { maximumFractionDigits: 3 })
+  const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString('tr-TR') : '—'
   const karatLabelFor = (ayar: number) => (Number.isFinite(ayar) ? `${ayar} Ayar` : 'Bilinmiyor')
 
-  // Load karat settings
-  useEffect(() => {
-    let mounted = true
-    async function loadKarat() {
-      try {
-        const base = process.env.NEXT_PUBLIC_API_BASE || ''
-        const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''
-        const res = await fetch(`${base}/api/settings/karat`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} })
-        if (!res.ok) throw new Error('cfg')
-        const j = await res.json()
-        if (!mounted) return
-        setKaratCfg(j)
-      } catch {
-        if (!mounted) return
-        setKaratCfg({
-          ranges: [
-            { min: 100, max: 300, colorHex: '#FFF9C4' },
-            { min: 300, max: 500, colorHex: '#FFCC80' },
-            { min: 500, max: 700, colorHex: '#EF9A9A' },
-            { min: 700, max: 1000, colorHex: '#D32F2F' },
-          ],
-          alertThreshold: 1000,
-        })
-      }
-    }
-    loadKarat()
-    return () => { mounted = false }
-  }, [])
 
-  const colorForDiff = (diff: number) => {
-    if (!karatCfg) return undefined
-    const r = karatCfg.ranges.find(r => diff >= r.min && diff < r.max)
-    return r?.colorHex
-  }
-
-  const formatDiff = (diff: number) => {
-    const sign = diff > 0 ? '+' : ''
-    return `${sign}${diff.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`
-  }
 
   return (
     <div className="space-y-8">
@@ -130,7 +115,7 @@ export default function HomePage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Yönetim Paneli</h1>
-            <p className="text-sm text-muted-foreground">Tüm yıllar dahil özet ve detaylı karat kırılımı.</p>
+            <p className="text-sm text-muted-foreground">Tüm yıllar dahil genel özet.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button
@@ -232,48 +217,48 @@ export default function HomePage() {
 
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground">Karat Bazlı Özet (gr)</h2>
-          <span className="text-xs text-muted-foreground">Yeni ürünler otomatik eklenir</span>
+          <h2 className="text-sm font-medium text-muted-foreground">Muhasebeye Gore Kasa Altini (gr)</h2>
+          <span className="text-xs text-muted-foreground">Acilis envanteri bazli hesaplama</span>
         </div>
+        {goldStockError && <p className="text-sm text-red-600 mb-2">{goldStockError}</p>}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {!summary ? (
+          {!goldStock ? (
             <Skeleton className="h-32 w-full" />
-          ) : karatRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Kayıt bulunamadı.</p>
-          ) : karatRows.map((row) => {
-            const diff = row.exp - row.inv
-            const highlight = diff < 0 && Boolean(colorForDiff(Math.abs(diff)))
-            return (
-              <Card
-                key={row.ayar}
-                className={`transition-all animate-in fade-in-50 ${highlight ? 'text-black border-black/10' : ''}`}
-                style={{ backgroundColor: diff < 0 ? colorForDiff(Math.abs(diff)) : undefined }}
-              >
-                <CardHeader className="py-3">
-                  <CardTitle className="text-base">{karatLabelFor(row.ayar)}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div>
-                    <div className={`text-sm ${highlight ? 'text-black/60' : 'text-muted-foreground'}`}>Faturalanan Tutar (gr)</div>
-                    <div className="text-2xl font-semibold tabular-nums">{row.inv.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-                  </div>
-                  <Separator className={highlight ? 'bg-black/10' : ''} />
-                  <div>
-                    <div className={`text-sm ${highlight ? 'text-black/60' : 'text-muted-foreground'}`}>Gider Altını (gr)</div>
-                    <div className="text-2xl font-semibold tabular-nums">{row.exp.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</div>
-                  </div>
-                  <Separator className={highlight ? 'bg-black/10' : ''} />
-                  <div>
-                    <div className={`text-sm ${highlight ? 'text-black/60' : 'text-muted-foreground'}`}>Aradaki Fark (gr)</div>
-                    <div className="text-2xl font-semibold tabular-nums">{formatDiff(diff)}</div>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
+          ) : goldStock.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Kayit bulunamadi.</p>
+          ) : goldStock.map((row) => (
+            <Card key={`stock-${row.karat}`} className="transition-all animate-in fade-in-50">
+              <CardHeader className="py-3">
+                <CardTitle className="text-base">{karatLabelFor(row.karat)}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <div className="text-sm text-muted-foreground">Acilis Envanteri (gr)</div>
+                  <div className="text-2xl font-semibold tabular-nums">{formatGram(row.openingGram)}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{formatDate(row.openingDate)} {row.description ? `• ${row.description}` : ''}</div>
+                </div>
+                <Separator />
+                <div>
+                  <div className="text-sm text-muted-foreground">Toplam Gider Altini (gr)</div>
+                  <div className="text-2xl font-semibold tabular-nums">{formatGram(row.expenseGram)}</div>
+                </div>
+                <Separator />
+                <div>
+                  <div className="text-sm text-muted-foreground">Toplam Faturalanan Altin (gr)</div>
+                  <div className="text-2xl font-semibold tabular-nums">{formatGram(row.invoiceGram)}</div>
+                </div>
+                <Separator />
+                <div>
+                  <div className="text-sm text-muted-foreground">Kasa Altini (gr)</div>
+                  <div className="text-2xl font-semibold tabular-nums">{formatGram(row.cashGram)}</div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </section>
 
+      
       {mounted && showFullscreen && createPortal((
         <div
           className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black text-white"

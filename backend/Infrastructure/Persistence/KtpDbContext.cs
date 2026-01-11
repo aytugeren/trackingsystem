@@ -17,6 +17,7 @@ public class KtpDbContext : DbContext
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
     public DbSet<RoleDef> Roles => Set<RoleDef>();
     public DbSet<CompanyInfo> CompanyInfos => Set<CompanyInfo>();
+    public DbSet<GoldOpeningInventory> GoldOpeningInventories => Set<GoldOpeningInventory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -157,6 +158,18 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.LastTransactionAt).HasColumnType("timestamp with time zone");
             entity.HasIndex(x => x.TCKN).IsUnique();
             entity.HasIndex(x => x.NormalizedAdSoyad);
+        });
+
+        modelBuilder.Entity<GoldOpeningInventory>(entity =>
+        {
+            entity.ToTable("GoldOpeningInventories");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Date).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.Karat).IsRequired();
+            entity.Property(x => x.Gram).HasPrecision(18, 3);
+            entity.Property(x => x.Description).HasMaxLength(250);
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => x.Karat).IsUnique();
         });
     }
 }
