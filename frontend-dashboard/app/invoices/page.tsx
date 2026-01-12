@@ -328,6 +328,19 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     let mounted = true
+    ;(async () => {
+      try {
+        const status = await api.getTurmobStatus()
+        if (mounted) setTurmobDisabled(!status.enabled)
+      } catch {
+        if (mounted) setTurmobDisabled(false)
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
     async function loadPricingAlert() {
       try {
         const base = process.env.NEXT_PUBLIC_API_BASE || ''
@@ -532,20 +545,35 @@ export default function InvoicesPage() {
   }
 
   async function openXmlPreview(inv: Invoice) {
+    if (turmobDisabled) {
+      await markInvoiceSent(inv)
+      closeModal()
+      return
+    }
     setXmlError(null)
     setXmlSendResult(null)
     setXmlSendResultKind(null)
     setXmlAction(null)
     setXmlPreview(null)
     setXmlView('preview')
-    setXmlOpen(true)
+    setXmlOpen(false)
     setXmlLoading(true)
     try {
       const resp = await api.previewTurmobInvoice(inv.id)
       setXmlAction(resp.action)
       setXmlPreview(resp.xml)
-    } catch {
+      setXmlOpen(true)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      const lower = message.toLowerCase()
+      if (lower.includes('turmob entegrasyonu kapalı') || lower.includes('turmob integration disabled')) {
+        setTurmobDisabled(true)
+        await markInvoiceSent(inv)
+        closeModal()
+        return
+      }
       setXmlError('XML oluşturulamadı')
+      setXmlOpen(true)
     } finally {
       setXmlLoading(false)
     }

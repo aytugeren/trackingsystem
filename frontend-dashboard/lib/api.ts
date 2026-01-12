@@ -227,7 +227,20 @@ export const api = {
   async previewTurmobInvoice(id: string): Promise<TurmobPreview> {
     const url = `${API_BASE}/api/turmob/invoices/${id}/preview`
     const res = await fetch(url, { method: 'POST', headers: { ...authHeaders() } })
-    if (!res.ok) throw new Error('XML oluşturulamadı')
+    if (!res.ok) {
+      try {
+        const data = await res.json()
+        throw new Error(data?.error || 'XML oluşturulamadı')
+      } catch {
+        throw new Error('XML oluşturulamadı')
+      }
+    }
+    return res.json()
+  },
+  async getTurmobStatus(): Promise<{ enabled: boolean }> {
+    const url = `${API_BASE}/api/turmob/status`
+    const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
+    if (!res.ok) throw new Error('TURMOB durumu alınamadı')
     return res.json()
   },
   async sendTurmobInvoice(id: string): Promise<TurmobSendResult> {

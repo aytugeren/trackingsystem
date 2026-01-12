@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Application.Interfaces;
+using KuyumculukTakipProgrami.Application.DTOs;
 using KuyumculukTakipProgrami.Domain.Entities.Market;
 using System.Globalization;
 using System.Threading;
@@ -567,6 +568,11 @@ app.MapGet("/api/invoices/next-sirano", async (KtpDbContext db, CancellationToke
 }).WithTags("Invoices").RequireAuthorization();
 
 // TURMOB preview and send
+app.MapGet("/api/turmob/status", (IOptionsMonitor<TurmobOptions> options) =>
+{
+    return Results.Ok(new { enabled = options.CurrentValue.Enabled });
+}).WithTags("Turmob").RequireAuthorization();
+
 app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
     Guid id,
     TurmobInvoiceBuilder builder,
@@ -574,6 +580,11 @@ app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
     IOptionsMonitor<TurmobOptions> options,
     CancellationToken ct) =>
 {
+    if (!options.CurrentValue.Enabled)
+    {
+        return Results.BadRequest(new { error = "TURMOB entegrasyonu kapalı." });
+    }
+
     var dto = await builder.BuildAsync(id, ct);
     if (dto is null) return Results.NotFound();
 
@@ -598,8 +609,14 @@ app.MapPost("/api/turmob/invoices/{id:guid}/send", async (
     Guid id,
     TurmobInvoiceBuilder builder,
     ITurmobInvoiceGateway gateway,
+    IOptionsMonitor<TurmobOptions> options,
     CancellationToken ct) =>
 {
+    if (!options.CurrentValue.Enabled)
+    {
+        return Results.Ok(TurmobSendResult.Skipped("TURMOB integration disabled."));
+    }
+
     var dto = await builder.BuildAsync(id, ct);
     if (dto is null) return Results.NotFound();
 
