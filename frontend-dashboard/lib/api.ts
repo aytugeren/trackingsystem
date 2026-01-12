@@ -9,6 +9,8 @@
   isCompany?: boolean
   vknNo?: string | null
   companyName?: string | null
+  productId?: string | null
+  productName?: string | null
   tutar: number
   // Backend enums are serialized as strings; old clients may have numbers
   odemeSekli: number | 'Havale' | 'KrediKarti'
@@ -35,6 +37,8 @@ export type Expense = {
   isCompany?: boolean
   vknNo?: string | null
   companyName?: string | null
+  productId?: string | null
+  productName?: string | null
   tutar: number
   altinAyar?: number | 'Ayar22' | 'Ayar24'
   altinSatisFiyati?: number | null
@@ -77,6 +81,89 @@ export type GoldOpeningInventoryRequest = {
   gram: number
   date: string
   description?: string
+}
+
+export type Product = {
+  id: string
+  code: string
+  name: string
+  isActive: boolean
+  showInSales: boolean
+  accountingType: number | 'Gram' | 'Adet' | string
+  gram?: number | null
+  requiresFormula?: boolean
+  defaultFormulaId?: string | null
+}
+
+export type ProductOpeningInventoryRow = {
+  productId: string
+  code: string
+  name: string
+  isActive: boolean
+  showInSales: boolean
+  accountingType: number | 'Gram' | 'Adet' | string
+  gram?: number | null
+  openingQuantity?: number | null
+  openingDate?: string | null
+}
+
+export type ProductOpeningInventoryRequest = {
+  productId: string
+  quantity: number
+  date: string
+}
+
+export type FormulaTemplate = {
+  id: string
+  code: string
+  name: string
+  scope: number | 'DefaultSystem' | 'ProductSpecific' | string
+  formulaType: number | 'Purchase' | 'Sale' | 'Both' | string
+  dslVersion: number
+  definitionJson: string
+  isActive: boolean
+  createdAt?: string | null
+}
+
+export type FormulaBindingRow = {
+  id: string
+  productId: string
+  templateId: string
+  templateCode?: string | null
+  templateName?: string | null
+  direction: number | 'Purchase' | 'Sale' | string
+  isActive: boolean
+}
+
+export type FormulaValidatePayload = {
+  amount?: number | null
+  hasGoldPrice?: number | null
+  vatRate?: number | null
+  productGram?: number | null
+  accountingType?: number | null
+  direction?: number | 'Purchase' | 'Sale' | string | null
+  operationType?: number | 'Invoice' | 'Expense' | string | null
+  mode?: number | 'Preview' | 'Finalize' | string | null
+  altinSatisFiyati?: number | null
+}
+
+export type Category = {
+  id: string
+  name: string
+  parentId?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  updatedUserId?: string | null
+  updatedUserEmail?: string | null
+}
+
+export type CategoryProduct = {
+  id: string
+  categoryId: string
+  categoryName?: string | null
+  productId: string
+  productCode?: string | null
+  productName?: string | null
 }
 
 export type Customer = {
@@ -173,6 +260,67 @@ export const api = {
   },
   saveOpeningInventory: (payload: GoldOpeningInventoryRequest) => {
     return sendJson<GoldStockRow | null>('/api/gold/opening-inventory', 'POST', payload)
+  },
+  listProducts: () => getJson<Product[]>('/api/products'),
+  createProduct: (payload: { code: string; name: string; isActive?: boolean | null; showInSales?: boolean | null; accountingType?: number | null; gram?: number | null }) => {
+    return sendJson<Product>('/api/products', 'POST', payload)
+  },
+  updateProduct: (id: string, payload: { code: string; name: string; isActive?: boolean | null; showInSales?: boolean | null; accountingType?: number | null; gram?: number | null }) => {
+    return sendJson<Product>(`/api/products/${id}`, 'PUT', payload)
+  },
+  getFormula: (id: string) => getJson<FormulaTemplate>(`/api/formulas/${id}`),
+  createFormula: (payload: {
+    code: string
+    name: string
+    scope?: number | string | null
+    formulaType?: number | string | null
+    dslVersion?: number | null
+    definitionJson: string
+    isActive?: boolean | null
+  }) => sendJson<FormulaTemplate>('/api/formulas', 'POST', payload),
+  updateFormula: (id: string, payload: {
+    code: string
+    name: string
+    scope?: number | string | null
+    formulaType?: number | string | null
+    dslVersion?: number | null
+    definitionJson: string
+    isActive?: boolean | null
+  }) => sendJson<FormulaTemplate>(`/api/formulas/${id}`, 'PUT', payload),
+  validateFormula: (id: string, payload: FormulaValidatePayload) => sendJson<{ ok: boolean; error?: string; result?: unknown }>(`/api/formulas/${id}/validate`, 'POST', payload),
+  listProductFormulaBindings: (productId: string) => getJson<FormulaBindingRow[]>(`/api/products/${productId}/formula-bindings`),
+  deleteProduct: async (id: string): Promise<void> => {
+    const url = `${API_BASE}/api/products/${id}`
+    const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Ürün silinemedi')
+  },
+  listProductOpeningInventory: () => getJson<ProductOpeningInventoryRow[]>('/api/products/opening-inventory'),
+  saveProductOpeningInventory: (payload: ProductOpeningInventoryRequest) => {
+    return sendJson<ProductOpeningInventoryRow>('/api/products/opening-inventory', 'POST', payload)
+  },
+  listCategories: () => getJson<Category[]>('/api/categories'),
+  createCategory: (payload: { name: string; parentId?: string | null }) => {
+    return sendJson<Category>('/api/categories', 'POST', payload)
+  },
+  updateCategory: (id: string, payload: { name: string; parentId?: string | null }) => {
+    return sendJson<Category>(`/api/categories/${id}`, 'PUT', payload)
+  },
+  deleteCategory: async (id: string): Promise<void> => {
+    const url = `${API_BASE}/api/categories/${id}`
+    const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Kategori silinemedi')
+  },
+  listCategoryProducts: () => getJson<CategoryProduct[]>('/api/category-products'),
+  createCategoryProduct: (payload: { categoryId: string; productId: string }) => {
+    return sendJson<CategoryProduct>('/api/category-products', 'POST', payload)
+  },
+  updateCategoryProduct: (id: string, payload: { categoryId: string; productId: string }) => {
+    return sendJson<CategoryProduct>(`/api/category-products/${id}`, 'PUT', payload)
+  },
+  deleteCategoryProduct: async (id: string): Promise<void> => {
+    const url = `${API_BASE}/api/category-products/${id}`
+    const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Kategori-Ürün silinemedi')
   },
   listInvoices: (page = 1, pageSize = 20) => getJson<Paginated<Invoice>>(`/api/invoices?page=${page}&pageSize=${pageSize}`),
   listExpenses: (page = 1, pageSize = 20) => getJson<Paginated<Expense>>(`/api/expenses?page=${page}&pageSize=${pageSize}`),

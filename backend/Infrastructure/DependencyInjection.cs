@@ -9,6 +9,7 @@ using KuyumculukTakipProgrami.Infrastructure.Optimization;
 using KuyumculukTakipProgrami.Infrastructure.Pricing;
 using KuyumculukTakipProgrami.Infrastructure.Integration.Turmob;
 using KuyumculukTakipProgrami.Application.Gold;
+using KuyumculukTakipProgrami.Application.Gold.Formula;
 using KuyumculukTakipProgrami.Infrastructure.Services;
 
 namespace KuyumculukTakipProgrami.Infrastructure;
@@ -37,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IListExpensesHandler, Handlers.Expenses.ListExpensesHandler>();
         services.AddScoped<IGoldPriceWriter, GoldPriceWriter>();
         services.AddScoped<IGoldStockService, GoldStockService>();
+        services.AddScoped<IGoldFormulaEngine, GoldFormulaEngine>();
 
         // Background backup service (hourly backups + daily archive)
         services.AddHostedService<BackupBackgroundService>();

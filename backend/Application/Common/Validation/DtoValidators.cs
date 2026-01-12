@@ -25,9 +25,8 @@ public static class DtoValidators
         if (dto.SiraNo < 1)
             errors.Add("SiraNo en az 1 olmalŽñ.");
 
-        var ayarVal = (int)dto.AltinAyar;
-        if (ayarVal != 22 && ayarVal != 24)
-            errors.Add("AltinAyar yalnŽñzca 22 veya 24 olmalŽñdŽñr.");
+        if (dto.ProductId == Guid.Empty)
+            errors.Add("ProductId gerekli.");
 
         return errors;
     }
@@ -52,9 +51,8 @@ public static class DtoValidators
         if (dto.SiraNo < 1)
             errors.Add("SiraNo en az 1 olmalŽñ.");
 
-        var ayarVal = (int)dto.AltinAyar;
-        if (ayarVal != 22 && ayarVal != 24)
-            errors.Add("AltinAyar yalnŽñzca 22 veya 24 olmalŽñdŽñr.");
+        if (dto.ProductId == Guid.Empty)
+            errors.Add("ProductId gerekli.");
 
         return errors;
     }

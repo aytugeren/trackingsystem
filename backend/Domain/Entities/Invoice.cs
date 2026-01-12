@@ -16,12 +16,15 @@ public class Invoice
 
     public bool IsForCompany { get; set; }
 
+    public Guid? ProductId { get; set; }
+    public Product? Product { get; set; }
+
     public decimal Tutar { get; set; }
 
     public OdemeSekli OdemeSekli { get; set; }
 
-    // Altın ayarı (22 / 24)
-    public AltinAyar AltinAyar { get; set; }
+    // Altın ayarı (22 / 24) - ürün ayarsız olabilir
+    public AltinAyar? AltinAyar { get; set; }
 
     // O anki has altın satış fiyatı (marjlı)
     public decimal? AltinSatisFiyati { get; set; }

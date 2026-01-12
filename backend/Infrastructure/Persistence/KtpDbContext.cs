@@ -18,6 +18,12 @@ public class KtpDbContext : DbContext
     public DbSet<RoleDef> Roles => Set<RoleDef>();
     public DbSet<CompanyInfo> CompanyInfos => Set<CompanyInfo>();
     public DbSet<GoldOpeningInventory> GoldOpeningInventories => Set<GoldOpeningInventory>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductOpeningInventory> ProductOpeningInventories => Set<ProductOpeningInventory>();
+    public DbSet<Category> Categories => Set<Category>();
+    public DbSet<CategoryProduct> CategoryProducts => Set<CategoryProduct>();
+    public DbSet<GoldFormulaTemplate> GoldFormulaTemplates => Set<GoldFormulaTemplate>();
+    public DbSet<GoldProductFormulaBinding> GoldProductFormulaBindings => Set<GoldProductFormulaBinding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,7 +40,7 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.IsForCompany).IsRequired();
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
             entity.Property(x => x.OdemeSekli).HasConversion<int>();
-            entity.Property(x => x.AltinAyar).HasConversion<int>();
+            entity.Property(x => x.AltinAyar).HasConversion<int?>();
             entity.Property(x => x.AltinSatisFiyati).HasPrecision(18, 3);
             entity.Property(x => x.SafAltinDegeri).HasPrecision(18, 3);
             entity.Property(x => x.UrunFiyati).HasPrecision(18, 2);
@@ -62,7 +68,7 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.TCKN).HasMaxLength(11);
             entity.Property(x => x.IsForCompany).IsRequired();
             entity.Property(x => x.Tutar).HasPrecision(18, 2);
-            entity.Property(x => x.AltinAyar).HasConversion<int>();
+            entity.Property(x => x.AltinAyar).HasConversion<int?>();
             entity.Property(x => x.SafAltinDegeri).HasPrecision(18, 3);
             entity.Property(x => x.UrunFiyati).HasPrecision(18, 2);
             entity.Property(x => x.YeniUrunFiyati).HasPrecision(18, 3);
@@ -170,6 +176,92 @@ public class KtpDbContext : DbContext
             entity.Property(x => x.Description).HasMaxLength(250);
             entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
             entity.HasIndex(x => x.Karat).IsUnique();
+        });
+
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.ToTable("Products");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Code).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.IsActive).IsRequired();
+            entity.Property(x => x.ShowInSales).IsRequired();
+            entity.Property(x => x.AccountingType).HasConversion<int>().IsRequired();
+            entity.Property(x => x.Gram).HasPrecision(18, 3);
+            entity.Property(x => x.RequiresFormula).IsRequired();
+            entity.Property(x => x.DefaultFormulaId).IsRequired(false);
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => x.Code).IsUnique();
+        });
+
+        modelBuilder.Entity<ProductOpeningInventory>(entity =>
+        {
+            entity.ToTable("ProductOpeningInventories");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Date).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.Quantity).HasPrecision(18, 3);
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => x.ProductId).IsUnique();
+        });
+
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.ToTable("Categories");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => x.Name);
+            entity.HasOne(x => x.Parent)
+                  .WithMany(x => x.Children)
+                  .HasForeignKey(x => x.ParentId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CategoryProduct>(entity =>
+        {
+            entity.ToTable("CategoryProducts");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(x => x.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => new { x.CategoryId, x.ProductId }).IsUnique();
+            entity.HasOne(x => x.Category)
+                  .WithMany(x => x.CategoryProducts)
+                  .HasForeignKey(x => x.CategoryId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Product)
+                  .WithMany(x => x.CategoryProducts)
+                  .HasForeignKey(x => x.ProductId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GoldFormulaTemplate>(entity =>
+        {
+            entity.ToTable("GoldFormulaTemplates");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Code).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Scope).HasConversion<int>().IsRequired();
+            entity.Property(x => x.FormulaType).HasConversion<int>().IsRequired();
+            entity.Property(x => x.DslVersion).IsRequired();
+            entity.Property(x => x.DefinitionJson).HasColumnType("text").IsRequired();
+            entity.Property(x => x.IsActive).IsRequired();
+            entity.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
+            entity.HasIndex(x => x.Code).IsUnique();
+        });
+
+        modelBuilder.Entity<GoldProductFormulaBinding>(entity =>
+        {
+            entity.ToTable("GoldProductFormulaBindings");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.GoldProductId).IsRequired();
+            entity.Property(x => x.FormulaTemplateId).IsRequired();
+            entity.Property(x => x.Direction).HasConversion<int>().IsRequired();
+            entity.Property(x => x.IsActive).IsRequired();
+            entity.HasIndex(x => new { x.GoldProductId, x.Direction, x.IsActive });
+            entity.HasIndex(x => x.FormulaTemplateId);
         });
     }
 }

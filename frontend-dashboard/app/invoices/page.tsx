@@ -711,7 +711,7 @@ export default function InvoicesPage() {
                     <TH>Müşteri</TH>
                     <TH>TCKN / VKN</TH>
                     <TH>Kasiyer</TH>
-                    <TH>Ayar</TH>
+                    <TH>Ürün</TH>
                     <TH>Has Altın</TH>
                     <TH className="text-right">Tutar</TH>
                     <TH>İşlem</TH>
@@ -738,7 +738,7 @@ export default function InvoicesPage() {
                       <TD>{x.isForCompany ? (x.companyName || x.musteriAdSoyad || '-') : (x.musteriAdSoyad || '-')}</TD>
                       <TD>{x.isForCompany ? (x.vknNo || '-') : (x.tckn || '-')}</TD>
                       <TD>{(x as any).kasiyerAdSoyad || '-'}</TD>
-                      <TD>{(x as any).altinAyar ? (((x as any).altinAyar === 22 || (x as any).altinAyar === 'Ayar22') ? '22 Ayar' : '24 Ayar') : '-'}</TD>
+                      <TD>{(x as any).productName || '-'}</TD>
                       <TD>{x.altinSatisFiyati != null ? Number(x.altinSatisFiyati).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'}</TD>
                       <TD className="text-right tabular-nums">{Number(x.tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}</TD>
                       <TD>

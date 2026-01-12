@@ -11,6 +11,9 @@ import { authHeaders } from '../../../lib/api'
 
 type TxType = 'invoice' | 'expense'
 type CustomerSuggestion = { id: string; adSoyad: string; tckn: string; isCompany?: boolean; vknNo?: string | null; companyName?: string | null; phone?: string | null; email?: string | null; hasContact?: boolean }
+type SelectionStep = 'category' | 'product' | 'form'
+type CategoryWithProducts = { id: string; name: string; parentId?: string | null; products: ProductItem[] }
+type ProductItem = { id: string; name: string; code?: string | null }
 
 function todayStr() {
   const d = new Date()
@@ -66,6 +69,13 @@ function InvoiceNewInner() {
   const [tcknError, setTcknError] = useState<string>('')
   const [vknError, setVknError] = useState<string>('')
   const [ayar, setAyar] = useState<22 | 24 | null>(null)
+  const [selectionStep, setSelectionStep] = useState<SelectionStep>('category')
+  const [categories, setCategories] = useState<CategoryWithProducts[]>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(false)
+  const [categoriesError, setCategoriesError] = useState('')
+  const [selectionError, setSelectionError] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<CategoryWithProducts | null>(null)
+  const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [predictedSira, setPredictedSira] = useState<number | null>(null)
   const [currentAltinSatis, setCurrentAltinSatis] = useState<number | null>(null)
@@ -122,6 +132,44 @@ function InvoiceNewInner() {
     }
     const check = (10 - (sum % 10)) % 10
     return digits[9] === check
+  }
+
+  function inferAyarFromText(text: string): 22 | 24 | null {
+    const normalized = (text || '').toLowerCase()
+    if (/(^|[^0-9])24([^0-9]|$)|24\s*ayar|24k/.test(normalized)) return 24
+    if (/(^|[^0-9])22([^0-9]|$)|22\s*ayar|22k/.test(normalized)) return 22
+    return null
+  }
+
+  function inferAyarFromSelection(categoryName: string, productName: string, productCode?: string | null): 22 | 24 | null {
+    const fromProduct = inferAyarFromText(`${productName || ''} ${productCode || ''}`)
+    if (fromProduct) return fromProduct
+    return inferAyarFromText(categoryName || '')
+  }
+
+  function resetSelection() {
+    setSelectedCategory(null)
+    setSelectedProduct(null)
+    setSelectionStep('category')
+    setSelectionError('')
+    setAyar(null)
+  }
+
+  function handleCategorySelect(cat: CategoryWithProducts) {
+    setSelectedCategory(cat)
+    setSelectedProduct(null)
+    setSelectionStep('product')
+    setSelectionError('')
+    setAyar(null)
+  }
+
+  function handleProductSelect(prod: ProductItem) {
+    if (!selectedCategory) return
+    const inferred = inferAyarFromSelection(selectedCategory.name, prod.name, prod.code)
+    setSelectionError('')
+    setSelectedProduct(prod)
+    setAyar(inferred)
+    setSelectionStep('form')
   }
 
   function computeBirthYear(): number {
@@ -194,13 +242,17 @@ function InvoiceNewInner() {
 
   async function openPreview() {
     setError('')
+    if (!selectedCategory || !selectedProduct) {
+      setError('Lütfen ürün seçimi yapın')
+      return
+    }
     const hasVal = parseHasAltinValue()
     if (!hasVal || Number.isNaN(hasVal)) { setError('Has Altın fiyatı gerekli'); return }
     if (savedHasAltin == null || Math.abs(hasVal - savedHasAltin) > 0.0005) {
       const saved = await saveHasAltin(false)
       if (!saved) { setError('Has Altın fiyatı kaydedilemedi'); return }
     }
-    if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment) || !ayar) {
+    if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment)) {
       setError('Lütfen tüm alanları doldurun')
       return
     }
@@ -226,7 +278,7 @@ function InvoiceNewInner() {
         vknNo: isCompany ? vknNo.trim() : undefined,
         companyName: isCompany ? companyName.trim() : undefined,
         tutar: amountNum,
-        altinAyar: ayar,
+        productId: selectedProduct?.id,
         telefon: phone.trim() || undefined,
         email: email.trim() || undefined
       }
@@ -255,6 +307,33 @@ function InvoiceNewInner() {
     loadHasAltin()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      setCategoriesLoading(true)
+      setCategoriesError('')
+      try {
+        const res = await fetch(`${apiBase}/api/cashier/categories`, { headers: { ...authHeaders() } })
+        if (!res.ok) {
+          if (!alive) return
+          setCategoriesError(res.status === 403 ? 'Kategori listesi için yetkiniz yok.' : 'Kategoriler alınamadı.')
+          return
+        }
+        const data = await res.json()
+        if (!alive) return
+        const items = Array.isArray(data) ? data : []
+        setCategories(items)
+      } catch {
+        if (!alive) return
+        setCategoriesError('Kategoriler alınamadı.')
+      } finally {
+        if (alive) setCategoriesLoading(false)
+      }
+    }
+    load()
+    return () => { alive = false }
+  }, [apiBase])
 
   useEffect(() => {
     const source = suggestFor
@@ -460,7 +539,11 @@ function InvoiceNewInner() {
   async function onSave() {
     setError('')
     setSuccess('')
-    if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment) || !ayar) {
+      if (!selectedCategory || !selectedProduct) {
+        setError('Lütfen ürün seçimi yapın')
+        return
+      }
+    if (!date || !fullName || !tckn || !amount || (txType === 'invoice' && !payment)) {
       setError('Lütfen tüm alanları doldurun')
       return
     }
@@ -541,7 +624,7 @@ function InvoiceNewInner() {
       firstName,
       lastName,
       birthYear: computeBirthYear(),
-      altinAyar: ayar,
+      productId: selectedProduct?.id,
       telefon: phone.trim() || undefined,
       email: email.trim() || undefined
     }
@@ -593,18 +676,24 @@ function InvoiceNewInner() {
       setCustomerSuggestions([]); setSuggestFor(null)
       setCustomerSuggestions([]); setSuggestFor(null)
       setFullName(''); setBirthYear(''); setTckn(''); setIsCompany(false); setVknNo(''); setCompanyName(''); setIsForCompany(false); setCompanyChoiceTouched(false); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false); setTcknError(''); setVknError('')
+      resetSelection()
     } else if ((res as any).queued) {
       setSuccess('Çevrimdışı kaydedildi, sonra gönderilecek ✅')
       setFullName(''); setBirthYear(''); setTckn(''); setIsCompany(false); setVknNo(''); setCompanyName(''); setIsForCompany(false); setCompanyChoiceTouched(false); setAmount(''); setPayment(''); setAyar(null); setPreviewOpen(false); setPredictedSira(null); setDraftId(null); setPhone(''); setEmail(''); setNeedsContact(false); setTcknError(''); setVknError('')
+      resetSelection()
     } else {
       setError('Kayıt eklenemedi')
     }
   }
 
+  const selectionTitle = selectionStep === 'form'
+    ? (txType === 'invoice' ? 'Fatura / Gider - Fatura' : 'Fatura / Gider - Gider')
+    : (selectionStep === 'product' ? `Ürün Seçimi${selectedCategory ? ` - ${selectedCategory.name}` : ''}` : 'Kategori Seçimi')
+
   return (
     <main>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <h1>{txType === 'invoice' ? 'Fatura / Gider - Fatura' : 'Fatura / Gider - Gider'}</h1>
+        <h1>{selectionTitle}</h1>
         <BackButton />
       </div>
 
@@ -647,11 +736,72 @@ function InvoiceNewInner() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-        <button type="button" className={txType === 'invoice' ? 'primary' : 'secondary'} onClick={() => setTxType('invoice')} style={{ flex: 1 }} disabled={hasAltinMissing}>Fatura</button>
-        <button type="button" className={txType === 'expense' ? 'primary' : 'secondary'} onClick={() => setTxType('expense')} style={{ flex: 1 }} disabled={hasAltinMissing}>Gider</button>
-      </div>
+      {selectionStep !== 'form' && (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+          {categoriesLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className="spinner" />
+              <div>Kategoriler yükleniyor...</div>
+            </div>
+          ) : categoriesError ? (
+            <div style={{ color: '#b3261e' }}>{categoriesError}</div>
+          ) : selectionStep === 'category' ? (
+            <>
+              <div style={{ fontWeight: 700 }}>Kategori Seçin</div>
+              {categories.length === 0 ? (
+                <div style={{ color: '#666' }}>Kategori bulunamadı.</div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {categories.map((cat) => (
+                    <button key={cat.id} type="button" className="secondary" onClick={() => handleCategorySelect(cat)}>
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ fontWeight: 700 }}>Ürün Seçin</div>
+                <button type="button" className="secondary" onClick={resetSelection}>Kategori Değiştir</button>
+              </div>
+              {selectionError && <div style={{ color: '#b3261e' }}>{selectionError}</div>}
+              {selectedCategory?.products?.length ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {selectedCategory.products.map((prod) => (
+                    <button key={prod.id} type="button" className="secondary" onClick={() => handleProductSelect(prod)}>
+                      {prod.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: '#666' }}>Bu kategoride ürün bulunamadı.</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
+      {selectionStep === 'form' && (
+        <div className="card" style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontWeight: 700 }}>Seçilen Ürün</div>
+          <div>{selectedCategory?.name || '-'} / {selectedProduct?.name || '-'}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="secondary" onClick={() => setSelectionStep('product')}>Ürün Değiştir</button>
+            <button type="button" className="secondary" onClick={resetSelection}>Kategori Değiştir</button>
+          </div>
+        </div>
+      )}
+
+      {selectionStep === 'form' && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+          <button type="button" className={txType === 'invoice' ? 'primary' : 'secondary'} onClick={() => setTxType('invoice')} style={{ flex: 1 }} disabled={hasAltinMissing}>Fatura</button>
+          <button type="button" className={txType === 'expense' ? 'primary' : 'secondary'} onClick={() => setTxType('expense')} style={{ flex: 1 }} disabled={hasAltinMissing}>Gider</button>
+        </div>
+      )}
+
+      {selectionStep === 'form' && (
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <TouchField label="Tarih" type="date" value={date} onChange={setDate} disabled={hasAltinMissing} />
         <div style={{ position: 'relative' }}>
@@ -720,10 +870,6 @@ function InvoiceNewInner() {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button type="button" className={ayar === 22 ? 'primary' : 'secondary'} onClick={() => setAyar(22)} style={{ flex: 1 }} disabled={hasAltinMissing}>22 Ayar</button>
-          <button type="button" className={ayar === 24 ? 'primary' : 'secondary'} onClick={() => setAyar(24)} style={{ flex: 1 }} disabled={hasAltinMissing}>24 Ayar</button>
-        </div>
         {vknNo.trim() && (
           <div style={{ display: 'flex', gap: 12 }}>
             <button type="button" className={isForCompany ? 'primary' : 'secondary'} onClick={() => { setIsForCompany(true); setCompanyChoiceTouched(true) }} style={{ flex: 1 }} disabled={hasAltinMissing}>Şirket</button>
@@ -744,6 +890,7 @@ function InvoiceNewInner() {
           </button>
         </div>
       </div>
+      )}
       {previewOpen && (
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <div className="modal" style={{ background: '#fff', borderRadius: 8, padding: 16, width: '100%', maxWidth: 600 }}>
@@ -753,20 +900,22 @@ function InvoiceNewInner() {
                 {(() => {
                   const r2 = (n: number) => Math.round(n * 100) / 100
                   const tutar = parseFloat(amount.replace(',', '.')) || 0
+                  const hasAyar = ayar === 22 || ayar === 24
+                  const hasPrice = currentAltinSatis != null
                   const safOran = ayar === 22 ? 0.916 : 0.995
-                  const safAltinDegeri = r2(Number(currentAltinSatis || 0) * safOran)
-                  const gramDegeri = safAltinDegeri === 0 ? 0 : r2(tutar / safAltinDegeri)
+                  const safAltinDegeri = hasAyar && hasPrice ? r2(Number(currentAltinSatis) * safOran) : null
+                  const gramDegeri = safAltinDegeri ? r2(tutar / safAltinDegeri) : null
                   const tutarDisplay = amount ? Number(tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
-                  const gramDisplay = gramDegeri.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                  const ayarDisplay = ayar ? (ayar === 22 ? '22 Ayar' : '24 Ayar') : '-'
+                  const gramDisplay = gramDegeri != null ? gramDegeri.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'
                   const isimDisplay = isCompany ? (companyName || fullName || '-') : (fullName || '-')
                   const tcDisplay = isCompany ? (vknNo || tckn || '-') : (tckn || '-')
                   return (
                     <>
+                      <div><b>Kategori:</b> {selectedCategory?.name || '-'}</div>
+                      <div><b>Ürün:</b> {selectedProduct?.name || '-'}</div>
                       <div><b>Tarih:</b> {date || '-'}</div>
                       <div><b>Tutar:</b> {tutarDisplay}</div>
                       <div><b>Gram:</b> {gramDisplay}</div>
-                      <div><b>Ayar:</b> {ayarDisplay}</div>
                       <div><b>İsim Soyisim:</b> {isimDisplay}</div>
                       <div><b>TC:</b> {tcDisplay}</div>
                     </>
@@ -784,6 +933,8 @@ function InvoiceNewInner() {
                   )}
                 </div>
                 <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div><b>Kategori:</b> {selectedCategory?.name || '-'}</div>
+                  <div><b>Ürün:</b> {selectedProduct?.name || '-'}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <div><b>Ad Soyad:</b> {fullName || '-'}</div>
                     {fullName ? (
@@ -839,14 +990,6 @@ function InvoiceNewInner() {
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <div><b>Ayar:</b> {ayar ? (ayar === 22 ? '22 Ayar' : '24 Ayar') : '-'}</div>
-                    {ayar ? (
-                      <button aria-label="Kopyala" title={copied === 'ayar' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('ayar', ayar === 22 ? '22 Ayar' : '24 Ayar')} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
-                        {copied === 'ayar' ? <CheckIcon /> : <CopyIcon />}
-                      </button>
-                    ) : null}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     {(() => {
                       const display = amount ? Number(parseFloat(amount.replace(',', '.'))).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
                       return (
@@ -879,11 +1022,13 @@ function InvoiceNewInner() {
                 </div>
                 {(() => {
                   const r2 = (n: number) => Math.round(n * 100) / 100
-                  const has = Number(currentAltinSatis || 0)
+                  const hasPrice = currentAltinSatis != null
+                  const hasAyar = ayar === 22 || ayar === 24
+                  const has = hasPrice ? Number(currentAltinSatis) : 0
                   const ay22 = (ayar === 22)
-                  const rawSaf = has * (ay22 ? 0.916 : 0.995)
+                  const rawSaf = hasAyar && hasPrice ? has * (ay22 ? 0.916 : 0.995) : 0
                   const u = parseFloat(amount.replace(',', '.')) || 0
-                  const rawYeni = u * (ay22 ? 0.99 : 0.998)
+                  const rawYeni = hasAyar ? u * (ay22 ? 0.99 : 0.998) : 0
                   const saf = r2(rawSaf)
                   const yeni = r2(rawYeni)
                   const gram = saf ? r2(yeni / saf) : 0

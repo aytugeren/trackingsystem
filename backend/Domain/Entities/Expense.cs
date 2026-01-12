@@ -16,13 +16,16 @@ public class Expense
 
     public bool IsForCompany { get; set; }
 
+    public Guid? ProductId { get; set; }
+    public Product? Product { get; set; }
+
     public decimal Tutar { get; set; }
 
     // O anki has altin satis fiyati (marjli)
     public decimal? AltinSatisFiyati { get; set; }
 
-    // Altın ayarı (22 / 24)
-    public AltinAyar AltinAyar { get; set; }
+    // Altın ayarı (22 / 24) - ürün ayarsız olabilir
+    public AltinAyar? AltinAyar { get; set; }
 
     // Finalization fields
     public decimal? SafAltinDegeri { get; set; }

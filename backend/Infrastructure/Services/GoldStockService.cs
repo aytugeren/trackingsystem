@@ -19,13 +19,27 @@ public class GoldStockService : IGoldStockService
         var openings = await _db.GoldOpeningInventories.AsNoTracking().ToListAsync(cancellationToken);
         var openingMap = openings.ToDictionary(x => x.Karat, x => x);
 
+        var productOpenings = await (from p in _db.Products.AsNoTracking()
+                                     join o in _db.ProductOpeningInventories.AsNoTracking() on p.Id equals o.ProductId
+                                     where p.AccountingType == ProductAccountingType.Gram
+                                     select new { p.Code, o.Date, o.Quantity }).ToListAsync(cancellationToken);
+        var productOpeningMap = new Dictionary<int, (DateTime date, decimal gram)>();
+        foreach (var row in productOpenings)
+        {
+            if (!int.TryParse(row.Code.Trim(), out var karat) || karat <= 0) continue;
+            productOpeningMap[karat] = (row.Date, row.Quantity);
+        }
+
         var karatSet = new HashSet<int>(openingMap.Keys);
+        foreach (var k in productOpeningMap.Keys) karatSet.Add(k);
         var invKarats = await _db.Invoices.AsNoTracking()
-            .Select(x => (int)x.AltinAyar)
+            .Where(x => x.AltinAyar.HasValue)
+            .Select(x => (int)x.AltinAyar!.Value)
             .Distinct()
             .ToListAsync(cancellationToken);
         var expKarats = await _db.Expenses.AsNoTracking()
-            .Select(x => (int)x.AltinAyar)
+            .Where(x => x.AltinAyar.HasValue)
+            .Select(x => (int)x.AltinAyar!.Value)
             .Distinct()
             .ToListAsync(cancellationToken);
         foreach (var k in invKarats) karatSet.Add(k);
@@ -34,27 +48,32 @@ public class GoldStockService : IGoldStockService
         var rows = new List<GoldStockRow>();
         foreach (var karat in karatSet.OrderByDescending(x => x))
         {
-            if (!openingMap.TryGetValue(karat, out var opening))
+            var hasProductOpening = productOpeningMap.TryGetValue(karat, out var productOpening);
+            var hasOpening = openingMap.TryGetValue(karat, out var opening);
+            if (!hasProductOpening && !hasOpening)
             {
                 rows.Add(new GoldStockRow(karat, 0m, 0m, 0m, 0m, null, null));
                 continue;
             }
 
-            var openingDate = DateOnly.FromDateTime(opening.Date);
+            var openingDateValue = hasProductOpening ? productOpening.date : opening!.Date;
+            var openingGram = hasProductOpening ? productOpening.gram : opening!.Gram;
+            var openingDate = DateOnly.FromDateTime(openingDateValue);
+            var openingDescription = hasProductOpening ? "Ürün açılış envanteri" : opening?.Description;
 
             // Acilis tarihinden onceki hareketler hesaplamaya dahil edilmez.
             var expenseGram = await _db.Expenses.AsNoTracking()
-                .Where(x => x.Kesildi && (int)x.AltinAyar == karat && x.Tarih >= openingDate)
+                .Where(x => x.Kesildi && x.AltinAyar.HasValue && (int)x.AltinAyar.Value == karat && x.Tarih >= openingDate)
                 .Select(x => (decimal?)x.GramDegeri)
                 .SumAsync(cancellationToken) ?? 0m;
 
             var invoiceGram = await _db.Invoices.AsNoTracking()
-                .Where(x => x.Kesildi && (int)x.AltinAyar == karat && x.Tarih >= openingDate)
+                .Where(x => x.Kesildi && x.AltinAyar.HasValue && (int)x.AltinAyar.Value == karat && x.Tarih >= openingDate)
                 .Select(x => (decimal?)x.GramDegeri)
                 .SumAsync(cancellationToken) ?? 0m;
 
-            var cashGram = opening.Gram + expenseGram - invoiceGram;
-            rows.Add(new GoldStockRow(karat, opening.Gram, expenseGram, invoiceGram, cashGram, opening.Date, opening.Description));
+            var cashGram = openingGram + expenseGram - invoiceGram;
+            rows.Add(new GoldStockRow(karat, openingGram, expenseGram, invoiceGram, cashGram, openingDateValue, openingDescription));
         }
 
         return rows;

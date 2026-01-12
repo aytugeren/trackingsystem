@@ -2,16 +2,21 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Dispatch, SetStateAction } from 'react'
-import { api, toDateOnlyString, type DashboardSummary, type GoldStockRow } from '@/lib/api'
+import { api, toDateOnlyString, type Category, type DashboardSummary, type GoldStockRow } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import { CategoryManagement } from '@/components/categories/category-management'
 
 export default function HomePage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [goldStock, setGoldStock] = useState<GoldStockRow[] | null>(null)
   const [goldStockError, setGoldStockError] = useState('')
+  const [categories, setCategories] = useState<Category[]>([])
+  const [categoryError, setCategoryError] = useState('')
+  const [categoryLoading, setCategoryLoading] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   
   const [showFullscreen, setShowFullscreen] = useState(false)
   const [filterMode, setFilterMode] = useState<'all' | 'yearly' | 'monthly' | 'daily'>('all')
@@ -35,6 +40,19 @@ export default function HomePage() {
 
   const fetchGoldStock = useCallback(async () => {
     return api.goldStock()
+  }, [])
+
+  const fetchCategories = useCallback(async () => {
+    setCategoryError('')
+    setCategoryLoading(true)
+    try {
+      const rows = await api.listCategories()
+      setCategories(rows)
+    } catch {
+      setCategoryError('Kategoriler yüklenemedi.')
+    } finally {
+      setCategoryLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -68,6 +86,25 @@ export default function HomePage() {
     load()
     return () => { alive = false }
   }, [fetchGoldStock])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE || ''
+        const token = typeof window !== 'undefined' ? (localStorage.getItem('ktp_token') || '') : ''
+        const res = await fetch(`${base}/api/me/permissions`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        if (res.ok) {
+          const j = await res.json()
+          setIsAdmin(String(j?.role) === 'Yonetici')
+        }
+      } catch {}
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    fetchCategories()
+  }, [fetchCategories, isAdmin])
   // Auto-refresh while fullscreen overlay is open (every 10s)
   useEffect(() => {
     if (!showFullscreen) return
@@ -257,6 +294,24 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      {isAdmin && (
+        <section>
+          <Card>
+            <CardHeader>
+              <CardTitle>Kategori Yönetimi</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {categoryError && <p className="text-red-600 mb-2">{categoryError}</p>}
+              {categoryLoading ? (
+                <p>Yükleniyor…</p>
+              ) : (
+                <CategoryManagement categories={categories} onRefresh={fetchCategories} />
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       
       {mounted && showFullscreen && createPortal((

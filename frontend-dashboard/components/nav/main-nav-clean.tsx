@@ -35,6 +35,9 @@ export function MainNav({ onNavigate, collapsed = false }: { onNavigate?: () => 
 
   const adminItems: NavItem[] = [
     ...(role === 'Yonetici' ? [{ href: '/muhasebe', label: 'Muhasebe', icon: IconChart } as NavItem] : []),
+    ...(role === 'Yonetici' ? [{ href: '/urunler', label: 'Ürünler', icon: IconTag } as NavItem] : []),
+    ...(role === 'Yonetici' ? [{ href: '/kategoriler', label: 'Kategoriler', icon: IconTag } as NavItem] : []),
+    ...(role === 'Yonetici' ? [{ href: '/kategori-urun', label: 'Kategori Ürün', icon: IconTarget } as NavItem] : []),
     ...(perms?.canManageCashier ? [{ href: '/cashiers', label: 'Kasiyerler', icon: IconUsers } as NavItem] : []),
     ...(perms?.canAccessLeavesAdmin ? [{ href: '/leaves', label: 'Izin Yonetimi', icon: IconCalendar } as NavItem] : []),
     ...(perms?.canManageCashier ? [{ href: '/users/permissions', label: 'Kullanici Yetkileri', icon: IconShield } as NavItem] : []),

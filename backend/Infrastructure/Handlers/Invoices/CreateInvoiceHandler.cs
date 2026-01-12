@@ -87,16 +87,22 @@ public class CreateInvoiceHandler : ICreateInvoiceHandler
             CustomerId = customer.Id,
             Tutar = command.Dto.Tutar,
             OdemeSekli = command.Dto.OdemeSekli,
-            AltinAyar = command.Dto.AltinAyar,
+            ProductId = command.Dto.ProductId,
             KasiyerId = command.CurrentUserId
         };
+
+        var resolvedAyar = await ProductAyarResolver.TryResolveAsync(_db, command.Dto.ProductId, cancellationToken);
+        entity.AltinAyar = resolvedAyar;
         
         DateTime? sourceTimeFromLive = null;
-        var priceData = await _market.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: false, cancellationToken);
-        if (priceData is null)
-            throw new ArgumentException("Has Altin fiyatı bulunamadı");
-        entity.AltinSatisFiyati = priceData.Price;
-        sourceTimeFromLive = priceData.SourceTime;
+        if (entity.AltinAyar.HasValue)
+        {
+            var priceData = await _market.GetLatestPriceForAyarAsync(entity.AltinAyar.Value, useBuyMargin: false, cancellationToken);
+            if (priceData is null)
+                throw new ArgumentException("Has Altin fiyatı bulunamadı");
+            entity.AltinSatisFiyati = priceData.Price;
+            sourceTimeFromLive = priceData.SourceTime;
+        }
 
         _db.Invoices.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);

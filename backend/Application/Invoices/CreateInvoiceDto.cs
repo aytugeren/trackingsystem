@@ -6,6 +6,7 @@ public class CreateInvoiceDto
 {
     public DateOnly Tarih { get; set; }
     public int SiraNo { get; set; }
+    public Guid ProductId { get; set; }
     public string? MusteriAdSoyad { get; set; }
     public string? TCKN { get; set; }
     public bool IsForCompany { get; set; }
@@ -16,5 +17,5 @@ public class CreateInvoiceDto
     public string? Email { get; set; }
     public decimal Tutar { get; set; }
     public OdemeSekli OdemeSekli { get; set; }
-    public AltinAyar AltinAyar { get; set; }
+    public AltinAyar? AltinAyar { get; set; }
 }

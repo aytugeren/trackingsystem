@@ -87,14 +87,20 @@ public class CreateExpenseHandler : ICreateExpenseHandler
             IsForCompany = command.Dto.IsForCompany,
             CustomerId = customer.Id,
             Tutar = command.Dto.Tutar,
-            AltinAyar = command.Dto.AltinAyar,
+            ProductId = command.Dto.ProductId,
             KasiyerId = command.CurrentUserId
         };
 
-        var priceData = await _market.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: true, cancellationToken);
-        if (priceData is null)
-            throw new ArgumentException("Has Altin fiyatı bulunamadı");
-        entity.AltinSatisFiyati = priceData.Price;
+        var resolvedAyar = await ProductAyarResolver.TryResolveAsync(_db, command.Dto.ProductId, cancellationToken);
+        entity.AltinAyar = resolvedAyar;
+
+        if (entity.AltinAyar.HasValue)
+        {
+            var priceData = await _market.GetLatestPriceForAyarAsync(entity.AltinAyar.Value, useBuyMargin: true, cancellationToken);
+            if (priceData is null)
+                throw new ArgumentException("Has Altin fiyatı bulunamadı");
+            entity.AltinSatisFiyati = priceData.Price;
+        }
 
         _db.Expenses.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);

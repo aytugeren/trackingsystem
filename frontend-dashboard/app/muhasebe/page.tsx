@@ -1,6 +1,6 @@
 ﻿"use client"
 import { useCallback, useEffect, useState } from 'react'
-import { api, toDateOnlyString, type GoldOpeningInventoryRequest, type GoldStockRow } from '@/lib/api'
+import { api, toDateOnlyString, type GoldOpeningInventoryRequest, type GoldStockRow, type ProductOpeningInventoryRow } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -9,6 +9,9 @@ import { Separator } from '@/components/ui/separator'
 export default function AccountingPage() {
   const [goldStock, setGoldStock] = useState<GoldStockRow[] | null>(null)
   const [goldStockError, setGoldStockError] = useState('')
+  const [productOpenings, setProductOpenings] = useState<ProductOpeningInventoryRow[] | null>(null)
+  const [productOpeningsError, setProductOpeningsError] = useState('')
+  const [productOpeningSaving, setProductOpeningSaving] = useState<string | null>(null)
   const [perms, setPerms] = useState<{ role?: string } | null>(null)
   const [openingForm, setOpeningForm] = useState<GoldOpeningInventoryRequest>({
     karat: 24,
@@ -22,6 +25,10 @@ export default function AccountingPage() {
 
   const fetchGoldStock = useCallback(async () => {
     return api.goldStock()
+  }, [])
+
+  const fetchProductOpenings = useCallback(async () => {
+    return api.listProductOpeningInventory()
   }, [])
 
   useEffect(() => {
@@ -52,9 +59,38 @@ export default function AccountingPage() {
     return () => { alive = false }
   }, [fetchGoldStock])
 
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        setProductOpeningsError('')
+        const data = await fetchProductOpenings()
+        if (!alive) return
+        setProductOpenings(data)
+      } catch {
+        if (!alive) return
+        setProductOpeningsError('Ürün açılış envanteri alınamadı.')
+      }
+    }
+    load()
+    return () => { alive = false }
+  }, [fetchProductOpenings])
+
   const formatGram = (value: number) => value.toLocaleString('tr-TR', { maximumFractionDigits: 3 })
   const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString('tr-TR') : '—'
   const karatLabelFor = (ayar: number) => (Number.isFinite(ayar) ? `${ayar} Ayar` : 'Bilinmiyor')
+  const normalizeAccountingType = (value: number | string | null | undefined) => {
+    if (typeof value === 'string') return value.toLowerCase() === 'adet' ? 1 : 0
+    return value === 1 ? 1 : 0
+  }
+  const productTypeLabel = (value: number | string | null | undefined) => normalizeAccountingType(value) === 1 ? 'Adet' : 'Gram'
+  const dateInputValue = (value?: string | null) => {
+    if (!value) return ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+    const parsed = new Date(value)
+    if (isNaN(parsed.getTime())) return ''
+    return toDateOnlyString(parsed)
+  }
 
   const isAdmin = perms?.role === 'Yonetici'
 
@@ -91,6 +127,39 @@ export default function AccountingPage() {
       setOpeningError('Kayit basarisiz.')
     } finally {
       setOpeningSaving(false)
+    }
+  }
+
+  const updateProductOpening = (productId: string, patch: Partial<ProductOpeningInventoryRow>) => {
+    setProductOpenings((prev) => prev ? prev.map((row) => row.productId === productId ? { ...row, ...patch } : row) : prev)
+  }
+
+  const handleProductOpeningSave = async (row: ProductOpeningInventoryRow) => {
+    const quantity = Number(row.openingQuantity ?? 0)
+    const dateValue = row.openingDate ? dateInputValue(row.openingDate) : ''
+    if (!dateValue) {
+      setProductOpeningsError('Ürün açılış tarihi gerekli.')
+      return
+    }
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      setProductOpeningsError('Ürün açılış miktarı negatif olamaz.')
+      return
+    }
+
+    try {
+      setProductOpeningSaving(row.productId)
+      setProductOpeningsError('')
+      await api.saveProductOpeningInventory({
+        productId: row.productId,
+        quantity,
+        date: dateValue,
+      })
+      const refreshed = await fetchProductOpenings()
+      setProductOpenings(refreshed)
+    } catch {
+      setProductOpeningsError('Ürün açılış envanteri kaydedilemedi.')
+    } finally {
+      setProductOpeningSaving(null)
     }
   }
 
@@ -206,6 +275,75 @@ export default function AccountingPage() {
                 {openingSaving ? 'Kaydediliyor...' : 'Kaydet'}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section>
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base">Ürün Açılış Envanteri</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-xs text-muted-foreground">Ürün bazlı açılış miktarlarını tanımlayın. Kayıt varsa güncellenir.</div>
+            {productOpeningsError && <p className="text-sm text-red-600">{productOpeningsError}</p>}
+            {!productOpenings ? (
+              <Skeleton className="h-32 w-full" />
+            ) : productOpenings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Kayıtlı ürün bulunamadı.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-[940px] w-full text-sm">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="p-2">Kod</th>
+                      <th className="p-2">Ürün</th>
+                      <th className="p-2">Tip</th>
+                      <th className="p-2">Sabit Gram</th>
+                      <th className="p-2">Açılış Miktarı</th>
+                      <th className="p-2">Açılış Tarihi</th>
+                      <th className="p-2">İşlem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productOpenings.map((row) => (
+                      <tr key={row.productId} className="border-t">
+                        <td className="p-2">{row.code}</td>
+                        <td className="p-2">
+                          <div className="font-medium">{row.name}</div>
+                          <div className="text-xs text-muted-foreground">{row.isActive ? 'Aktif' : 'Pasif'} • {row.showInSales ? 'Satışta' : 'Gizli'}</div>
+                        </td>
+                        <td className="p-2">{productTypeLabel(row.accountingType)}</td>
+                        <td className="p-2">{row.gram ? formatGram(row.gram) : '—'}</td>
+                        <td className="p-2">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.001"
+                            value={row.openingQuantity ?? 0}
+                            onChange={(e) => updateProductOpening(row.productId, { openingQuantity: parseFloat(e.target.value || '0') })}
+                            className="border rounded px-2 py-1 w-32 text-slate-900"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <input
+                            type="date"
+                            value={dateInputValue(row.openingDate)}
+                            onChange={(e) => updateProductOpening(row.productId, { openingDate: e.target.value })}
+                            className="border rounded px-2 py-1 w-40 text-slate-900"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Button size="sm" disabled={productOpeningSaving === row.productId} onClick={() => handleProductOpeningSave(row)}>
+                            {productOpeningSaving === row.productId ? 'Kaydediliyor…' : 'Kaydet'}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </section>

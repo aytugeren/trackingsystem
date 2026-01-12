@@ -170,7 +170,7 @@ public sealed class TurmobInvoiceBuilder
                     ExternalProductCode = "ERN0001",
                     MeasureUnit = "GRM",
                     ProductCode = "001",
-                    ProductName = $"{(int)invoice.AltinAyar} AYAR ALTIN",
+                    ProductName = invoice.AltinAyar.HasValue ? $"{(int)invoice.AltinAyar.Value} AYAR ALTIN" : "ALTIN",
                     UnitPrice = FormatDecimal(safAltin)
                 },
                 Quantity = FormatDecimal(gram),

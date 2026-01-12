@@ -12,6 +12,7 @@ using KuyumculukTakipProgrami.Application.Invoices;
 using KuyumculukTakipProgrami.Application.Expenses;
 using KuyumculukTakipProgrami.Application.Interfaces;
 using KuyumculukTakipProgrami.Application.Gold;
+using KuyumculukTakipProgrami.Application.Gold.Formula;
 using KuyumculukTakipProgrami.Domain.Entities.Market;
 using System.Globalization;
 using System.Threading;
@@ -175,6 +176,36 @@ using (var scope = app.Services.CreateScope())
         // Opening inventory table (accounting baseline)
         await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"GoldOpeningInventories\" (\"Id\" uuid PRIMARY KEY, \"Date\" timestamptz NOT NULL, \"Karat\" integer NOT NULL, \"Gram\" numeric(18,3) NOT NULL, \"Description\" varchar(250) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now());");
         await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_GoldOpeningInventories_Karat\" ON \"GoldOpeningInventories\" (\"Karat\");");
+        // Product catalog + opening inventories
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Products\" (\"Id\" uuid PRIMARY KEY, \"Code\" varchar(100) NOT NULL, \"Name\" varchar(200) NOT NULL, \"IsActive\" boolean NOT NULL DEFAULT true, \"ShowInSales\" boolean NOT NULL DEFAULT true, \"AccountingType\" integer NOT NULL DEFAULT 0, \"Gram\" numeric(18,3) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"UpdatedAt\" timestamptz NOT NULL DEFAULT now(), \"CreatedUserId\" uuid NULL, \"UpdatedUserId\" uuid NULL);");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Products_Code\" ON \"Products\" (\"Code\");");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Products\" ADD COLUMN IF NOT EXISTS \"ShowInSales\" boolean NOT NULL DEFAULT true;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Products\" ADD COLUMN IF NOT EXISTS \"AccountingType\" integer NOT NULL DEFAULT 0;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Products\" ADD COLUMN IF NOT EXISTS \"Gram\" numeric(18,3) NULL;");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"ProductOpeningInventories\" (\"Id\" uuid PRIMARY KEY, \"ProductId\" uuid NOT NULL, \"Date\" timestamptz NOT NULL, \"Quantity\" numeric(18,3) NOT NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"UpdatedAt\" timestamptz NOT NULL DEFAULT now(), \"CreatedUserId\" uuid NULL, \"UpdatedUserId\" uuid NULL);");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_ProductOpeningInventories_ProductId\" ON \"ProductOpeningInventories\" (\"ProductId\");");
+        await db.Database.ExecuteSqlRawAsync("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_ProductOpeningInventories_ProductId_Products') THEN ALTER TABLE \"ProductOpeningInventories\" ADD CONSTRAINT \"FK_ProductOpeningInventories_ProductId_Products\" FOREIGN KEY (\"ProductId\") REFERENCES \"Products\"(\"Id\") ON DELETE CASCADE; END IF; END $$;");
+        // Categories and category-product mapping
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Categories\" (\"Id\" uuid PRIMARY KEY, \"Name\" varchar(200) NOT NULL, \"ParentId\" uuid NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"UpdatedAt\" timestamptz NOT NULL DEFAULT now(), \"CreatedUserId\" uuid NULL, \"UpdatedUserId\" uuid NULL);");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Categories_Name\" ON \"Categories\" (\"Name\");");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_Categories_ParentId\" ON \"Categories\" (\"ParentId\");");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Categories_ParentId_Categories') THEN " +
+            "ALTER TABLE \"Categories\" ADD CONSTRAINT \"FK_Categories_ParentId_Categories\" FOREIGN KEY (\"ParentId\") REFERENCES \"Categories\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"CategoryProducts\" (\"Id\" uuid PRIMARY KEY, \"CategoryId\" uuid NOT NULL, \"ProductId\" uuid NOT NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"UpdatedAt\" timestamptz NOT NULL DEFAULT now(), \"CreatedUserId\" uuid NULL, \"UpdatedUserId\" uuid NULL);");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_CategoryProducts_CategoryId_ProductId\" ON \"CategoryProducts\" (\"CategoryId\", \"ProductId\");");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_CategoryProducts_CategoryId_Categories') THEN " +
+            "ALTER TABLE \"CategoryProducts\" ADD CONSTRAINT \"FK_CategoryProducts_CategoryId_Categories\" FOREIGN KEY (\"CategoryId\") REFERENCES \"Categories\"(\"Id\") ON DELETE CASCADE; " +
+            "END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_CategoryProducts_ProductId_Products') THEN " +
+            "ALTER TABLE \"CategoryProducts\" ADD CONSTRAINT \"FK_CategoryProducts_ProductId_Products\" FOREIGN KEY (\"ProductId\") REFERENCES \"Products\"(\"Id\") ON DELETE CASCADE; " +
+            "END IF; END $$;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"Status\" integer NOT NULL DEFAULT 0;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"FromTime\" time NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Leaves\" ADD COLUMN IF NOT EXISTS \"ToTime\" time NULL;");
@@ -193,6 +224,7 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"CustomRoleName\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"ProductId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Invoices\" ADD COLUMN IF NOT EXISTS \"IsForCompany\" boolean NOT NULL DEFAULT false;");
@@ -209,12 +241,18 @@ using (var scope = app.Services.CreateScope())
             "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Invoices_KasiyerId_Users') THEN " +
             "ALTER TABLE \"Invoices\" ADD CONSTRAINT \"FK_Invoices_KasiyerId_Users\" FOREIGN KEY (\"KasiyerId\") REFERENCES \"Users\"(\"Id\") ON DELETE SET NULL; " +
             "END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Invoices_ProductId_Products') THEN " +
+            "ALTER TABLE \"Invoices\" ADD CONSTRAINT \"FK_Invoices_ProductId_Products\" FOREIGN KEY (\"ProductId\") REFERENCES \"Products\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedById\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"CreatedByEmail\" varchar(200) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"IsForCompany\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"KasiyerId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"AltinSatisFiyati\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"AltinAyar\" integer NULL;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"ProductId\" uuid NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"SafAltinDegeri\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"UrunFiyati\" numeric(18,2) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"YeniUrunFiyati\" numeric(18,3) NULL;");
@@ -222,6 +260,45 @@ using (var scope = app.Services.CreateScope())
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Iscilik\" numeric(18,3) NULL;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"Kesildi\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Expenses\" ADD COLUMN IF NOT EXISTS \"FinalizedAt\" timestamp with time zone NULL;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_Expenses_ProductId_Products') THEN " +
+            "ALTER TABLE \"Expenses\" ADD CONSTRAINT \"FK_Expenses_ProductId_Products\" FOREIGN KEY (\"ProductId\") REFERENCES \"Products\"(\"Id\") ON DELETE SET NULL; " +
+            "END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Products\" ADD COLUMN IF NOT EXISTS \"RequiresFormula\" boolean NOT NULL DEFAULT true;");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Products\" ADD COLUMN IF NOT EXISTS \"DefaultFormulaId\" uuid NULL;");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE TABLE IF NOT EXISTS \"GoldFormulaTemplates\" (" +
+            "\"Id\" uuid PRIMARY KEY, " +
+            "\"Code\" varchar(100) NOT NULL UNIQUE, " +
+            "\"Name\" varchar(200) NOT NULL, " +
+            "\"Scope\" integer NOT NULL, " +
+            "\"FormulaType\" integer NOT NULL, " +
+            "\"DslVersion\" integer NOT NULL, " +
+            "\"DefinitionJson\" text NOT NULL, " +
+            "\"IsActive\" boolean NOT NULL DEFAULT true, " +
+            "\"CreatedAt\" timestamptz NOT NULL DEFAULT now()" +
+            ");");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE TABLE IF NOT EXISTS \"GoldProductFormulaBindings\" (" +
+            "\"Id\" uuid PRIMARY KEY, " +
+            "\"GoldProductId\" uuid NOT NULL, " +
+            "\"FormulaTemplateId\" uuid NOT NULL, " +
+            "\"Direction\" integer NOT NULL, " +
+            "\"IsActive\" boolean NOT NULL DEFAULT true" +
+            ");");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_GoldProductFormulaBindings_Product_Direction_Active\" ON \"GoldProductFormulaBindings\" (\"GoldProductId\", \"Direction\", \"IsActive\");");
+        await db.Database.ExecuteSqlRawAsync("CREATE INDEX IF NOT EXISTS \"IX_GoldProductFormulaBindings_Template\" ON \"GoldProductFormulaBindings\" (\"FormulaTemplateId\");");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_GoldProductFormulaBindings_Product') THEN " +
+            "ALTER TABLE \"GoldProductFormulaBindings\" ADD CONSTRAINT \"FK_GoldProductFormulaBindings_Product\" FOREIGN KEY (\"GoldProductId\") REFERENCES \"Products\"(\"Id\") ON DELETE CASCADE; " +
+            "END IF; END $$;");
+        await db.Database.ExecuteSqlRawAsync(
+            "DO $$ BEGIN " +
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'FK_GoldProductFormulaBindings_Template') THEN " +
+            "ALTER TABLE \"GoldProductFormulaBindings\" ADD CONSTRAINT \"FK_GoldProductFormulaBindings_Template\" FOREIGN KEY (\"FormulaTemplateId\") REFERENCES \"GoldFormulaTemplates\"(\"Id\") ON DELETE CASCADE; " +
+            "END IF; END $$;");
         await db.Database.ExecuteSqlRawAsync("CREATE TABLE IF NOT EXISTS \"Customers\" (\"Id\" uuid PRIMARY KEY, \"AdSoyad\" varchar(150) NOT NULL, \"NormalizedAdSoyad\" varchar(160) NOT NULL, \"TCKN\" varchar(11) NOT NULL, \"IsCompany\" boolean NOT NULL DEFAULT false, \"VknNo\" varchar(10) NULL, \"CompanyName\" varchar(200) NULL, \"Phone\" varchar(40) NULL, \"Email\" varchar(200) NULL, \"CreatedAt\" timestamptz NOT NULL DEFAULT now(), \"LastTransactionAt\" timestamptz NULL);");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"IsCompany\" boolean NOT NULL DEFAULT false;");
         await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Customers\" ADD COLUMN IF NOT EXISTS \"VknNo\" varchar(10) NULL;");
@@ -372,7 +449,7 @@ app.MapPut("/api/invoices/{id:guid}/status", async (Guid id, UpdateInvoiceStatus
 }).WithTags("Invoices").RequireAuthorization();
 
 // Finalize invoice: compute fields and set as Kesildi
-app.MapPost("/api/invoices/{id:guid}/finalize", async (Guid id, KtpDbContext db, HttpContext http) =>
+app.MapPost("/api/invoices/{id:guid}/finalize", async (Guid id, KtpDbContext db, IGoldFormulaEngine engine, HttpContext http) =>
 {
     // Permission: admin or role.CanToggleKesildi
     if (!http.User.IsInRole(Role.Yonetici.ToString()))
@@ -391,12 +468,58 @@ app.MapPost("/api/invoices/{id:guid}/finalize", async (Guid id, KtpDbContext db,
     }
     var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
     if (inv is null) return Results.NotFound();
+    if (!inv.AltinAyar.HasValue)
+    {
+        decimal R2NoAyar(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
+        inv.UrunFiyati = R2NoAyar(inv.Tutar);
+        inv.SafAltinDegeri = null;
+        inv.YeniUrunFiyati = null;
+        inv.GramDegeri = null;
+        inv.Iscilik = null;
+        inv.FinalizedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return Results.Ok(new { inv.Id, inv.SafAltinDegeri, inv.UrunFiyati, inv.YeniUrunFiyati, inv.GramDegeri, inv.Iscilik, inv.Kesildi });
+    }
     if (!inv.AltinSatisFiyati.HasValue)
         return Results.BadRequest(new { error = "Alt?n sat?? fiyat? bulunamad?." });
     
 
     decimal R2(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
     var hasAltin = inv.AltinSatisFiyati!.Value;
+    var templateCode = inv.AltinAyar == AltinAyar.Ayar22 ? "DEFAULT_22_SALE" : "DEFAULT_24_SALE";
+    var template = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Code == templateCode && x.IsActive);
+    if (template is not null)
+    {
+        var product = inv.ProductId.HasValue
+            ? await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == inv.ProductId.Value)
+            : null;
+        var context = new GoldFormulaContext(
+            inv.Tutar,
+            hasAltin,
+            0.20m,
+            product?.AccountingType ?? ProductAccountingType.Gram,
+            product?.Gram,
+            GoldFormulaDirection.Sale,
+            GoldFormulaOperationType.Invoice,
+            hasAltin);
+
+        try
+        {
+            var eval = engine.Evaluate(template.DefinitionJson, context, GoldFormulaMode.Finalize);
+            inv.UrunFiyati = eval.Result.Amount;
+            inv.SafAltinDegeri = eval.Result.UnitHasPriceUsed;
+            inv.YeniUrunFiyati = TryGetVariable(eval.UsedVariables, "yeniUrun");
+            inv.GramDegeri = eval.Result.Gram;
+            inv.Iscilik = eval.Result.LaborNet;
+            inv.FinalizedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { inv.Id, inv.SafAltinDegeri, inv.UrunFiyati, inv.YeniUrunFiyati, inv.GramDegeri, inv.Iscilik, inv.Kesildi });
+        }
+        catch (ArgumentException)
+        {
+            // fallback to legacy calculation
+        }
+    }
     var rawSafAltin = inv.AltinAyar == AltinAyar.Ayar22 ? hasAltin * 0.916m : hasAltin * 0.995m;
     var rawYeniUrun = inv.AltinAyar == AltinAyar.Ayar22 ? inv.Tutar * 0.99m : inv.Tutar * 0.998m;
     var safAltin = R2(rawSafAltin);
@@ -440,19 +563,43 @@ app.MapPut("/api/invoices/{id:guid}/preview", async (Guid id, UpdateInvoicePrevi
 
     var inv = await db.Invoices.FirstOrDefaultAsync(x => x.Id == id);
     if (inv is null) return Results.NotFound();
-    if (!inv.AltinSatisFiyati.HasValue)
-        return Results.BadRequest(new { error = "Altın satış fiyatı bulunamadı." });
-
     decimal R2(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
     decimal R3(decimal x) => Math.Round(x, 3, MidpointRounding.AwayFromZero);
 
-    var hasAltin = inv.AltinSatisFiyati!.Value;
-    var ayarValue = body.AltinAyar ?? (int)inv.AltinAyar;
-    if (ayarValue != 22 && ayarValue != 24)
+    if (body.AltinAyar.HasValue)
     {
-        return Results.BadRequest(new { error = "Altın ayarı geçersiz." });
+        var ayarValue = body.AltinAyar.Value;
+        if (ayarValue != 22 && ayarValue != 24)
+        {
+            return Results.BadRequest(new { error = "Altın ayarı geçersiz." });
+        }
+        inv.AltinAyar = ayarValue == 22 ? AltinAyar.Ayar22 : AltinAyar.Ayar24;
     }
-    inv.AltinAyar = ayarValue == 22 ? AltinAyar.Ayar22 : AltinAyar.Ayar24;
+
+    if (!inv.AltinAyar.HasValue || !inv.AltinSatisFiyati.HasValue)
+    {
+        var tutarNoAyar = R2(body.Tutar);
+        inv.Tutar = tutarNoAyar;
+        inv.UrunFiyati = tutarNoAyar;
+        inv.SafAltinDegeri = null;
+        inv.YeniUrunFiyati = null;
+        inv.GramDegeri = null;
+        inv.Iscilik = null;
+        await db.SaveChangesAsync();
+        return Results.Ok(new
+        {
+            inv.Id,
+            tutar = inv.Tutar,
+            safAltinDegeri = inv.SafAltinDegeri,
+            urunFiyati = inv.UrunFiyati,
+            yeniUrunFiyati = inv.YeniUrunFiyati,
+            gramDegeri = inv.GramDegeri,
+            iscilik = inv.Iscilik,
+            altinAyar = inv.AltinAyar.HasValue ? (int?)inv.AltinAyar.Value : null
+        });
+    }
+
+    var hasAltin = inv.AltinSatisFiyati!.Value;
     var safOran = inv.AltinAyar == AltinAyar.Ayar22 ? 0.916m : 0.995m;
     var yeniOran = inv.AltinAyar == AltinAyar.Ayar22 ? 0.99m : 0.998m;
     var safAltin = R2(hasAltin * safOran);
@@ -493,7 +640,7 @@ app.MapPut("/api/invoices/{id:guid}/preview", async (Guid id, UpdateInvoicePrevi
         yeniUrunFiyati = inv.YeniUrunFiyati,
         gramDegeri = inv.GramDegeri,
         iscilik = inv.Iscilik,
-        altinAyar = (int)inv.AltinAyar
+        altinAyar = inv.AltinAyar.HasValue ? (int?)inv.AltinAyar.Value : null
     });
 }).WithTags("Invoices").RequireAuthorization();
 
@@ -524,6 +671,8 @@ app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IM
                         from u in uu.DefaultIfEmpty()
                         join c in db.Customers.AsNoTracking() on i.CustomerId equals c.Id into cc
                         from c in cc.DefaultIfEmpty()
+                        join prod in db.Products.AsNoTracking() on i.ProductId equals prod.Id into pp
+                        from prod in pp.DefaultIfEmpty()
                         select new
                         {
                             id = i.Id,
@@ -547,7 +696,9 @@ app.MapGet("/api/invoices", async (int? page, int? pageSize, KtpDbContext db, IM
                             iscilik = i.Iscilik,
                             finalizedAt = i.FinalizedAt,
                             kesildi = i.Kesildi,
-                            kasiyerAdSoyad = (u != null ? u.Email : i.CreatedByEmail)
+                            kasiyerAdSoyad = (u != null ? u.Email : i.CreatedByEmail),
+                            productId = i.ProductId,
+                            productName = prod != null ? prod.Name : null
                         };
 
         var ordered = baseQuery
@@ -690,16 +841,62 @@ app.MapPut("/api/expenses/{id:guid}/status", async (Guid id, UpdateInvoiceStatus
 }).WithTags("Expenses").RequireAuthorization();
 
 // Finalize expense: compute fields and set as Kesildi
-app.MapPost("/api/expenses/{id:guid}/finalize", async (Guid id, KtpDbContext db) =>
+app.MapPost("/api/expenses/{id:guid}/finalize", async (Guid id, KtpDbContext db, IGoldFormulaEngine engine) =>
 {
     var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
     if (exp is null) return Results.NotFound();
+    if (!exp.AltinAyar.HasValue)
+    {
+        decimal R2eNoAyar(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
+        exp.UrunFiyati = R2eNoAyar(exp.Tutar);
+        exp.SafAltinDegeri = null;
+        exp.YeniUrunFiyati = null;
+        exp.GramDegeri = null;
+        exp.Iscilik = null;
+        exp.FinalizedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return Results.Ok(new { exp.Id, exp.SafAltinDegeri, exp.UrunFiyati, exp.YeniUrunFiyati, exp.GramDegeri, exp.Iscilik, exp.Kesildi });
+    }
     if (!exp.AltinSatisFiyati.HasValue)
         return Results.BadRequest(new { error = "Alt?n sat?? fiyat? bulunamad?." });
     
 
     decimal R2e(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
     var hasAltin = exp.AltinSatisFiyati!.Value;
+    var templateCode = exp.AltinAyar == AltinAyar.Ayar22 ? "DEFAULT_22_PURCHASE" : "DEFAULT_24_PURCHASE";
+    var template = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Code == templateCode && x.IsActive);
+    if (template is not null)
+    {
+        var product = exp.ProductId.HasValue
+            ? await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == exp.ProductId.Value)
+            : null;
+        var context = new GoldFormulaContext(
+            exp.Tutar,
+            hasAltin,
+            0.20m,
+            product?.AccountingType ?? ProductAccountingType.Gram,
+            product?.Gram,
+            GoldFormulaDirection.Purchase,
+            GoldFormulaOperationType.Expense,
+            hasAltin);
+
+        try
+        {
+            var eval = engine.Evaluate(template.DefinitionJson, context, GoldFormulaMode.Finalize);
+            exp.UrunFiyati = eval.Result.Amount;
+            exp.SafAltinDegeri = eval.Result.UnitHasPriceUsed;
+            exp.YeniUrunFiyati = TryGetVariable(eval.UsedVariables, "yeniUrun");
+            exp.GramDegeri = eval.Result.Gram;
+            exp.Iscilik = eval.Result.LaborNet;
+            exp.FinalizedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { exp.Id, exp.SafAltinDegeri, exp.UrunFiyati, exp.YeniUrunFiyati, exp.GramDegeri, exp.Iscilik, exp.Kesildi });
+        }
+        catch (ArgumentException)
+        {
+            // fallback to legacy calculation
+        }
+    }
     var rawSafAltin = exp.AltinAyar == AltinAyar.Ayar22 ? hasAltin * 0.916m : hasAltin * 0.995m;
     var rawYeniUrun = exp.AltinAyar == AltinAyar.Ayar22 ? exp.Tutar * 0.99m : exp.Tutar * 0.998m;
     var safAltin = R2e(rawSafAltin);
@@ -743,19 +940,43 @@ app.MapPut("/api/expenses/{id:guid}/preview", async (Guid id, UpdateExpensePrevi
 
     var exp = await db.Expenses.FirstOrDefaultAsync(x => x.Id == id);
     if (exp is null) return Results.NotFound();
-    if (!exp.AltinSatisFiyati.HasValue)
-        return Results.BadRequest(new { error = "Altın satış fiyatı bulunamadı." });
-
     decimal R2e(decimal x) => Math.Round(x, 2, MidpointRounding.AwayFromZero);
     decimal R3e(decimal x) => Math.Round(x, 3, MidpointRounding.AwayFromZero);
 
-    var hasAltin = exp.AltinSatisFiyati!.Value;
-    var ayarValue = body.AltinAyar ?? (int)exp.AltinAyar;
-    if (ayarValue != 22 && ayarValue != 24)
+    if (body.AltinAyar.HasValue)
     {
-        return Results.BadRequest(new { error = "Altın ayarı geçersiz." });
+        var ayarValue = body.AltinAyar.Value;
+        if (ayarValue != 22 && ayarValue != 24)
+        {
+            return Results.BadRequest(new { error = "Altın ayarı geçersiz." });
+        }
+        exp.AltinAyar = ayarValue == 22 ? AltinAyar.Ayar22 : AltinAyar.Ayar24;
     }
-    exp.AltinAyar = ayarValue == 22 ? AltinAyar.Ayar22 : AltinAyar.Ayar24;
+
+    if (!exp.AltinAyar.HasValue || !exp.AltinSatisFiyati.HasValue)
+    {
+        var tutarNoAyar = R2e(body.Tutar);
+        exp.Tutar = tutarNoAyar;
+        exp.UrunFiyati = tutarNoAyar;
+        exp.SafAltinDegeri = null;
+        exp.YeniUrunFiyati = null;
+        exp.GramDegeri = null;
+        exp.Iscilik = null;
+        await db.SaveChangesAsync();
+        return Results.Ok(new
+        {
+            exp.Id,
+            tutar = exp.Tutar,
+            safAltinDegeri = exp.SafAltinDegeri,
+            urunFiyati = exp.UrunFiyati,
+            yeniUrunFiyati = exp.YeniUrunFiyati,
+            gramDegeri = exp.GramDegeri,
+            iscilik = exp.Iscilik,
+            altinAyar = exp.AltinAyar.HasValue ? (int?)exp.AltinAyar.Value : null
+        });
+    }
+
+    var hasAltin = exp.AltinSatisFiyati!.Value;
     var safOran = exp.AltinAyar == AltinAyar.Ayar22 ? 0.916m : 0.995m;
     var yeniOran = exp.AltinAyar == AltinAyar.Ayar22 ? 0.99m : 0.998m;
     var safAltin = R2e(hasAltin * safOran);
@@ -796,7 +1017,7 @@ app.MapPut("/api/expenses/{id:guid}/preview", async (Guid id, UpdateExpensePrevi
         yeniUrunFiyati = exp.YeniUrunFiyati,
         gramDegeri = exp.GramDegeri,
         iscilik = exp.Iscilik,
-        altinAyar = (int)exp.AltinAyar
+        altinAyar = exp.AltinAyar.HasValue ? (int?)exp.AltinAyar.Value : null
     });
 }).WithTags("Expenses").RequireAuthorization();
 
@@ -827,6 +1048,8 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
                         from u in uu.DefaultIfEmpty()
                         join c in db.Customers.AsNoTracking() on e.CustomerId equals c.Id into cc
                         from c in cc.DefaultIfEmpty()
+                        join prod in db.Products.AsNoTracking() on e.ProductId equals prod.Id into pp
+                        from prod in pp.DefaultIfEmpty()
                         select new
                         {
                             id = e.Id,
@@ -849,7 +1072,9 @@ app.MapGet("/api/expenses", async (int? page, int? pageSize, KtpDbContext db, IM
                             iscilik = e.Iscilik,
                             finalizedAt = e.FinalizedAt,
                             kesildi = e.Kesildi,
-                            kasiyerAdSoyad = (u != null ? u.Email : e.CreatedByEmail)
+                            kasiyerAdSoyad = (u != null ? u.Email : e.CreatedByEmail),
+                            productId = e.ProductId,
+                            productName = prod != null ? prod.Name : null
                         };
 
         var ordered = baseQuery
@@ -971,13 +1196,13 @@ app.MapGet("/api/dashboard/summary", async (
         var expGrams = await expQuery.Select(x => (decimal?)x.GramDegeri).SumAsync(ct) ?? 0m;
 
         var invKarat = await invQuery
-            .Where(x => x.Kesildi)
-            .GroupBy(x => x.AltinAyar)
+            .Where(x => x.Kesildi && x.AltinAyar.HasValue)
+            .GroupBy(x => x.AltinAyar!.Value)
             .Select(g => new { ayar = (int)g.Key, gram = g.Sum(x => (decimal?)x.GramDegeri) ?? 0m })
             .ToListAsync(ct);
         var expKarat = await expQuery
-            .Where(x => x.Kesildi)
-            .GroupBy(x => x.AltinAyar)
+            .Where(x => x.Kesildi && x.AltinAyar.HasValue)
+            .GroupBy(x => x.AltinAyar!.Value)
             .Select(g => new { ayar = (int)g.Key, gram = g.Sum(x => (decimal?)x.GramDegeri) ?? 0m })
             .ToListAsync(ct);
 
@@ -1094,6 +1319,809 @@ app.MapPost("/api/gold/opening-inventory", async (
     return Results.Ok(row);
 }).WithTags("Gold").RequireAuthorization();
 
+app.MapGet("/api/products", async (KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var items = await db.Products.AsNoTracking()
+        .OrderBy(x => x.Name)
+        .ThenBy(x => x.Code)
+        .ToListAsync(ct);
+    return Results.Ok(items);
+}).WithTags("Products").RequireAuthorization();
+
+app.MapPost("/api/products", async (ProductCreateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var code = req.Code?.Trim() ?? string.Empty;
+    var name = req.Name?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(code)) return Results.BadRequest(new { error = "Code gerekli" });
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Name gerekli" });
+    if (req.Gram.HasValue && req.Gram.Value < 0) return Results.BadRequest(new { error = "Gram negatif olamaz" });
+
+    var exists = await db.Products.AsNoTracking().AnyAsync(x => x.Code.ToUpper() == code.ToUpper(), ct);
+    if (exists) return Results.BadRequest(new { error = "Code zaten var" });
+
+    var requiresFormula = req.RequiresFormula ?? true;
+    Guid? defaultFormulaId = req.DefaultFormulaId;
+    if (defaultFormulaId.HasValue)
+    {
+        var formulaExists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Id == defaultFormulaId.Value, ct);
+        if (!formulaExists) return Results.BadRequest(new { error = "Default formula bulunamadı" });
+    }
+    if ((req.IsActive ?? true) && requiresFormula && !defaultFormulaId.HasValue)
+        return Results.BadRequest(new { error = "Formül olmadan ürün aktif edilemez" });
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    var now = DateTime.UtcNow;
+    var entity = new Product
+    {
+        Id = Guid.NewGuid(),
+        Code = code,
+        Name = name,
+        IsActive = req.IsActive ?? true,
+        ShowInSales = req.ShowInSales ?? true,
+        AccountingType = (ProductAccountingType)(req.AccountingType ?? (int)ProductAccountingType.Gram),
+        Gram = req.Gram,
+        RequiresFormula = requiresFormula,
+        DefaultFormulaId = defaultFormulaId,
+        CreatedAt = now,
+        UpdatedAt = now,
+        CreatedUserId = uid,
+        UpdatedUserId = uid
+    };
+    db.Products.Add(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Products").RequireAuthorization();
+
+app.MapPut("/api/products/{id:guid}", async (Guid id, ProductUpdateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var code = req.Code?.Trim() ?? string.Empty;
+    var name = req.Name?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(code)) return Results.BadRequest(new { error = "Code gerekli" });
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Name gerekli" });
+    if (req.Gram.HasValue && req.Gram.Value < 0) return Results.BadRequest(new { error = "Gram negatif olamaz" });
+
+    var entity = await db.Products.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+
+    var exists = await db.Products.AsNoTracking()
+        .AnyAsync(x => x.Id != id && x.Code.ToUpper() == code.ToUpper(), ct);
+    if (exists) return Results.BadRequest(new { error = "Code zaten var" });
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    Guid? defaultFormulaId = req.DefaultFormulaId ?? entity.DefaultFormulaId;
+    if (defaultFormulaId.HasValue)
+    {
+        var formulaExists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Id == defaultFormulaId.Value, ct);
+        if (!formulaExists) return Results.BadRequest(new { error = "Default formula bulunamadı" });
+    }
+
+    var requiresFormula = req.RequiresFormula ?? entity.RequiresFormula;
+    var willBeActive = req.IsActive ?? entity.IsActive;
+    if (willBeActive && requiresFormula)
+    {
+        var hasBinding = await db.GoldProductFormulaBindings.AsNoTracking()
+            .AnyAsync(x => x.GoldProductId == entity.Id && x.IsActive, ct);
+        if (!hasBinding && !defaultFormulaId.HasValue)
+            return Results.BadRequest(new { error = "Formül olmadan ürün aktif edilemez" });
+    }
+
+    entity.Code = code;
+    entity.Name = name;
+    entity.IsActive = req.IsActive ?? entity.IsActive;
+    entity.ShowInSales = req.ShowInSales ?? entity.ShowInSales;
+    entity.AccountingType = (ProductAccountingType)(req.AccountingType ?? (int)entity.AccountingType);
+    entity.Gram = req.Gram;
+    entity.RequiresFormula = requiresFormula;
+    entity.DefaultFormulaId = defaultFormulaId;
+    entity.UpdatedAt = DateTime.UtcNow;
+    entity.UpdatedUserId = uid;
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Products").RequireAuthorization();
+
+app.MapDelete("/api/products/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.Products.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+    db.Products.Remove(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).WithTags("Products").RequireAuthorization();
+
+app.MapGet("/api/products/opening-inventory", async (KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var items = await (from p in db.Products.AsNoTracking()
+                       join o in db.ProductOpeningInventories.AsNoTracking() on p.Id equals o.ProductId into og
+                       from o in og.DefaultIfEmpty()
+                       orderby p.Name, p.Code
+                       select new
+                       {
+                           productId = p.Id,
+                           p.Code,
+                           p.Name,
+                           p.IsActive,
+                           p.ShowInSales,
+                           p.AccountingType,
+                           p.Gram,
+                           openingQuantity = (decimal?)o.Quantity,
+                           openingDate = (DateTime?)o.Date
+                       }).ToListAsync(ct);
+    return Results.Ok(items);
+}).WithTags("Products").RequireAuthorization();
+
+app.MapPost("/api/products/opening-inventory", async (ProductOpeningInventoryRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    if (req.ProductId == Guid.Empty) return Results.BadRequest(new { error = "ProductId gerekli" });
+    if (req.Date == default) return Results.BadRequest(new { error = "Tarih gerekli" });
+    if (req.Quantity < 0) return Results.BadRequest(new { error = "Miktar negatif olamaz" });
+
+    var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == req.ProductId, ct);
+    if (product is null) return Results.NotFound();
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    var now = DateTime.UtcNow;
+    var normalizedDate = req.Date.Kind == DateTimeKind.Utc
+        ? req.Date
+        : (req.Date.Kind == DateTimeKind.Local ? req.Date.ToUniversalTime() : DateTime.SpecifyKind(req.Date, DateTimeKind.Utc));
+
+    var opening = await db.ProductOpeningInventories.FirstOrDefaultAsync(x => x.ProductId == req.ProductId, ct);
+    if (opening is null)
+    {
+        opening = new ProductOpeningInventory
+        {
+            Id = Guid.NewGuid(),
+            ProductId = req.ProductId,
+            Date = normalizedDate,
+            Quantity = req.Quantity,
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedUserId = uid,
+            UpdatedUserId = uid
+        };
+        db.ProductOpeningInventories.Add(opening);
+    }
+    else
+    {
+        opening.Date = normalizedDate;
+        opening.Quantity = req.Quantity;
+        opening.UpdatedAt = now;
+        opening.UpdatedUserId = uid;
+    }
+
+    await db.SaveChangesAsync(ct);
+
+    return Results.Ok(new
+    {
+        productId = product.Id,
+        product.Code,
+        product.Name,
+        product.IsActive,
+        product.ShowInSales,
+        product.AccountingType,
+        product.Gram,
+        openingQuantity = opening.Quantity,
+        openingDate = opening.Date
+    });
+}).WithTags("Products").RequireAuthorization();
+
+// Formula templates
+app.MapGet("/api/formulas/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+    return Results.Ok(entity);
+}).WithTags("Formulas").RequireAuthorization();
+
+app.MapPost("/api/formulas", async (FormulaUpsertRequest req, KtpDbContext db, IGoldFormulaEngine engine, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var code = req.Code?.Trim() ?? string.Empty;
+    var name = req.Name?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(code)) return Results.BadRequest(new { error = "Code gerekli" });
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Name gerekli" });
+    if (string.IsNullOrWhiteSpace(req.DefinitionJson)) return Results.BadRequest(new { error = "DefinitionJson gerekli" });
+
+    var exists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Code.ToUpper() == code.ToUpper(), ct);
+    if (exists) return Results.BadRequest(new { error = "Code zaten var" });
+
+    try
+    {
+        engine.ValidateDefinition(req.DefinitionJson);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+
+    var entity = new GoldFormulaTemplate
+    {
+        Id = Guid.NewGuid(),
+        Code = code,
+        Name = name,
+        Scope = req.Scope ?? GoldFormulaScope.ProductSpecific,
+        FormulaType = req.FormulaType ?? GoldFormulaType.Both,
+        DslVersion = req.DslVersion ?? 1,
+        DefinitionJson = req.DefinitionJson,
+        IsActive = req.IsActive ?? true,
+        CreatedAt = DateTime.UtcNow
+    };
+    db.GoldFormulaTemplates.Add(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Formulas").RequireAuthorization();
+
+app.MapPut("/api/formulas/{id:guid}", async (Guid id, FormulaUpsertRequest req, KtpDbContext db, IGoldFormulaEngine engine, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.GoldFormulaTemplates.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+
+    var code = req.Code?.Trim() ?? string.Empty;
+    var name = req.Name?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(code)) return Results.BadRequest(new { error = "Code gerekli" });
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Name gerekli" });
+    if (string.IsNullOrWhiteSpace(req.DefinitionJson)) return Results.BadRequest(new { error = "DefinitionJson gerekli" });
+
+    var exists = await db.GoldFormulaTemplates.AsNoTracking()
+        .AnyAsync(x => x.Id != id && x.Code.ToUpper() == code.ToUpper(), ct);
+    if (exists) return Results.BadRequest(new { error = "Code zaten var" });
+
+    try
+    {
+        engine.ValidateDefinition(req.DefinitionJson);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+
+    entity.Code = code;
+    entity.Name = name;
+    entity.Scope = req.Scope ?? entity.Scope;
+    entity.FormulaType = req.FormulaType ?? entity.FormulaType;
+    entity.DslVersion = req.DslVersion ?? entity.DslVersion;
+    entity.DefinitionJson = req.DefinitionJson;
+    entity.IsActive = req.IsActive ?? entity.IsActive;
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Formulas").RequireAuthorization();
+
+app.MapPost("/api/formulas/{id:guid}/validate", async (
+    Guid id,
+    FormulaValidateRequest req,
+    KtpDbContext db,
+    IGoldFormulaEngine engine,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+
+    var context = new GoldFormulaContext(
+        req.Amount ?? 0m,
+        req.HasGoldPrice ?? 0m,
+        req.VatRate ?? 0.20m,
+        req.AccountingType.HasValue ? (ProductAccountingType)req.AccountingType.Value : ProductAccountingType.Gram,
+        req.ProductGram,
+        req.Direction ?? GoldFormulaDirection.Sale,
+        req.OperationType ?? GoldFormulaOperationType.Invoice,
+        req.AltinSatisFiyati);
+
+    try
+    {
+        var result = engine.Evaluate(entity.DefinitionJson, context, req.Mode ?? GoldFormulaMode.Preview);
+        return Results.Ok(new { ok = true, result = result.Result });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { ok = false, error = ex.Message });
+    }
+}).WithTags("Formulas").RequireAuthorization();
+
+// Formula bindings
+app.MapGet("/api/products/{id:guid}/formula-bindings", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var rows = await (from b in db.GoldProductFormulaBindings.AsNoTracking()
+                      join t in db.GoldFormulaTemplates.AsNoTracking() on b.FormulaTemplateId equals t.Id
+                      where b.GoldProductId == id
+                      orderby b.Direction, t.Code
+                      select new
+                      {
+                          id = b.Id,
+                          productId = b.GoldProductId,
+                          templateId = t.Id,
+                          templateCode = t.Code,
+                          templateName = t.Name,
+                          direction = b.Direction,
+                          isActive = b.IsActive
+                      }).ToListAsync(ct);
+    return Results.Ok(rows);
+}).WithTags("Formulas").RequireAuthorization();
+
+app.MapPost("/api/formula-bindings", async (FormulaBindingCreateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    if (req.ProductId == Guid.Empty) return Results.BadRequest(new { error = "ProductId gerekli" });
+    if (req.TemplateId == Guid.Empty) return Results.BadRequest(new { error = "TemplateId gerekli" });
+
+    var productExists = await db.Products.AsNoTracking().AnyAsync(x => x.Id == req.ProductId, ct);
+    if (!productExists) return Results.BadRequest(new { error = "Ürün bulunamadı" });
+    var templateExists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Id == req.TemplateId, ct);
+    if (!templateExists) return Results.BadRequest(new { error = "Formül bulunamadı" });
+
+    var entity = new GoldProductFormulaBinding
+    {
+        Id = Guid.NewGuid(),
+        GoldProductId = req.ProductId,
+        FormulaTemplateId = req.TemplateId,
+        Direction = req.Direction,
+        IsActive = req.IsActive ?? true
+    };
+    db.GoldProductFormulaBindings.Add(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Formulas").RequireAuthorization();
+
+app.MapPut("/api/formula-bindings/{id:guid}", async (Guid id, FormulaBindingUpdateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.GoldProductFormulaBindings.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+
+    if (req.TemplateId.HasValue)
+    {
+        var templateExists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Id == req.TemplateId.Value, ct);
+        if (!templateExists) return Results.BadRequest(new { error = "Formül bulunamadı" });
+        entity.FormulaTemplateId = req.TemplateId.Value;
+    }
+    if (req.Direction.HasValue)
+        entity.Direction = req.Direction.Value;
+    if (req.IsActive.HasValue)
+        entity.IsActive = req.IsActive.Value;
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Formulas").RequireAuthorization();
+
+// Categories
+app.MapGet("/api/cashier/categories", async (KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!await HasCustomerLookupPermissionAsync(http, db, ct)) return Results.Forbid();
+    var rows = await (from cp in db.CategoryProducts.AsNoTracking()
+                      join c in db.Categories.AsNoTracking() on cp.CategoryId equals c.Id
+                      join p in db.Products.AsNoTracking() on cp.ProductId equals p.Id
+                      where p.IsActive && p.ShowInSales
+                            && (!p.RequiresFormula || db.GoldProductFormulaBindings.Any(b =>
+                                b.GoldProductId == p.Id && b.Direction == GoldFormulaDirection.Sale && b.IsActive))
+                      orderby c.Name, p.Name
+                      select new
+                      {
+                          categoryId = c.Id,
+                          categoryName = c.Name,
+                          categoryParentId = c.ParentId,
+                          productId = p.Id,
+                          productCode = p.Code,
+                          productName = p.Name
+                      }).ToListAsync(ct);
+
+    var grouped = rows
+        .GroupBy(x => new { x.categoryId, x.categoryName, x.categoryParentId })
+        .Select(g =>
+        {
+            var products = g
+                .GroupBy(x => x.productId)
+                .Select(pg =>
+                {
+                    var first = pg.First();
+                    return new { id = first.productId, code = first.productCode, name = first.productName };
+                })
+                .OrderBy(p => p.name)
+                .ToList();
+            return new { id = g.Key.categoryId, name = g.Key.categoryName, parentId = g.Key.categoryParentId, products };
+        })
+        .OrderBy(x => x.name)
+        .ToList();
+
+    return Results.Ok(grouped);
+}).WithTags("Cashier").RequireAuthorization();
+
+// POS formula preview
+app.MapPost("/api/pos/preview", async (
+    PosPreviewRequest req,
+    KtpDbContext db,
+    MarketDbContext mdb,
+    IGoldFormulaEngine engine,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    if (!await HasCustomerLookupPermissionAsync(http, db, ct)) return Results.Forbid();
+    if (req.ProductId == Guid.Empty) return Results.BadRequest(new { error = "ProductId gerekli" });
+    if (req.Amount <= 0) return Results.BadRequest(new { error = "Tutar 0'dan büyük olmalı" });
+
+    var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == req.ProductId, ct);
+    if (product is null) return Results.NotFound();
+    if (!product.IsActive) return Results.BadRequest(new { error = "Ürün aktif değil" });
+    if (req.Direction == GoldFormulaDirection.Sale && !product.ShowInSales)
+        return Results.BadRequest(new { error = "Ürün satışta kullanılamaz" });
+
+    var (template, templateError) = await ResolveFormulaTemplateAsync(db, product, req.Direction, ct);
+    if (template is null) return Results.BadRequest(new { error = templateError ?? "Formül bulunamadı" });
+
+    var (hasGoldPrice, priceError) = await ResolveHasGoldPriceAsync(mdb, db, product.Id, req.Direction, ct);
+    if (!hasGoldPrice.HasValue) return Results.BadRequest(new { error = priceError ?? "Has altın fiyatı bulunamadı" });
+
+    var context = new GoldFormulaContext(
+        req.Amount,
+        hasGoldPrice.Value,
+        req.VatRate ?? 0.20m,
+        product.AccountingType,
+        product.Gram,
+        req.Direction,
+        req.OperationType,
+        hasGoldPrice.Value);
+
+    try
+    {
+        var eval = engine.Evaluate(template.DefinitionJson, context, GoldFormulaMode.Preview);
+        var isAdmin = http.User.IsInRole(Role.Yonetici.ToString());
+        return Results.Ok(new
+        {
+            formulaTemplateId = template.Id,
+            hasGoldPrice = hasGoldPrice.Value,
+            result = eval.Result,
+            usedVariables = isAdmin ? eval.UsedVariables : null,
+            debugSteps = isAdmin ? eval.DebugSteps : null
+        });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+}).WithTags("POS").RequireAuthorization();
+
+// POS formula finalize
+app.MapPost("/api/pos/finalize", async (
+    PosFinalizeRequest req,
+    KtpDbContext db,
+    MarketDbContext mdb,
+    IGoldFormulaEngine engine,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    if (!await HasCustomerLookupPermissionAsync(http, db, ct)) return Results.Forbid();
+    if (req.ProductId == Guid.Empty) return Results.BadRequest(new { error = "ProductId gerekli" });
+    if (req.Amount <= 0) return Results.BadRequest(new { error = "Tutar 0'dan büyük olmalı" });
+
+    var product = await db.Products.FirstOrDefaultAsync(x => x.Id == req.ProductId, ct);
+    if (product is null) return Results.NotFound();
+    if (!product.IsActive) return Results.BadRequest(new { error = "Ürün aktif değil" });
+    if (req.Direction == GoldFormulaDirection.Sale && !product.ShowInSales)
+        return Results.BadRequest(new { error = "Ürün satışta kullanılamaz" });
+
+    var (template, templateError) = await ResolveFormulaTemplateAsync(db, product, req.Direction, ct);
+    if (template is null) return Results.BadRequest(new { error = templateError ?? "Formül bulunamadı" });
+
+    var (hasGoldPrice, priceError) = await ResolveHasGoldPriceAsync(mdb, db, product.Id, req.Direction, ct);
+    if (!hasGoldPrice.HasValue) return Results.BadRequest(new { error = priceError ?? "Has altın fiyatı bulunamadı" });
+
+    var context = new GoldFormulaContext(
+        req.Amount,
+        hasGoldPrice.Value,
+        req.VatRate ?? 0.20m,
+        product.AccountingType,
+        product.Gram,
+        req.Direction,
+        req.OperationType,
+        hasGoldPrice.Value);
+
+    GoldFormulaEvaluationResult eval;
+    try
+    {
+        eval = engine.Evaluate(template.DefinitionJson, context, GoldFormulaMode.Finalize);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+
+    var now = DateTime.UtcNow;
+    var userInfo = GetCurrentUserInfo(http);
+    var altinAyar = await ProductAyarResolver.TryResolveAsync(db, product.Id, ct);
+
+    if (req.OperationType == GoldFormulaOperationType.Invoice)
+    {
+        if (!req.OdemeSekli.HasValue)
+            return Results.BadRequest(new { error = "OdemeSekli gerekli" });
+
+        var siraNo = await SequenceUtil.NextIntAsync(db.Database, "Invoices_SiraNo_seq", initTable: "Invoices", initColumn: "SiraNo", ct: ct);
+        var inv = new Invoice
+        {
+            Id = Guid.NewGuid(),
+            Tarih = DateOnly.FromDateTime(now),
+            SiraNo = siraNo,
+            IsForCompany = false,
+            ProductId = product.Id,
+            Tutar = eval.Result.Amount,
+            OdemeSekli = req.OdemeSekli.Value,
+            AltinAyar = altinAyar,
+            AltinSatisFiyati = hasGoldPrice.Value,
+            SafAltinDegeri = eval.Result.UnitHasPriceUsed,
+            UrunFiyati = eval.Result.Amount,
+            YeniUrunFiyati = TryGetVariable(eval.UsedVariables, "yeniUrun"),
+            GramDegeri = eval.Result.Gram,
+            Iscilik = eval.Result.LaborNet,
+            FinalizedAt = now,
+            CreatedById = userInfo.UserId,
+            CreatedByEmail = userInfo.Email,
+            KasiyerId = userInfo.UserId,
+            Kesildi = false
+        };
+
+        db.Invoices.Add(inv);
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new
+        {
+            id = inv.Id,
+            siraNo = inv.SiraNo,
+            formulaTemplateId = template.Id,
+            hasGoldPrice = hasGoldPrice.Value,
+            result = eval.Result
+        });
+    }
+
+    var expenseSiraNo = await SequenceUtil.NextIntAsync(db.Database, "Expenses_SiraNo_seq", initTable: "Expenses", initColumn: "SiraNo", ct: ct);
+    var exp = new Expense
+    {
+        Id = Guid.NewGuid(),
+        Tarih = DateOnly.FromDateTime(now),
+        SiraNo = expenseSiraNo,
+        IsForCompany = false,
+        ProductId = product.Id,
+        Tutar = eval.Result.Amount,
+        AltinAyar = altinAyar,
+        AltinSatisFiyati = hasGoldPrice.Value,
+        SafAltinDegeri = eval.Result.UnitHasPriceUsed,
+        UrunFiyati = eval.Result.Amount,
+        YeniUrunFiyati = TryGetVariable(eval.UsedVariables, "yeniUrun"),
+        GramDegeri = eval.Result.Gram,
+        Iscilik = eval.Result.LaborNet,
+        FinalizedAt = now,
+        CreatedById = userInfo.UserId,
+        CreatedByEmail = userInfo.Email,
+        KasiyerId = userInfo.UserId,
+        Kesildi = false
+    };
+
+    db.Expenses.Add(exp);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new
+    {
+        id = exp.Id,
+        siraNo = exp.SiraNo,
+        formulaTemplateId = template.Id,
+        hasGoldPrice = hasGoldPrice.Value,
+        result = eval.Result
+    });
+}).WithTags("POS").RequireAuthorization();
+
+app.MapGet("/api/categories", async (KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var items = await (from c in db.Categories.AsNoTracking()
+                       join u in db.Users.AsNoTracking() on c.UpdatedUserId equals u.Id into uu
+                       from u in uu.DefaultIfEmpty()
+                       orderby c.Name
+                       select new
+                       {
+                           id = c.Id,
+                           name = c.Name,
+                           parentId = c.ParentId,
+                           createdAt = c.CreatedAt,
+                           updatedAt = c.UpdatedAt,
+                           updatedUserId = c.UpdatedUserId,
+                           updatedUserEmail = u != null ? u.Email : null
+                       }).ToListAsync(ct);
+    return Results.Ok(items);
+}).WithTags("Categories").RequireAuthorization();
+
+app.MapPost("/api/categories", async (CategoryCreateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var name = req.Name?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Name gerekli" });
+
+    Guid? parentId = req.ParentId.HasValue && req.ParentId.Value != Guid.Empty ? req.ParentId.Value : null;
+    if (parentId.HasValue)
+    {
+        var parentExists = await db.Categories.AsNoTracking().AnyAsync(x => x.Id == parentId.Value, ct);
+        if (!parentExists) return Results.BadRequest(new { error = "Parent bulunamadı" });
+    }
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    var now = DateTime.UtcNow;
+    var entity = new Category
+    {
+        Id = Guid.NewGuid(),
+        Name = name,
+        ParentId = parentId,
+        CreatedAt = now,
+        UpdatedAt = now,
+        CreatedUserId = uid,
+        UpdatedUserId = uid
+    };
+    db.Categories.Add(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Categories").RequireAuthorization();
+
+app.MapPut("/api/categories/{id:guid}", async (Guid id, CategoryUpdateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var name = req.Name?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Name gerekli" });
+
+    var entity = await db.Categories.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+
+    Guid? parentId = req.ParentId.HasValue && req.ParentId.Value != Guid.Empty ? req.ParentId.Value : null;
+    if (parentId.HasValue)
+    {
+        if (parentId.Value == id) return Results.BadRequest(new { error = "ParentId kendisi olamaz" });
+        var parentExists = await db.Categories.AsNoTracking().AnyAsync(x => x.Id == parentId.Value, ct);
+        if (!parentExists) return Results.BadRequest(new { error = "Parent bulunamadı" });
+        if (await HasCategoryCycleAsync(db, id, parentId.Value, ct))
+            return Results.BadRequest(new { error = "Kategori hiyerarşisi döngü oluşturamaz" });
+    }
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    entity.Name = name;
+    entity.ParentId = parentId;
+    entity.UpdatedAt = DateTime.UtcNow;
+    entity.UpdatedUserId = uid;
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Categories").RequireAuthorization();
+
+app.MapDelete("/api/categories/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.Categories.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+    db.Categories.Remove(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).WithTags("Categories").RequireAuthorization();
+
+// Category-Product mapping
+app.MapGet("/api/category-products", async (KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var items = await (from cp in db.CategoryProducts.AsNoTracking()
+                       join c in db.Categories.AsNoTracking() on cp.CategoryId equals c.Id
+                       join p in db.Products.AsNoTracking() on cp.ProductId equals p.Id
+                       orderby c.Name, p.Name
+                       select new
+                       {
+                           id = cp.Id,
+                           categoryId = cp.CategoryId,
+                           categoryName = c.Name,
+                           productId = cp.ProductId,
+                           productCode = p.Code,
+                           productName = p.Name
+                       }).ToListAsync(ct);
+    return Results.Ok(items);
+}).WithTags("Categories").RequireAuthorization();
+
+app.MapPost("/api/category-products", async (CategoryProductCreateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    if (req.CategoryId == Guid.Empty) return Results.BadRequest(new { error = "CategoryId gerekli" });
+    if (req.ProductId == Guid.Empty) return Results.BadRequest(new { error = "ProductId gerekli" });
+
+    var categoryExists = await db.Categories.AsNoTracking().AnyAsync(x => x.Id == req.CategoryId, ct);
+    if (!categoryExists) return Results.BadRequest(new { error = "Kategori bulunamadı" });
+    var productExists = await db.Products.AsNoTracking().AnyAsync(x => x.Id == req.ProductId, ct);
+    if (!productExists) return Results.BadRequest(new { error = "Ürün bulunamadı" });
+
+    var exists = await db.CategoryProducts.AsNoTracking()
+        .AnyAsync(x => x.CategoryId == req.CategoryId && x.ProductId == req.ProductId, ct);
+    if (exists) return Results.BadRequest(new { error = "Eşleşme zaten var" });
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    var now = DateTime.UtcNow;
+    var entity = new CategoryProduct
+    {
+        Id = Guid.NewGuid(),
+        CategoryId = req.CategoryId,
+        ProductId = req.ProductId,
+        CreatedAt = now,
+        UpdatedAt = now,
+        CreatedUserId = uid,
+        UpdatedUserId = uid
+    };
+    db.CategoryProducts.Add(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Categories").RequireAuthorization();
+
+app.MapPut("/api/category-products/{id:guid}", async (Guid id, CategoryProductUpdateRequest req, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    if (req.CategoryId == Guid.Empty) return Results.BadRequest(new { error = "CategoryId gerekli" });
+    if (req.ProductId == Guid.Empty) return Results.BadRequest(new { error = "ProductId gerekli" });
+
+    var entity = await db.CategoryProducts.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+
+    var categoryExists = await db.Categories.AsNoTracking().AnyAsync(x => x.Id == req.CategoryId, ct);
+    if (!categoryExists) return Results.BadRequest(new { error = "Kategori bulunamadı" });
+    var productExists = await db.Products.AsNoTracking().AnyAsync(x => x.Id == req.ProductId, ct);
+    if (!productExists) return Results.BadRequest(new { error = "Ürün bulunamadı" });
+
+    var exists = await db.CategoryProducts.AsNoTracking()
+        .AnyAsync(x => x.Id != id && x.CategoryId == req.CategoryId && x.ProductId == req.ProductId, ct);
+    if (exists) return Results.BadRequest(new { error = "Eşleşme zaten var" });
+
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+
+    entity.CategoryId = req.CategoryId;
+    entity.ProductId = req.ProductId;
+    entity.UpdatedAt = DateTime.UtcNow;
+    entity.UpdatedUserId = uid;
+
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(entity);
+}).WithTags("Categories").RequireAuthorization();
+
+app.MapDelete("/api/category-products/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var entity = await db.CategoryProducts.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (entity is null) return Results.NotFound();
+    db.CategoryProducts.Remove(entity);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
+}).WithTags("Categories").RequireAuthorization();
+
 // Cashier: create draft invoice with definitive, gapless SiraNo
 app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbContext db, MarketDbContext mdb, HttpContext http, CancellationToken ct) =>
 {
@@ -1137,6 +2165,17 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
             if (!string.IsNullOrWhiteSpace(rawCompanyName) || !string.IsNullOrWhiteSpace(rawVkn))
                 return Results.BadRequest(new { error = "VKN icin IsCompany secilmeli" });
         }
+
+        if (dto.ProductId == Guid.Empty)
+            return Results.BadRequest(new { error = "ProductId gerekli" });
+
+        var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == dto.ProductId, ct);
+        if (product is null) return Results.BadRequest(new { error = "Ürün bulunamadı" });
+        var (template, templateError) = await ResolveFormulaTemplateAsync(db, product, GoldFormulaDirection.Sale, ct);
+        if (template is null && product.RequiresFormula)
+            return Results.BadRequest(new { error = templateError ?? "Ürün için satış formülü tanımlı değil" });
+
+        var resolvedAyar = await ProductAyarResolver.TryResolveAsync(db, dto.ProductId, ct);
 
         var normalizedName = CustomerUtil.NormalizeName(dto.MusteriAdSoyad);
         var normalizedTckn = CustomerUtil.NormalizeTckn(dto.TCKN);
@@ -1196,7 +2235,8 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
             CustomerId = customer.Id,
             Tutar = dto.Tutar,
             OdemeSekli = dto.OdemeSekli,
-            AltinAyar = dto.AltinAyar,
+            AltinAyar = resolvedAyar,
+            ProductId = dto.ProductId,
             KasiyerId = currentUserId,
             CreatedById = currentUserId,
             CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email,
@@ -1204,15 +2244,20 @@ app.MapPost("/api/cashier/invoices/draft", async (CreateInvoiceDto dto, KtpDbCon
         };
 
         // Stamp current ALTIN final sell price (per ayar margin)
-        var priceData = await mdb.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: false, ct);
-        if (priceData is null)
-            return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
-        entity.AltinSatisFiyati = priceData.Price;
+        DateTime? sourceTime = null;
+        if (entity.AltinAyar.HasValue)
+        {
+            var priceData = await mdb.GetLatestPriceForAyarAsync(entity.AltinAyar.Value, useBuyMargin: false, ct);
+            if (priceData is null)
+                return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
+            entity.AltinSatisFiyati = priceData.Price;
+            sourceTime = priceData.SourceTime;
+        }
 
         db.Invoices.Add(entity);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return Results.Created($"/api/invoices/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati, updatedAt = priceData.SourceTime });
+        return Results.Created($"/api/invoices/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati, updatedAt = sourceTime });
     }
     catch (ArgumentException ex)
     {
@@ -1263,6 +2308,17 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
             if (!string.IsNullOrWhiteSpace(rawCompanyName2) || !string.IsNullOrWhiteSpace(rawVkn2))
                 return Results.BadRequest(new { error = "VKN icin IsCompany secilmeli" });
         }
+
+        if (dto.ProductId == Guid.Empty)
+            return Results.BadRequest(new { error = "ProductId gerekli" });
+
+        var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == dto.ProductId, ct);
+        if (product is null) return Results.BadRequest(new { error = "Ürün bulunamadı" });
+        var (template, templateError) = await ResolveFormulaTemplateAsync(db, product, GoldFormulaDirection.Purchase, ct);
+        if (template is null && product.RequiresFormula)
+            return Results.BadRequest(new { error = templateError ?? "Ürün için alış formülü tanımlı değil" });
+
+        var resolvedAyar = await ProductAyarResolver.TryResolveAsync(db, dto.ProductId, ct);
 
         var normalizedName2 = CustomerUtil.NormalizeName(dto.MusteriAdSoyad);
         var normalizedTckn2 = CustomerUtil.NormalizeTckn(dto.TCKN);
@@ -1315,20 +2371,27 @@ app.MapPost("/api/cashier/expenses/draft", async (CreateExpenseDto dto, KtpDbCon
         {
             Id = Guid.NewGuid(), Tarih = dto.Tarih, SiraNo = next,
             MusteriAdSoyad = customer.AdSoyad, TCKN = customer.TCKN, IsForCompany = dto.IsForCompany, CustomerId = customer.Id, Tutar = dto.Tutar,
-            AltinAyar = dto.AltinAyar, KasiyerId = currentUserId,
+            AltinAyar = resolvedAyar,
+            ProductId = dto.ProductId,
+            KasiyerId = currentUserId,
             CreatedById = currentUserId, CreatedByEmail = string.IsNullOrWhiteSpace(email) ? null : email,
             Kesildi = false
         };
 
-        var priceData = await mdb.GetLatestPriceForAyarAsync(entity.AltinAyar, useBuyMargin: true, ct);
-        if (priceData is null)
-            return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
-        entity.AltinSatisFiyati = priceData.Price;
+        DateTime? sourceTime = null;
+        if (entity.AltinAyar.HasValue)
+        {
+            var priceData = await mdb.GetLatestPriceForAyarAsync(entity.AltinAyar.Value, useBuyMargin: true, ct);
+            if (priceData is null)
+                return Results.BadRequest(new { error = "Kayitli altin fiyati bulunamadi" });
+            entity.AltinSatisFiyati = priceData.Price;
+            sourceTime = priceData.SourceTime;
+        }
 
         db.Expenses.Add(entity);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        return Results.Created($"/api/expenses/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati, updatedAt = priceData.SourceTime });
+        return Results.Created($"/api/expenses/{entity.Id}", new { id = entity.Id, siraNo = entity.SiraNo, altinSatisFiyati = entity.AltinSatisFiyati, updatedAt = sourceTime });
     }
     catch (ArgumentException ex)
     {
@@ -2619,6 +3682,21 @@ static bool IsValidVkn(string vkn)
     return digits[9] == checkDigit;
 }
 
+static async Task<bool> HasCategoryCycleAsync(KtpDbContext db, Guid categoryId, Guid parentId, CancellationToken ct)
+{
+    var current = parentId;
+    while (true)
+    {
+        if (current == categoryId) return true;
+        var next = await db.Categories.AsNoTracking()
+            .Where(x => x.Id == current)
+            .Select(x => x.ParentId)
+            .FirstOrDefaultAsync(ct);
+        if (!next.HasValue) return false;
+        current = next.Value;
+    }
+}
+
 static async Task EnsureMarketSchemaAsync(MarketDbContext db)
 {
     var sql = @"CREATE SCHEMA IF NOT EXISTS market;
@@ -2841,6 +3919,95 @@ static async Task<bool> HasCustomerLookupPermissionAsync(HttpContext http, KtpDb
     return false;
 }
 
+static async Task<(GoldFormulaTemplate? Template, string? Error)> ResolveFormulaTemplateAsync(
+    KtpDbContext db,
+    Product product,
+    GoldFormulaDirection direction,
+    CancellationToken ct)
+{
+    GoldFormulaTemplate? template = null;
+
+    if (product.RequiresFormula)
+    {
+        var binding = await db.GoldProductFormulaBindings.AsNoTracking()
+            .Where(x => x.GoldProductId == product.Id && x.Direction == direction && x.IsActive)
+            .OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(ct);
+        if (binding is not null)
+            template = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == binding.FormulaTemplateId, ct);
+        else if (product.DefaultFormulaId.HasValue)
+            template = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == product.DefaultFormulaId.Value, ct);
+        else
+            return (null, direction == GoldFormulaDirection.Sale
+                ? "Ürün için satış formülü tanımlı değil"
+                : "Ürün için alış formülü tanımlı değil");
+    }
+    else if (product.DefaultFormulaId.HasValue)
+    {
+        template = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == product.DefaultFormulaId.Value, ct);
+    }
+
+    if (template is null) return (null, "Formül bulunamadı");
+    if (!template.IsActive) return (null, "Formül aktif değil");
+
+    if (template.FormulaType != GoldFormulaType.Both)
+    {
+        if (direction == GoldFormulaDirection.Sale && template.FormulaType != GoldFormulaType.Sale)
+            return (null, "Formül satış için uygun değil");
+        if (direction == GoldFormulaDirection.Purchase && template.FormulaType != GoldFormulaType.Purchase)
+            return (null, "Formül alış için uygun değil");
+    }
+
+    return (template, null);
+}
+
+static async Task<(decimal? Price, string? Error)> ResolveHasGoldPriceAsync(
+    MarketDbContext mdb,
+    KtpDbContext db,
+    Guid productId,
+    GoldFormulaDirection direction,
+    CancellationToken ct)
+{
+    var ayar = await ProductAyarResolver.TryResolveAsync(db, productId, ct);
+    if (ayar.HasValue)
+    {
+        var priceData = await mdb.GetLatestPriceForAyarAsync(ayar.Value, useBuyMargin: direction == GoldFormulaDirection.Purchase, ct);
+        if (priceData is null) return (null, "Kayıtlı altın fiyatı bulunamadı");
+        return (priceData.Price, null);
+    }
+
+    var record = await mdb.GetLatestAltinRecordAsync(ct);
+    if (record is null) return (null, "Kayıtlı altın fiyatı bulunamadı");
+    var price = direction == GoldFormulaDirection.Purchase ? record.FinalAlis : record.FinalSatis;
+    return (price, null);
+}
+
+static (Guid? UserId, string? Email) GetCurrentUserInfo(HttpContext http)
+{
+    var sub = http.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+        ?? http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+        ?? http.User.FindFirst("sub")?.Value;
+    Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
+    if (uid is null)
+    {
+        var hdrSub = http.Request.Headers["X-User-Id"].FirstOrDefault();
+        if (Guid.TryParse(hdrSub, out var uid2)) uid = uid2;
+    }
+
+    var email = http.User.FindFirst(JwtRegisteredClaimNames.Email)?.Value
+        ?? http.User.FindFirst(ClaimTypes.Email)?.Value
+        ?? http.Request.Headers["X-User-Email"].FirstOrDefault();
+
+    return (uid, email);
+}
+
+static decimal? TryGetVariable(IReadOnlyDictionary<string, decimal> variables, string key)
+{
+    if (variables.TryGetValue(key, out var value))
+        return value;
+    return null;
+}
+
 // Request models
 public record LeaveCreateRequest(string from, string to, string? reason, string? fromTime, string? toTime);
 public record UpdateLeaveStatusRequest(string status);
@@ -2906,6 +4073,19 @@ public record UpdateExpensePreviewRequest(decimal Tutar, decimal GramDegeri, str
 public record FinalizeRequest(decimal UrunFiyati);
 public record GoldPriceUpdateRequest(decimal Price);
 public record GoldOpeningInventoryRequest(int Karat, decimal Gram, DateTime Date, string? Description);
+public record ProductCreateRequest(string Code, string Name, bool? IsActive, bool? ShowInSales, int? AccountingType, decimal? Gram, bool? RequiresFormula, Guid? DefaultFormulaId);
+public record ProductUpdateRequest(string Code, string Name, bool? IsActive, bool? ShowInSales, int? AccountingType, decimal? Gram, bool? RequiresFormula, Guid? DefaultFormulaId);
+public record ProductOpeningInventoryRequest(Guid ProductId, decimal Quantity, DateTime Date);
+public record CategoryCreateRequest(string Name, Guid? ParentId);
+public record CategoryUpdateRequest(string Name, Guid? ParentId);
+public record CategoryProductCreateRequest(Guid CategoryId, Guid ProductId);
+public record CategoryProductUpdateRequest(Guid CategoryId, Guid ProductId);
+public record FormulaUpsertRequest(string Code, string Name, GoldFormulaScope? Scope, GoldFormulaType? FormulaType, int? DslVersion, string DefinitionJson, bool? IsActive);
+public record FormulaValidateRequest(decimal? Amount, decimal? HasGoldPrice, decimal? VatRate, decimal? ProductGram, int? AccountingType, GoldFormulaDirection? Direction, GoldFormulaOperationType? OperationType, GoldFormulaMode? Mode, decimal? AltinSatisFiyati);
+public record FormulaBindingCreateRequest(Guid ProductId, Guid TemplateId, GoldFormulaDirection Direction, bool? IsActive);
+public record FormulaBindingUpdateRequest(Guid? TemplateId, GoldFormulaDirection? Direction, bool? IsActive);
+public record PosPreviewRequest(Guid ProductId, decimal Amount, GoldFormulaDirection Direction, GoldFormulaOperationType OperationType, decimal? VatRate);
+public record PosFinalizeRequest(Guid ProductId, decimal Amount, GoldFormulaDirection Direction, GoldFormulaOperationType OperationType, decimal? VatRate, OdemeSekli? OdemeSekli, string? PreviewHash, string? IdempotencyKey);
 
 public record KaratRange(double min, double max, string colorHex);
 public record KaratDiffSettings
