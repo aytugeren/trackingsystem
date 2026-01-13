@@ -50,6 +50,7 @@ if (!string.IsNullOrWhiteSpace(logLevelRaw) && Enum.TryParse(logLevelRaw, true, 
 }
 builder.Logging.SetMinimumLevel(minimumLevel);
 builder.Logging.AddFilter("KuyumculukTakipProgrami.Infrastructure.Pricing.GoldPriceFeedService", LogLevel.Information);
+builder.Logging.AddFilter("KuyumculukTakipProgrami.Infrastructure.Integration.Turmob", LogLevel.Information);
 
 // Services
 builder.Services.AddEndpointsApiExplorer();
