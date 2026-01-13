@@ -41,7 +41,7 @@ services:
       PricingFeed__HttpMethod: ${PRICING_FEED_HTTP_METHOD:-GET}
       PricingFeed__MinimumPrice: ${PRICING_FEED_MINIMUM_PRICE:-0.01}
       # TURMOB integration
-      Turmob__Enabled: ${TURMOB__ENABLED:-false}
+      Turmob__Enabled: ${TURMOB__ENABLED:-true}
       Turmob__Environment: ${TURMOB__ENVIRONMENT:-Test}
       Turmob__Test__ServiceUrl: ${TURMOB__TEST__SERVICEURL:-https://einvoiceserviceturmobtest.luca.com.tr/InvoiceService/ServiceContract/InvoiceService.svc}
       Turmob__Test__TimeoutSeconds: ${TURMOB__TEST__TIMEOUTSECONDS:-30}
@@ -53,6 +53,7 @@ services:
       Turmob__Retry__DelaySeconds: ${TURMOB__RETRY__DELAYSECONDS:-5}
       Turmob__Logging__LogRequest: ${TURMOB__LOGGING__LOGREQUEST:-true}
       Turmob__Logging__LogResponse: ${TURMOB__LOGGING__LOGRESPONSE:-true}
+      Turmob__Logging_LogConnectionInfo: ${TURMOB__LOGGING__LOGCONNECTIONINFO:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
