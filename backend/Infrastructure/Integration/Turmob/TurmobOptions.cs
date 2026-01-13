@@ -39,4 +39,5 @@ public sealed class TurmobLoggingOptions
 {
     public bool LogRequest { get; set; } = true;
     public bool LogResponse { get; set; } = true;
+    public bool LogConnectionInfo { get; set; } = false;
 }
