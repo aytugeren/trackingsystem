@@ -567,10 +567,39 @@ app.MapGet("/api/invoices/next-sirano", async (KtpDbContext db, CancellationToke
     return Results.Ok(new { next = max + 1 });
 }).WithTags("Invoices").RequireAuthorization();
 
-// TURMOB preview and send
-app.MapGet("/api/turmob/status", (IOptionsMonitor<TurmobOptions> options) =>
+async Task<bool> IsTurmobHealthyAsync(
+    TurmobOptions options,
+    TurmobSoapClient soapClient,
+    IMemoryCache cache,
+    CancellationToken ct)
 {
-    return Results.Ok(new { enabled = options.CurrentValue.Enabled });
+    var environment = options.GetSelectedEnvironment();
+    if (environment is null || string.IsNullOrWhiteSpace(environment.ServiceUrl))
+    {
+        return false;
+    }
+
+    var cacheKey = $"turmob:health:{options.Environment}:{environment.ServiceUrl}";
+    if (cache.TryGetValue(cacheKey, out bool cached))
+    {
+        return cached;
+    }
+
+    var healthy = await soapClient.HealthCheckAsync(environment, options, ct);
+    cache.Set(cacheKey, healthy, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) });
+    return healthy;
+}
+
+// TURMOB preview and send
+app.MapGet("/api/turmob/status", async (
+    IOptionsMonitor<TurmobOptions> options,
+    TurmobSoapClient soapClient,
+    IMemoryCache cache,
+    CancellationToken ct) =>
+{
+    var current = options.CurrentValue;
+    var healthy = await IsTurmobHealthyAsync(current, soapClient, cache, ct);
+    return Results.Ok(new { enabled = current.Enabled && healthy, healthy });
 }).WithTags("Turmob").RequireAuthorization();
 
 app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
@@ -578,9 +607,18 @@ app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
     TurmobInvoiceBuilder builder,
     TurmobInvoiceMapper mapper,
     IOptionsMonitor<TurmobOptions> options,
+    TurmobSoapClient soapClient,
+    IMemoryCache cache,
     CancellationToken ct) =>
 {
-    if (!options.CurrentValue.Enabled)
+    var current = options.CurrentValue;
+    if (!current.Enabled)
+    {
+        return Results.BadRequest(new { error = "TURMOB entegrasyonu kapalı." });
+    }
+
+    var healthy = await IsTurmobHealthyAsync(current, soapClient, cache, ct);
+    if (!healthy)
     {
         return Results.BadRequest(new { error = "TURMOB entegrasyonu kapalı." });
     }
@@ -588,7 +626,7 @@ app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
     var dto = await builder.BuildAsync(id, ct);
     if (dto is null) return Results.NotFound();
 
-    var environment = options.CurrentValue.GetSelectedEnvironment() ?? new TurmobEnvironmentOptions();
+    var environment = current.GetSelectedEnvironment() ?? new TurmobEnvironmentOptions();
 
     try
     {
@@ -1654,6 +1692,16 @@ app.MapGet("/api/pricing/{code}/latest", async (string code, MarketDbContext mdb
         sourceTime = latest.UpdatedAt
     });
 }).WithTags("Pricing");
+
+app.MapGet("/ip-who-is", (HttpContext http) =>
+{
+    var forwardedFor = http.Request.Headers["X-Forwarded-For"].ToString();
+    var ip = string.IsNullOrWhiteSpace(forwardedFor)
+        ? http.Connection.RemoteIpAddress?.ToString()
+        : forwardedFor.Split(',')[0].Trim();
+
+    return Results.Ok(new { ip, status = "success" });
+});
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 

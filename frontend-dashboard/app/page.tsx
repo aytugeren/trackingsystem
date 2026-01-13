@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator'
 
 export default function HomePage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [turmobStatus, setTurmobStatus] = useState<{ healthy: boolean } | null>(null)
   
   const [showFullscreen, setShowFullscreen] = useState(false)
   const [filterMode, setFilterMode] = useState<'all' | 'yearly' | 'monthly' | 'daily'>('all')
@@ -46,6 +47,22 @@ export default function HomePage() {
     load()
     return () => { alive = false }
   }, [fetchSummary])
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const status = await api.getTurmobStatus()
+        if (!alive) return
+        setTurmobStatus(status)
+      } catch {
+        if (!alive) return
+        setTurmobStatus(null)
+      }
+    }
+    load()
+    const h = setInterval(load, 30000)
+    return () => { alive = false; clearInterval(h) }
+  }, [])
   // Auto-refresh while fullscreen overlay is open (every 10s)
   useEffect(() => {
     if (!showFullscreen) return
@@ -129,6 +146,13 @@ export default function HomePage() {
       <section className="rounded-xl border bg-[color:hsl(var(--card))] text-[color:hsl(var(--card-foreground))] border-[color:hsl(var(--border))] p-6 shadow-sm transition-colors duration-200">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[color:hsl(var(--border))] bg-[color:hsl(var(--card))] px-3 py-1 text-xs">
+              <span className={`h-2 w-2 rounded-full ${turmobStatus?.healthy ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+              <span className="text-muted-foreground">TURMOB</span>
+              <span className="font-medium">
+                {turmobStatus?.healthy ? 'Bağlantı aktif' : 'Bağlantı yok'}
+              </span>
+            </div>
             <h1 className="text-2xl font-semibold tracking-tight">Yönetim Paneli</h1>
             <p className="text-sm text-muted-foreground">Tüm yıllar dahil özet ve detaylı karat kırılımı.</p>
           </div>

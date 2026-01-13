@@ -15,6 +15,7 @@ public sealed class TurmobSoapClient
 {
     private const string ArchiveAction = "SendArchiveInvoice";
     private const string InvoiceAction = "SendInvoice";
+    private const string HealthCheckAction = "HealthCheck";
     private const string SoapActionBase = "http://tempuri.org/IInvoiceService/";
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -42,6 +43,84 @@ public sealed class TurmobSoapClient
         var action = isArchive ? ArchiveAction : InvoiceAction;
         var soapAction = $"{SoapActionBase}{action}";
         return SendInternalAsync(xmlPayload, environment, options, action, soapAction, cancellationToken);
+    }
+
+    public async Task<bool> HealthCheckAsync(
+        TurmobEnvironmentOptions environment,
+        TurmobOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(environment.ServiceUrl))
+        {
+            _logger.LogWarning("TURMOB health check skipped: ServiceUrl is empty.");
+            return false;
+        }
+
+        var timeoutSeconds = Math.Max(environment.TimeoutSeconds, 30);
+        var soapAction = $"{SoapActionBase}{HealthCheckAction}";
+        var xmlPayload = @"<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"" xmlns:tem=""http://tempuri.org/"">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <tem:HealthCheck/>
+   </soapenv:Body>
+</soapenv:Envelope>";
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+            var client = _httpClientFactory.CreateClient("TurmobSoap");
+            var content = new StringContent(xmlPayload, Encoding.UTF8);
+            content.Headers.ContentType = new MediaTypeHeaderValue("text/xml")
+            {
+                CharSet = "utf-8"
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post, environment.ServiceUrl)
+            {
+                Content = content
+            };
+            request.Headers.Accept.Clear();
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/xml"));
+            request.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
+
+            if (options.Logging.LogRequest)
+            {
+                _logger.LogInformation("TURMOB health check request sent. SOAPAction: {SoapAction}", soapAction);
+                _logger.LogInformation("TURMOB health check XML: {XmlPayload}", xmlPayload);
+            }
+
+            var response = await client.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
+            var responseContent = await response.Content.ReadAsStringAsync(timeoutCts.Token).ConfigureAwait(false);
+
+            if (options.Logging.LogResponse)
+            {
+                _logger.LogInformation(
+                    "TURMOB health check response received. Status: {StatusCode}, Length: {Length}",
+                    response.StatusCode,
+                    responseContent.Length);
+                _logger.LogInformation("TURMOB health check XML: {ResponseXml}", responseContent);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("TURMOB health check failed. Status: {StatusCode}", response.StatusCode);
+                return false;
+            }
+
+            return TryGetHealthCheckResult(responseContent);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("TURMOB health check timed out after {TimeoutSeconds} seconds.", timeoutSeconds);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "TURMOB health check failed. Detail: {Detail}", GetExceptionDetail(ex));
+            return false;
+        }
     }
 
     private async Task<TurmobSendResult> SendInternalAsync(
@@ -176,4 +255,24 @@ public sealed class TurmobSoapClient
     }
 
     private sealed record TurmobSoapSendResult(bool IsSuccess, string? ErrorMessage);
+
+    private static bool TryGetHealthCheckResult(string responseContent)
+    {
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            return false;
+        }
+
+        try
+        {
+            var doc = XDocument.Parse(responseContent);
+            var resultElement = doc.Descendants().FirstOrDefault(x => x.Name.LocalName == "HealthCheckResult");
+            if (resultElement is null) return false;
+            return bool.TryParse(resultElement.Value?.Trim(), out var parsed) && parsed;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

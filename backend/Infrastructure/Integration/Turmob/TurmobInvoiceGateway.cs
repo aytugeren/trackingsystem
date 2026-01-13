@@ -45,6 +45,13 @@ public sealed class TurmobInvoiceGateway : ITurmobInvoiceGateway
 
         try
         {
+            var healthy = await _soapClient.HealthCheckAsync(environment, options, default).ConfigureAwait(false);
+            if (!healthy)
+            {
+                _logger.LogWarning("TURMOB health check failed. Skipping send.");
+                return TurmobSendResult.Skipped("TURMOB integration disabled.");
+            }
+
             var xmlPayload = invoice.IsArchive
                 ? _mapper.MapToArchiveInvoiceXml(invoice, environment)
                 : _mapper.MapToInvoiceXml(invoice, environment);
