@@ -135,6 +135,13 @@ export type FormulaBindingRow = {
   isActive: boolean
 }
 
+export type FormulaBindingCreatePayload = {
+  productId: string
+  templateId: string
+  direction: number | 'Purchase' | 'Sale' | string
+  isActive?: boolean
+}
+
 export type FormulaValidatePayload = {
   amount?: number | null
   hasGoldPrice?: number | null
@@ -289,6 +296,7 @@ export const api = {
   }) => sendJson<FormulaTemplate>(`/api/formulas/${id}`, 'PUT', payload),
   validateFormula: (id: string, payload: FormulaValidatePayload) => sendJson<{ ok: boolean; error?: string; result?: unknown }>(`/api/formulas/${id}/validate`, 'POST', payload),
   listProductFormulaBindings: (productId: string) => getJson<FormulaBindingRow[]>(`/api/products/${productId}/formula-bindings`),
+  createFormulaBinding: (payload: FormulaBindingCreatePayload) => sendJson<FormulaBindingRow>('/api/formula-bindings', 'POST', payload),
   deleteProduct: async (id: string): Promise<void> => {
     const url = `${API_BASE}/api/products/${id}`
     const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })

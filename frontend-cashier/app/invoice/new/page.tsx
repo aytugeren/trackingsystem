@@ -14,6 +14,7 @@ type CustomerSuggestion = { id: string; adSoyad: string; tckn: string; isCompany
 type SelectionStep = 'category' | 'product' | 'form'
 type CategoryWithProducts = { id: string; name: string; parentId?: string | null; products: ProductItem[] }
 type ProductItem = { id: string; name: string; code?: string | null }
+type PreviewFieldValue = { key: string; label: string; format: 'currency' | 'number' | 'text'; value: number }
 
 function todayStr() {
   const d = new Date()
@@ -29,6 +30,15 @@ function splitFullName(name: string): { firstName: string; lastName: string } {
   const firstName = parts[0]
   const lastName = parts.slice(1).join(' ')
   return { firstName, lastName }
+}
+
+function formatPreviewValue(value: number, format: PreviewFieldValue['format']) {
+  if (!Number.isFinite(value)) return '-'
+  if (format === 'currency') {
+    return value.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })
+  }
+  if (format === 'text') return String(value)
+  return value.toLocaleString('tr-TR')
 }
 
 function InvoiceNewInner() {
@@ -88,6 +98,10 @@ function InvoiceNewInner() {
   const [hasAltinEditing, setHasAltinEditing] = useState(false)
   const [draftId, setDraftId] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [previewFields, setPreviewFields] = useState<PreviewFieldValue[]>([])
+  const [previewTitle, setPreviewTitle] = useState<string>('')
+  const [previewCalcLoading, setPreviewCalcLoading] = useState(false)
+  const [previewCalcError, setPreviewCalcError] = useState<string>('')
   const PENDING_DRAFT_KEY = 'cashierPendingDraft'
   async function copy(key: string, text: string) {
     try {
@@ -300,7 +314,45 @@ function InvoiceNewInner() {
       setError('Önizleme oluşturulamadı');
       return
     }
+    if (selectedProduct?.id) {
+      loadPreviewFields(amountNum, selectedProduct.id)
+    }
     setPreviewOpen(true)
+  }
+
+  async function loadPreviewFields(amountNum: number, productId: string) {
+    setPreviewCalcLoading(true)
+    setPreviewCalcError('')
+    setPreviewFields([])
+    setPreviewTitle('')
+    try {
+      const headers = { 'Content-Type': 'application/json', ...authHeaders() }
+      const payload = {
+        productId,
+        amount: amountNum,
+        direction: txType === 'invoice' ? 'Sale' : 'Purchase',
+        operationType: txType === 'invoice' ? 'Invoice' : 'Expense',
+        vatRate: 0.20
+      }
+      const r = await fetch(`${apiBase}/api/pos/preview`, { method: 'POST', headers, body: JSON.stringify(payload) })
+      if (!r.ok) { setPreviewCalcError('Formül önizleme bilgisi alınamadı.'); return }
+      const j = await r.json()
+      const fields = Array.isArray(j?.previewFields) ? j.previewFields : []
+      const normalized = fields
+        .filter((field: any) => field && typeof field.key === 'string' && typeof field.value === 'number')
+        .map((field: any) => ({
+          key: String(field.key),
+          label: typeof field.label === 'string' ? field.label : String(field.key),
+          format: field.format === 'currency' || field.format === 'text' ? field.format : 'number',
+          value: Number(field.value)
+        }))
+      setPreviewFields(normalized)
+      setPreviewTitle(typeof j?.previewTitle === 'string' ? j.previewTitle : '')
+    } catch {
+      setPreviewCalcError('Formül önizleme bilgisi alınamadı.')
+    } finally {
+      setPreviewCalcLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -896,32 +948,42 @@ function InvoiceNewInner() {
           <div className="modal" style={{ background: '#fff', borderRadius: 8, padding: 16, width: '100%', maxWidth: 600 }}>
             <h2 style={{ marginTop: 0 }}>{txType === 'invoice' ? 'Fatura Bilgileri' : 'Gider Bilgileri'}</h2>
             {txType === 'expense' ? (
-              <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
-                {(() => {
-                  const r2 = (n: number) => Math.round(n * 100) / 100
-                  const tutar = parseFloat(amount.replace(',', '.')) || 0
-                  const hasAyar = ayar === 22 || ayar === 24
-                  const hasPrice = currentAltinSatis != null
-                  const safOran = ayar === 22 ? 0.916 : 0.995
-                  const safAltinDegeri = hasAyar && hasPrice ? r2(Number(currentAltinSatis) * safOran) : null
-                  const gramDegeri = safAltinDegeri ? r2(tutar / safAltinDegeri) : null
-                  const tutarDisplay = amount ? Number(tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
-                  const gramDisplay = gramDegeri != null ? gramDegeri.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'
-                  const isimDisplay = isCompany ? (companyName || fullName || '-') : (fullName || '-')
-                  const tcDisplay = isCompany ? (vknNo || tckn || '-') : (tckn || '-')
-                  return (
-                    <>
-                      <div><b>Kategori:</b> {selectedCategory?.name || '-'}</div>
-                      <div><b>Ürün:</b> {selectedProduct?.name || '-'}</div>
-                      <div><b>Tarih:</b> {date || '-'}</div>
-                      <div><b>Tutar:</b> {tutarDisplay}</div>
-                      <div><b>Gram:</b> {gramDisplay}</div>
-                      <div><b>İsim Soyisim:</b> {isimDisplay}</div>
-                      <div><b>TC:</b> {tcDisplay}</div>
-                    </>
-                  )
-                })()}
-              </div>
+              <>
+                <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  {(() => {
+                    const r2 = (n: number) => Math.round(n * 100) / 100
+                    const tutar = parseFloat(amount.replace(',', '.')) || 0
+                    const hasAyar = ayar === 22 || ayar === 24
+                    const hasPrice = currentAltinSatis != null
+                    const safOran = ayar === 22 ? 0.916 : 0.995
+                    const safAltinDegeri = hasAyar && hasPrice ? r2(Number(currentAltinSatis) * safOran) : null
+                    const gramDegeri = safAltinDegeri ? r2(tutar / safAltinDegeri) : null
+                    const tutarDisplay = amount ? Number(tutar).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                    const gramDisplay = gramDegeri != null ? gramDegeri.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'
+                    const isimDisplay = isCompany ? (companyName || fullName || '-') : (fullName || '-')
+                    const tcDisplay = isCompany ? (vknNo || tckn || '-') : (tckn || '-')
+                    return (
+                      <>
+                        <div><b>Kategori:</b> {selectedCategory?.name || '-'}</div>
+                        <div><b>Ürün:</b> {selectedProduct?.name || '-'}</div>
+                        <div><b>Tarih:</b> {date || '-'}</div>
+                        <div><b>Tutar:</b> {tutarDisplay}</div>
+                        <div><b>Gram:</b> {gramDisplay}</div>
+                        <div><b>İsim Soyisim:</b> {isimDisplay}</div>
+                        <div><b>TC:</b> {tcDisplay}</div>
+                      </>
+                    )
+                  })()}
+                </div>
+                {previewCalcError && (
+                  <div className="card" style={{ marginTop: 12, background: '#fee2e2', border: '1px solid #fecaca', color: '#991b1b' }}>
+                    {previewCalcError}
+                  </div>
+                )}
+                {previewCalcLoading && (
+                  <div className="card" style={{ marginTop: 12 }}>Formül önizlemesi hazırlanıyor…</div>
+                )}
+              </>
             ) : (
               <>
                 <div style={{ fontSize: 14, color: '#555', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1020,79 +1082,129 @@ function InvoiceNewInner() {
                     })()}
                   </div>
                 </div>
-                {(() => {
-                  const r2 = (n: number) => Math.round(n * 100) / 100
-                  const hasPrice = currentAltinSatis != null
-                  const hasAyar = ayar === 22 || ayar === 24
-                  const has = hasPrice ? Number(currentAltinSatis) : 0
-                  const ay22 = (ayar === 22)
-                  const rawSaf = hasAyar && hasPrice ? has * (ay22 ? 0.916 : 0.995) : 0
-                  const u = parseFloat(amount.replace(',', '.')) || 0
-                  const rawYeni = hasAyar ? u * (ay22 ? 0.99 : 0.998) : 0
-                  const saf = r2(rawSaf)
-                  const yeni = r2(rawYeni)
-                  const gram = saf ? r2(yeni / saf) : 0
-                  const altinHizmet = r2(gram * saf)
-                  const iscilikKdvli = r2(r2(u) - altinHizmet)
-                  const isc = r2(iscilikKdvli / 1.20)
-                  return (
-                    <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      {(() => {
-                        const display = saf ? saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                {previewCalcError && (
+                  <div className="card" style={{ marginTop: 12, background: '#fee2e2', border: '1px solid #fecaca', color: '#991b1b' }}>
+                    {previewCalcError}
+                  </div>
+                )}
+                {previewCalcLoading ? (
+                  <div className="card" style={{ marginTop: 12 }}>Formül önizlemesi hazırlanıyor…</div>
+                ) : previewFields.length > 0 ? (
+                  <div style={{ marginTop: 12 }}>
+                    {previewTitle && <div style={{ fontWeight: 600, marginBottom: 8 }}>{previewTitle}</div>}
+                    <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {previewFields.map((field) => {
+                        const display = formatPreviewValue(field.value, field.format)
+                        const copyKey = `preview-${field.key}`
                         return (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <div><b>Saf Altın Değeri:</b> {display}</div>
-                            {saf ? (
-                              <button aria-label="Kopyala" title={copied === 'saf' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('saf', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
-                                {copied === 'saf' ? <CheckIcon /> : <CopyIcon />}
+                          <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <div><b>{field.label}:</b> {display}</div>
+                            {display !== '-' ? (
+                              <button aria-label="Kopyala" title={copied === copyKey ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy(copyKey, display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                                {copied === copyKey ? <CheckIcon /> : <CopyIcon />}
                               </button>
                             ) : null}
                           </div>
                         )
-                      })()}
-                      {(() => {
-                        const display = yeni ? yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
-                        return (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <div><b>Yeni Ürün Fiyatı:</b> {display}</div>
-                            {yeni ? (
-                              <button aria-label="Kopyala" title={copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('yeni', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
-                                {copied === 'yeni' ? <CheckIcon /> : <CopyIcon />}
-                              </button>
-                            ) : null}
-                          </div>
-                        )
-                      })()}
-                      {(() => {
-                        const display = gram ? gram.toLocaleString('tr-TR') : '-'
-                        return (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <div><b>Gram Değeri:</b> {display}</div>
-                            {gram ? (
-                              <button aria-label="Kopyala" title={copied === 'gram' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('gram', String(display))} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
-                                {copied === 'gram' ? <CheckIcon /> : <CopyIcon />}
-                              </button>
-                            ) : null}
-                          </div>
-                        )
-                      })()}
-                      {(() => {
-                        const display = isc ? isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
-                        return (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <div><b>İşçilik (KDV&apos;siz):</b> {display}</div>
-                            {isc ? (
-                              <button aria-label="Kopyala" title={copied === 'iscilik' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('iscilik', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
-                                {copied === 'iscilik' ? <CheckIcon /> : <CopyIcon />}
-                              </button>
-                            ) : null}
-                          </div>
-                        )
-                      })()}
+                      })}
                     </div>
-                  )
-                })()}
+                  </div>
+                ) : (
+                  (() => {
+                    const r2 = (n: number) => Math.round(n * 100) / 100
+                    const hasPrice = currentAltinSatis != null
+                    const hasAyar = ayar === 22 || ayar === 24
+                    const has = hasPrice ? Number(currentAltinSatis) : 0
+                    const ay22 = (ayar === 22)
+                    const rawSaf = hasAyar && hasPrice ? has * (ay22 ? 0.916 : 0.995) : 0
+                    const u = parseFloat(amount.replace(',', '.')) || 0
+                    const rawYeni = hasAyar ? u * (ay22 ? 0.99 : 0.998) : 0
+                    const saf = r2(rawSaf)
+                    const yeni = r2(rawYeni)
+                    const gram = saf ? r2(yeni / saf) : 0
+                    const altinHizmet = r2(gram * saf)
+                    const iscilikKdvli = r2(r2(u) - altinHizmet)
+                    const isc = r2(iscilikKdvli / 1.20)
+                    return (
+                      <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        {(() => {
+                          const display = saf ? saf.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                          return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <div><b>Saf Altın Değeri:</b> {display}</div>
+                              {saf ? (
+                                <button aria-label="Kopyala" title={copied === 'saf' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('saf', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                                  {copied === 'saf' ? <CheckIcon /> : <CopyIcon />}
+                                </button>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
+                        {(() => {
+                          const display = yeni ? yeni.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                          return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <div><b>Yeni Ürün Fiyatı:</b> {display}</div>
+                              {yeni ? (
+                                <button aria-label="Kopyala" title={copied === 'yeni' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('yeni', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                                  {copied === 'yeni' ? <CheckIcon /> : <CopyIcon />}
+                                </button>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
+                        {(() => {
+                          const display = gram ? gram.toLocaleString('tr-TR') : '-'
+                          return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <div><b>Gram Değeri:</b> {display}</div>
+                              {gram ? (
+                                <button aria-label="Kopyala" title={copied === 'gram' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('gram', String(display))} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                                  {copied === 'gram' ? <CheckIcon /> : <CopyIcon />}
+                                </button>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
+                        {(() => {
+                          const display = isc ? isc.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' }) : '-'
+                          return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <div><b>İşçilik (KDV&apos;siz):</b> {display}</div>
+                              {isc ? (
+                                <button aria-label="Kopyala" title={copied === 'iscilik' ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy('iscilik', display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                                  {copied === 'iscilik' ? <CheckIcon /> : <CopyIcon />}
+                                </button>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )
+                  })()
+                )}
               </>
+            )}
+            {txType === 'expense' && previewFields.length > 0 && !previewCalcLoading && (
+              <div style={{ marginTop: 12 }}>
+                {previewTitle && <div style={{ fontWeight: 600, marginBottom: 8 }}>{previewTitle}</div>}
+                <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {previewFields.map((field) => {
+                    const display = formatPreviewValue(field.value, field.format)
+                    const copyKey = `preview-${field.key}`
+                    return (
+                      <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <div><b>{field.label}:</b> {display}</div>
+                        {display !== '-' ? (
+                          <button aria-label="Kopyala" title={copied === copyKey ? 'Kopyalandı' : 'Kopyala'} onClick={() => copy(copyKey, display)} style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer' }}>
+                            {copied === copyKey ? <CheckIcon /> : <CopyIcon />}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             )}
             <div className="actions" style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="secondary" onClick={async () => { if (draftId) { try { await fetch(`${apiBase}/${txType === 'invoice' ? 'api/invoices' : 'api/expenses'}/${draftId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...authHeaders() } }) } catch {} } setPreviewOpen(false); setPredictedSira(null); setDraftId(null) }}>İptal</button>

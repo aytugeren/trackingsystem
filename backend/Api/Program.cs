@@ -22,6 +22,7 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Text.Json;
 using KuyumculukTakipProgrami.Domain.Entities;
 using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
@@ -35,6 +36,23 @@ using Microsoft.Extensions.Options;
 
 // TURMOB endpoint rejects older TLS versions.
 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+
+var defaultPreviewTheme = new FormulaPreviewTheme
+{
+    Title = "Hesap Özeti",
+    Fields = new List<FormulaPreviewField>
+    {
+        new() { Key = "unitHasPriceUsed", Label = "Has Altın Fiyatı", Format = "currency" },
+        new() { Key = "amount", Label = "Tutar", Format = "currency" },
+        new() { Key = "gram", Label = "Gram", Format = "number" },
+        new() { Key = "laborNet", Label = "İşçilik (KDV'siz)", Format = "currency" }
+    }
+};
+
+var previewJsonOptions = new JsonSerializerOptions
+{
+    PropertyNameCaseInsensitive = true
+};
 
 var builder = WebApplication.CreateBuilder(args);
 // Logging: allow env-configured minimum level (fallback to Error)
@@ -1786,12 +1804,16 @@ app.MapPost("/api/pos/preview", async (
     try
     {
         var eval = engine.Evaluate(template.DefinitionJson, context, GoldFormulaMode.Preview);
+        var previewTheme = NormalizePreviewTheme(TryParsePreviewTheme(template.DefinitionJson));
+        var previewFields = BuildPreviewFields(previewTheme, eval.Result, eval.UsedVariables);
         var isAdmin = http.User.IsInRole(Role.Yonetici.ToString());
         return Results.Ok(new
         {
             formulaTemplateId = template.Id,
             hasGoldPrice = hasGoldPrice.Value,
             result = eval.Result,
+            previewTitle = previewTheme?.Title ?? defaultPreviewTheme.Title,
+            previewFields,
             usedVariables = isAdmin ? eval.UsedVariables : null,
             debugSteps = isAdmin ? eval.DebugSteps : null
         });
@@ -4008,6 +4030,125 @@ static decimal? TryGetVariable(IReadOnlyDictionary<string, decimal> variables, s
     return null;
 }
 
+FormulaPreviewTheme? TryParsePreviewTheme(string definitionJson)
+{
+    if (string.IsNullOrWhiteSpace(definitionJson))
+        return null;
+    try
+    {
+        var parsed = JsonSerializer.Deserialize<FormulaPreviewDefinition>(definitionJson, previewJsonOptions);
+        return parsed?.Preview;
+    }
+    catch (JsonException)
+    {
+        return null;
+    }
+}
+
+static FormulaPreviewTheme? NormalizePreviewTheme(FormulaPreviewTheme? theme)
+{
+    if (theme is null) return null;
+    var fields = theme.Fields ?? new List<FormulaPreviewField>();
+    var normalized = fields
+        .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+        .Select(x => new FormulaPreviewField
+        {
+            Key = x.Key?.Trim(),
+            Label = string.IsNullOrWhiteSpace(x.Label) ? null : x.Label.Trim(),
+            Format = NormalizePreviewFormat(x.Format)
+        })
+        .ToList();
+    if (normalized.Count == 0) return null;
+    return new FormulaPreviewTheme
+    {
+        Title = string.IsNullOrWhiteSpace(theme.Title) ? null : theme.Title.Trim(),
+        Fields = normalized
+    };
+}
+
+static string NormalizePreviewFormat(string? format)
+{
+    if (string.IsNullOrWhiteSpace(format)) return "number";
+    var normalized = format.Trim().ToLowerInvariant();
+    return normalized is "currency" or "number" or "text" ? normalized : "number";
+}
+
+List<object> BuildPreviewFields(
+    FormulaPreviewTheme? theme,
+    GoldCalculationResult result,
+    IReadOnlyDictionary<string, decimal> variables)
+{
+    var fields = theme?.Fields?.Count > 0 ? theme.Fields : defaultPreviewTheme.Fields;
+    var output = new List<object>();
+    foreach (var field in fields)
+    {
+        var key = field.Key?.Trim();
+        if (string.IsNullOrWhiteSpace(key)) continue;
+        if (TryGetResultValue(result, key, out var value) || TryGetVariableValue(variables, key, out value))
+        {
+            output.Add(new
+            {
+                key,
+                label = string.IsNullOrWhiteSpace(field.Label) ? key : field.Label,
+                format = NormalizePreviewFormat(field.Format),
+                value
+            });
+        }
+    }
+    return output;
+}
+
+static bool TryGetResultValue(GoldCalculationResult result, string key, out decimal value)
+{
+    switch (key.Trim().ToLowerInvariant())
+    {
+        case "gram":
+            value = result.Gram;
+            return true;
+        case "amount":
+            value = result.Amount;
+            return true;
+        case "goldservice":
+            value = result.GoldServiceAmount;
+            return true;
+        case "laborgross":
+            value = result.LaborGross;
+            return true;
+        case "labornet":
+            value = result.LaborNet;
+            return true;
+        case "vat":
+            value = result.Vat;
+            return true;
+        case "unithaspriceused":
+            value = result.UnitHasPriceUsed;
+            return true;
+        default:
+            value = 0m;
+            return false;
+    }
+}
+
+static bool TryGetVariableValue(IReadOnlyDictionary<string, decimal> variables, string key, out decimal value)
+{
+    if (variables.TryGetValue(key, out value)) return true;
+    foreach (var pair in variables)
+    {
+        if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+        {
+            value = pair.Value;
+            return true;
+        }
+    }
+    value = 0m;
+    return false;
+}
+
+sealed class FormulaPreviewDefinition
+{
+    public FormulaPreviewTheme? Preview { get; set; }
+}
+
 // Request models
 public record LeaveCreateRequest(string from, string to, string? reason, string? fromTime, string? toTime);
 public record UpdateLeaveStatusRequest(string status);
@@ -4084,6 +4225,17 @@ public record FormulaUpsertRequest(string Code, string Name, GoldFormulaScope? S
 public record FormulaValidateRequest(decimal? Amount, decimal? HasGoldPrice, decimal? VatRate, decimal? ProductGram, int? AccountingType, GoldFormulaDirection? Direction, GoldFormulaOperationType? OperationType, GoldFormulaMode? Mode, decimal? AltinSatisFiyati);
 public record FormulaBindingCreateRequest(Guid ProductId, Guid TemplateId, GoldFormulaDirection Direction, bool? IsActive);
 public record FormulaBindingUpdateRequest(Guid? TemplateId, GoldFormulaDirection? Direction, bool? IsActive);
+public record FormulaPreviewTheme
+{
+    public string? Title { get; set; }
+    public List<FormulaPreviewField> Fields { get; set; } = new();
+}
+public record FormulaPreviewField
+{
+    public string? Key { get; set; }
+    public string? Label { get; set; }
+    public string? Format { get; set; }
+}
 public record PosPreviewRequest(Guid ProductId, decimal Amount, GoldFormulaDirection Direction, GoldFormulaOperationType OperationType, decimal? VatRate);
 public record PosFinalizeRequest(Guid ProductId, decimal Amount, GoldFormulaDirection Direction, GoldFormulaOperationType OperationType, decimal? VatRate, OdemeSekli? OdemeSekli, string? PreviewHash, string? IdempotencyKey);
 

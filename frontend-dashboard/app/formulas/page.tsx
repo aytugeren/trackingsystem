@@ -73,6 +73,52 @@ type CustomComponent = {
   expr: string
 }
 
+type PreviewFormat = 'currency' | 'number' | 'text'
+
+type PreviewField = {
+  id: string
+  key: string
+  label: string
+  format: PreviewFormat
+}
+
+type PreviewTheme = {
+  title?: string
+  fields: PreviewField[]
+}
+
+const OUTPUT_KEYS = ['gram', 'amount', 'goldService', 'laborGross', 'laborNet', 'vat', 'unitHasPriceUsed'] as const
+
+const RESULT_PREVIEW_KEYS = [
+  { key: 'unitHasPriceUsed', label: 'Has Altın Fiyatı', format: 'currency' as const },
+  { key: 'amount', label: 'Tutar', format: 'currency' as const },
+  { key: 'gram', label: 'Gram', format: 'number' as const },
+  { key: 'goldService', label: 'Altın Hizmet', format: 'currency' as const },
+  { key: 'laborGross', label: 'İşçilik', format: 'currency' as const },
+  { key: 'laborNet', label: 'İşçilik (KDV\'siz)', format: 'currency' as const },
+  { key: 'vat', label: 'KDV', format: 'currency' as const },
+]
+
+const PREVIEW_FORMAT_OPTIONS: Array<{ value: PreviewFormat; label: string }> = [
+  { value: 'currency', label: 'Para' },
+  { value: 'number', label: 'Sayı' },
+  { value: 'text', label: 'Metin' },
+]
+
+function getStepDisplayName(name?: string) {
+  if (!name) return 'Adım'
+  if (name === 'laborGross') return 'İşçilik'
+  if (name === 'gram') return 'Gram'
+  return name
+}
+
+function buildRequiredSteps(): Step[] {
+  return [
+    { op: 'calc', var: 'gram', expr: '' },
+    { op: 'calc', var: 'laborGross', expr: '' },
+  ]
+}
+
 function tokenizeExpr(expr: string): Token[] {
   const tokens: Token[] = []
   const regex = /([A-Za-z_][A-Za-z0-9_.]*|\d+(?:\.\d+)?|==|!=|<=|>=|[()+\-*/?:,])/g
@@ -116,6 +162,10 @@ export default function FormulaBuilderPage() {
   const [componentInput, setComponentInput] = useState('Amount')
   const [componentOp, setComponentOp] = useState<'*' | '/' | '+' | '-' >('*')
   const [componentNumber, setComponentNumber] = useState('0')
+  const [previewTheme, setPreviewTheme] = useState<PreviewTheme>({ title: 'Hesap Özeti', fields: [] })
+  const [newTemplateCode, setNewTemplateCode] = useState('')
+  const [newTemplateName, setNewTemplateName] = useState('')
+  const [newFormulaType, setNewFormulaType] = useState<'Sale' | 'Purchase' | 'Both'>('Both')
   const [newStepVar, setNewStepVar] = useState('sonuc')
   const [loadError, setLoadError] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
@@ -143,6 +193,29 @@ export default function FormulaBuilderPage() {
       components: customBlocks,
     }
   }, [customComponents])
+
+  const canSave = useMemo(() => {
+    const hasSteps = steps.length > 0
+    if (template) return hasSteps
+    return hasSteps && Boolean(productId) && Boolean(newTemplateCode.trim()) && Boolean(newTemplateName.trim())
+  }, [steps.length, template, productId, newTemplateCode, newTemplateName])
+
+  const previewKeyOptions = useMemo(() => {
+    const keys = new Map<string, { key: string; label: string; format: PreviewFormat }>()
+    RESULT_PREVIEW_KEYS.forEach((item) => keys.set(item.key, item))
+    steps.forEach((step) => {
+      if (!step.var) return
+      if (!keys.has(step.var)) {
+        keys.set(step.var, { key: step.var, label: step.var, format: 'number' })
+      }
+    })
+    previewTheme.fields.forEach((field) => {
+      if (!keys.has(field.key)) {
+        keys.set(field.key, { key: field.key, label: field.label || field.key, format: field.format })
+      }
+    })
+    return Array.from(keys.values())
+  }, [steps, previewTheme.fields])
 
   const fetchProducts = useCallback(async () => api.listProducts(), [])
 
@@ -178,8 +251,10 @@ export default function FormulaBuilderPage() {
         const templateId = activeBinding?.templateId || product?.defaultFormulaId || ''
         if (!templateId) {
           setTemplate(null)
-          setSteps([])
+          setSteps(buildRequiredSteps())
           setDefinitionMeta({})
+          setPreviewTheme(buildDefaultPreviewTheme([]))
+          setActiveStepIndex(0)
           setTokens([])
           return
         }
@@ -188,8 +263,10 @@ export default function FormulaBuilderPage() {
         setTemplate(formula)
         const parsed = JSON.parse(formula.definitionJson || '{}')
         const parsedSteps = Array.isArray(parsed.steps) ? parsed.steps : []
+        const parsedPreview = parsed.preview && typeof parsed.preview === 'object' ? parsed.preview : null
         setSteps(parsedSteps)
         setDefinitionMeta({ vars: parsed.vars || {}, output: parsed.output || {} })
+        setPreviewTheme(normalizePreviewTheme(parsedPreview, parsedSteps))
         setActiveStepIndex(0)
         const firstExpr = parsedSteps[0]?.expr || ''
         setTokens(firstExpr ? tokenizeExpr(firstExpr) : [])
@@ -336,23 +413,91 @@ useEffect(() => {
   }
 
   const handleSave = async () => {
-    if (!template) return
+    if (!canSave) return
     try {
       setSaveStatus('')
-      const nextDefinition = JSON.stringify({ vars: definitionMeta.vars || {}, steps, output: definitionMeta.output || {} }, null, 2)
-      await api.updateFormula(template.id, {
-        code: template.code,
-        name: template.name,
-        scope: template.scope as string,
-        formulaType: template.formulaType as string,
-        dslVersion: template.dslVersion,
+      const output = buildOutputMapping(definitionMeta.output, steps)
+      const missingOutputs = ['gram', 'laborGross'].filter((key) => !output[key])
+      if (missingOutputs.length > 0) {
+        setSaveStatus('Çıktı haritası eksik: gram ve laborGross gerekli.')
+        return
+      }
+      const nextDefinition = JSON.stringify({
+        vars: definitionMeta.vars || {},
+        steps,
+        output,
+        preview: serializePreviewTheme(previewTheme),
+      }, null, 2)
+      if (template) {
+        await api.updateFormula(template.id, {
+          code: template.code,
+          name: template.name,
+          scope: template.scope as string,
+          formulaType: template.formulaType as string,
+          dslVersion: template.dslVersion,
+          definitionJson: nextDefinition,
+          isActive: template.isActive,
+        })
+        setSaveStatus('Kaydedildi.')
+        return
+      }
+      if (!productId) {
+        setSaveStatus('Ürün seçimi gerekli.')
+        return
+      }
+      const created = await api.createFormula({
+        code: newTemplateCode.trim(),
+        name: newTemplateName.trim(),
+        scope: 'ProductSpecific',
+        formulaType: newFormulaType,
+        dslVersion: 1,
         definitionJson: nextDefinition,
-        isActive: template.isActive,
+        isActive: true,
       })
-      setSaveStatus('Kaydedildi.')
+      await api.createFormulaBinding({
+        productId,
+        templateId: created.id,
+        direction,
+        isActive: true,
+      })
+      setTemplate(created)
+      setNewTemplateCode('')
+      setNewTemplateName('')
+      const bindingRows = await api.listProductFormulaBindings(productId)
+      setBindings(bindingRows)
+      setSaveStatus('Formül oluşturuldu ve ürüne bağlandı.')
     } catch {
       setSaveStatus('Kaydetme basarisiz.')
     }
+  }
+
+  const addPreviewField = () => {
+    setPreviewTheme((prev) => {
+      const key = RESULT_PREVIEW_KEYS[0]?.key || 'amount'
+      const label = RESULT_PREVIEW_KEYS[0]?.label || 'amount'
+      const format = RESULT_PREVIEW_KEYS[0]?.format || 'number'
+      return {
+        ...prev,
+        fields: [
+          ...prev.fields,
+          { id: `preview-${Date.now()}-${Math.random()}`, key, label, format },
+        ],
+      }
+    })
+  }
+
+  const updatePreviewField = (id: string, patch: Partial<PreviewField>) => {
+    setPreviewTheme((prev) => ({
+      ...prev,
+      fields: prev.fields.map((field) => field.id === id ? { ...field, ...patch } : field),
+    }))
+  }
+
+  const removePreviewField = (id: string) => {
+    setPreviewTheme((prev) => ({
+      ...prev,
+      fields: prev.fields.filter((field) => field.id !== id),
+    }))
   }
 
   const productOptions = products.map((product) => ({ id: product.id, label: `${product.code} • ${product.name}` }))
@@ -391,6 +536,27 @@ useEffect(() => {
                 {template ? `${template.code} • ${template.name}` : 'Formül bulunamadı'}
               </div>
             </div>
+            {!template && (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <Label>Yeni Formül Oluştur</Label>
+                <Input
+                  placeholder="Formül kodu"
+                  value={newTemplateCode}
+                  onChange={(event) => setNewTemplateCode(event.target.value)}
+                />
+                <Input
+                  placeholder="Formül adı"
+                  value={newTemplateName}
+                  onChange={(event) => setNewTemplateName(event.target.value)}
+                />
+                <Select value={newFormulaType} onChange={(event) => setNewFormulaType(event.target.value as 'Sale' | 'Purchase' | 'Both')}>
+                  <option value="Both">Satış + Alış</option>
+                  <option value="Sale">Satış</option>
+                  <option value="Purchase">Alış</option>
+                </Select>
+                <p className="text-xs text-muted-foreground">Formül kaydedildiğinde seçili ürün ve yön için otomatik bağlanır.</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Ürün Bağlantıları</Label>
               <div className="space-y-2 text-xs text-muted-foreground">
@@ -421,11 +587,11 @@ useEffect(() => {
                     onClick={() => setActiveStepIndex(index)}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-medium">{step.var || 'Adım'}</span>
-                      <span className="text-xs text-muted-foreground">{step.op}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate">{step.expr || step.value}</div>
-                  </button>
+                    <span className="font-medium">{getStepDisplayName(step.var)}</span>
+                    <span className="text-xs text-muted-foreground">{step.op}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">{step.expr || step.value}</div>
+                </button>
                 ))}
               </div>
             </div>
@@ -458,7 +624,7 @@ useEffect(() => {
               <Button className="w-full" onClick={handleCreateComponent}>Bileşen oluştur</Button>
               <p className="text-xs text-muted-foreground">Girdi + işlem + sayıdan birleşen oluşturulur ve palette görünür.</p>
             </div>
-            <Button variant="outline" className="w-full" onClick={handleSave} disabled={!template}>Formülü kaydet</Button>
+            <Button variant="outline" className="w-full" onClick={handleSave} disabled={!canSave}>Formülü kaydet</Button>
             {saveStatus && <p className="text-sm text-muted-foreground">{saveStatus}</p>}
           </div>
 
@@ -470,7 +636,7 @@ useEffect(() => {
                     <CardTitle className="text-base">Formül Tuvali</CardTitle>
                     <p className="text-xs text-muted-foreground">Tokenları sürükleyip adımın sağ/sol tarafına bırakın. Seçmek için tıklayın.</p>
                   </div>
-                  <Button onClick={handleSave} disabled={!template}>Formülü kaydet</Button>
+                  <Button onClick={handleSave} disabled={!canSave}>Formülü kaydet</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -489,7 +655,7 @@ useEffect(() => {
                 <div className="rounded-lg border border-dashed border-[color:hsl(var(--border))] bg-gradient-to-br from-muted/30 via-white to-muted/10 p-4">
                   <div className="mb-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     <span>Birleştirme Alanı</span>
-                    <span className="normal-case tracking-normal">{activeStep?.var || 'Adım seçilmedi'}</span>
+                    <span className="normal-case tracking-normal">{getStepDisplayName(activeStep?.var) || 'Adım seçilmedi'}</span>
                   </div>
                   <div
                     onDragEnter={() => setDragHover(true)}
@@ -596,8 +762,61 @@ useEffect(() => {
               </CardHeader>
               <CardContent>
                 <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
-                  {JSON.stringify({ steps }, null, 2)}
+                  {JSON.stringify({
+                    vars: definitionMeta.vars || {},
+                    steps,
+                    output: definitionMeta.output || {},
+                    preview: serializePreviewTheme(previewTheme),
+                  }, null, 2)}
                 </pre>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[color:hsl(var(--border))]">
+              <CardHeader>
+                <CardTitle className="text-base">Önizleme Teması</CardTitle>
+                <p className="text-xs text-muted-foreground">Formül çıktılarının önizlemede nasıl görüneceğini belirleyin.</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Başlık</Label>
+                  <Input
+                    placeholder="Örn. Hesap Özeti"
+                    value={previewTheme.title || ''}
+                    onChange={(event) => setPreviewTheme((prev) => ({ ...prev, title: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-3">
+                  {previewTheme.fields.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Henüz alan eklenmedi.</p>
+                  ) : previewTheme.fields.map((field) => (
+                    <div key={field.id} className="grid gap-2 rounded-md border p-3 md:grid-cols-[1fr,1fr,120px,40px]">
+                      <Select
+                        value={field.key}
+                        onChange={(event) => updatePreviewField(field.id, { key: event.target.value })}
+                      >
+                        {previewKeyOptions.map((option) => (
+                          <option key={option.key} value={option.key}>{option.label}</option>
+                        ))}
+                      </Select>
+                      <Input
+                        placeholder="Etiket"
+                        value={field.label}
+                        onChange={(event) => updatePreviewField(field.id, { label: event.target.value })}
+                      />
+                      <Select
+                        value={field.format}
+                        onChange={(event) => updatePreviewField(field.id, { format: event.target.value as PreviewFormat })}
+                      >
+                        {PREVIEW_FORMAT_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </Select>
+                      <Button variant="outline" onClick={() => removePreviewField(field.id)}>Sil</Button>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="outline" onClick={addPreviewField}>Alan ekle</Button>
               </CardContent>
             </Card>
           </div>
@@ -605,6 +824,73 @@ useEffect(() => {
       </Card>
     </div>
   )
+}
+
+function normalizePreviewTheme(raw: any, steps: Step[]): PreviewTheme {
+  const base = buildDefaultPreviewTheme(steps)
+  if (!raw || typeof raw !== 'object') return base
+  const fields = Array.isArray(raw.fields) ? raw.fields : []
+  const normalized: PreviewField[] = fields
+    .filter((field: any) => field && typeof field.key === 'string')
+    .map((field: any, index: number) => {
+      const key = String(field.key || '').trim()
+      const label = typeof field.label === 'string' ? field.label : key
+      const format: PreviewFormat = field.format === 'currency' || field.format === 'number' || field.format === 'text'
+        ? field.format
+        : 'number'
+      return {
+        id: String(field.id || `${key}-${index}-${Date.now()}`),
+        key,
+        label,
+        format,
+      }
+    })
+    .filter((field: PreviewField) => Boolean(field.key))
+  return {
+    title: typeof raw.title === 'string' ? raw.title : base.title,
+    fields: normalized.length > 0 ? normalized : base.fields,
+  }
+}
+
+function buildDefaultPreviewTheme(steps: Step[]): PreviewTheme {
+  const vars = new Set(steps.map((step) => step.var).filter(Boolean))
+  const fields: PreviewField[] = [
+    { id: 'preview-unit', key: 'unitHasPriceUsed', label: 'Has Altın Fiyatı', format: 'currency' },
+  ]
+  if (vars.has('yeniUrun')) {
+    fields.push({ id: 'preview-yeni', key: 'yeniUrun', label: 'Yeni Ürün Fiyatı', format: 'currency' })
+  }
+  fields.push({ id: 'preview-gram', key: 'gram', label: 'Gram', format: 'number' })
+  fields.push({ id: 'preview-labor', key: 'laborNet', label: 'İşçilik (KDV\'siz)', format: 'currency' })
+  return { title: 'Hesap Özeti', fields }
+}
+
+function serializePreviewTheme(theme: PreviewTheme) {
+  return {
+    title: theme.title?.trim() || undefined,
+    fields: theme.fields
+      .filter((field) => field.key.trim())
+      .map((field) => ({
+        key: field.key.trim(),
+        label: field.label.trim() || undefined,
+        format: field.format,
+      })),
+  }
+}
+
+function buildOutputMapping(existing: Record<string, unknown> | undefined, steps: Step[]) {
+  const output: Record<string, string> = {}
+  if (existing && typeof existing === 'object') {
+    OUTPUT_KEYS.forEach((key) => {
+      const raw = (existing as Record<string, unknown>)[key]
+      if (typeof raw === 'string' && raw.trim()) output[key] = raw.trim()
+    })
+  }
+  const stepVars = new Set(steps.map((step) => step.var).filter(Boolean) as string[])
+  OUTPUT_KEYS.forEach((key) => {
+    if (!output[key] && stepVars.has(key)) output[key] = key
+  })
+  return output
 }
 
 function PaletteBlock({
