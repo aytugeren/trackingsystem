@@ -18,6 +18,7 @@ public static class TurmobServiceCollectionExtensions
             {
                 var logger = sp.GetRequiredService<ILogger<TurmobSoapClient>>();
                 var optionsMonitor = sp.GetRequiredService<IOptionsMonitor<TurmobOptions>>();
+                var connectionInfoStore = sp.GetRequiredService<TurmobConnectionInfoStore>();
                 return new SocketsHttpHandler
                 {
                     ConnectCallback = async (context, cancellationToken) =>
@@ -26,18 +27,19 @@ public static class TurmobServiceCollectionExtensions
                         try
                         {
                             await socket.ConnectAsync(context.DnsEndPoint, cancellationToken).ConfigureAwait(false);
+                            var localEndpoint = socket.LocalEndPoint?.ToString();
+                            var remoteEndpoint = socket.RemoteEndPoint?.ToString();
+                            var host = context.DnsEndPoint?.Host;
+                            var port = context.DnsEndPoint?.Port;
+                            connectionInfoStore.Update(host, port, localEndpoint, remoteEndpoint);
                             if (optionsMonitor.CurrentValue?.Logging?.LogConnectionInfo == true)
                             {
-                                var localEndpoint = socket.LocalEndPoint?.ToString() ?? "unknown";
-                                var remoteEndpoint = socket.RemoteEndPoint?.ToString() ?? "unknown";
-                                var host = context.DnsEndPoint?.Host ?? "unknown";
-                                var port = context.DnsEndPoint?.Port ?? 0;
                                 logger.LogInformation(
                                     "TURMOB connection established. Host: {Host}, Port: {Port}, LocalEndpoint: {LocalEndpoint}, RemoteEndpoint: {RemoteEndpoint}",
-                                    host,
-                                    port,
-                                    localEndpoint,
-                                    remoteEndpoint);
+                                    host ?? "unknown",
+                                    port ?? 0,
+                                    localEndpoint ?? "unknown",
+                                    remoteEndpoint ?? "unknown");
                             }
                             return new NetworkStream(socket, ownsSocket: true);
                         }
@@ -51,6 +53,7 @@ public static class TurmobServiceCollectionExtensions
             });
         services.AddSingleton<TurmobInvoiceMapper>();
         services.AddSingleton<TurmobSoapClient>();
+        services.AddSingleton<TurmobConnectionInfoStore>();
         services.AddScoped<TurmobInvoiceBuilder>();
         services.AddScoped<ITurmobInvoiceGateway, TurmobInvoiceGateway>();
 

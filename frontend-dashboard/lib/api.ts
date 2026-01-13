@@ -237,7 +237,17 @@ export const api = {
     }
     return res.json()
   },
-  async getTurmobStatus(): Promise<{ enabled: boolean; healthy: boolean }> {
+  async getTurmobStatus(): Promise<{
+    enabled: boolean
+    healthy: boolean
+    connectionInfo?: {
+      host?: string | null
+      port?: number | null
+      localEndpoint?: string | null
+      remoteEndpoint?: string | null
+      updatedAt?: string | null
+    } | null
+  }> {
     const url = `${API_BASE}/api/turmob/status`
     const res = await fetch(url, { headers: { ...authHeaders() }, cache: 'no-store' })
     if (!res.ok) throw new Error('TURMOB durumu alınamadı')

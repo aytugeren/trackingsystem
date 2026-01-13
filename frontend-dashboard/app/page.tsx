@@ -10,7 +10,17 @@ import { Separator } from '@/components/ui/separator'
 
 export default function HomePage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
-  const [turmobStatus, setTurmobStatus] = useState<{ enabled: boolean; healthy: boolean } | null>(null)
+  const [turmobStatus, setTurmobStatus] = useState<{
+    enabled: boolean
+    healthy: boolean
+    connectionInfo?: {
+      host?: string | null
+      port?: number | null
+      localEndpoint?: string | null
+      remoteEndpoint?: string | null
+      updatedAt?: string | null
+    } | null
+  } | null>(null)
   
   const [showFullscreen, setShowFullscreen] = useState(false)
   const [filterMode, setFilterMode] = useState<'all' | 'yearly' | 'monthly' | 'daily'>('all')
@@ -155,6 +165,14 @@ export default function HomePage() {
               <span className="text-muted-foreground">Ayar:</span>
               <span className="font-medium">
                 {turmobStatus ? (turmobStatus.enabled ? 'Aktif' : 'Pasif') : 'Bilinmiyor'}
+              </span>
+              <span className="text-muted-foreground">TURMOB IP:</span>
+              <span className="font-medium">
+                {turmobStatus?.connectionInfo?.remoteEndpoint || 'Bilinmiyor'}
+              </span>
+              <span className="text-muted-foreground">Çıkış IP:</span>
+              <span className="font-medium">
+                {turmobStatus?.connectionInfo?.localEndpoint || 'Bilinmiyor'}
               </span>
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">Yönetim Paneli</h1>

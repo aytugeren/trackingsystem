@@ -595,12 +595,14 @@ async Task<bool> IsTurmobHealthyAsync(
 app.MapGet("/api/turmob/status", async (
     IOptionsMonitor<TurmobOptions> options,
     TurmobSoapClient soapClient,
+    TurmobConnectionInfoStore connectionInfoStore,
     IMemoryCache cache,
     CancellationToken ct) =>
 {
     var current = options.CurrentValue;
     var healthy = await IsTurmobHealthyAsync(current, soapClient, cache, ct);
-    return Results.Ok(new { enabled = current.Enabled && healthy, healthy });
+    var connectionInfo = connectionInfoStore.GetLast();
+    return Results.Ok(new { enabled = current.Enabled && healthy, healthy, connectionInfo });
 }).WithTags("Turmob").RequireAuthorization();
 
 app.MapPost("/api/turmob/invoices/{id:guid}/preview", async (
