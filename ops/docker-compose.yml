@@ -53,7 +53,7 @@ services:
       Turmob__Retry__DelaySeconds: ${TURMOB__RETRY__DELAYSECONDS:-5}
       Turmob__Logging__LogRequest: ${TURMOB__LOGGING__LOGREQUEST:-true}
       Turmob__Logging__LogResponse: ${TURMOB__LOGGING__LOGRESPONSE:-true}
-      Turmob__Logging_LogConnectionInfo: ${TURMOB__LOGGING__LOGCONNECTIONINFO:-true}
+      Turmob__Logging__LogConnectionInfo: ${TURMOB__LOGGING__LOGCONNECTIONINFO:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
