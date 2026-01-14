@@ -10,6 +10,11 @@ public static class ProductAyarResolver
     private static readonly Regex Ayar24Regex = new Regex(@"(^|[^0-9])24([^0-9]|$)|24\s*ayar|24k", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Ayar22Regex = new Regex(@"(^|[^0-9])22([^0-9]|$)|22\s*ayar|22k", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    public static AltinAyar? TryInferFromText(string? text)
+    {
+        return TryInferFromTextInternal(text);
+    }
+
     public static async Task<AltinAyar?> TryResolveAsync(KtpDbContext db, Guid productId, CancellationToken ct)
     {
         if (productId == Guid.Empty) return null;
@@ -17,7 +22,7 @@ public static class ProductAyarResolver
         var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(x => x.Id == productId, ct);
         if (product is null) return null;
 
-        var fromProduct = TryInferFromText($"{product.Name} {product.Code}");
+        var fromProduct = TryInferFromTextInternal($"{product.Name} {product.Code}");
         if (fromProduct.HasValue) return fromProduct;
 
         var categoryNames = await (from cp in db.CategoryProducts.AsNoTracking()
@@ -27,14 +32,14 @@ public static class ProductAyarResolver
 
         foreach (var name in categoryNames)
         {
-            var inferred = TryInferFromText(name);
+            var inferred = TryInferFromTextInternal(name);
             if (inferred.HasValue) return inferred;
         }
 
         return null;
     }
 
-    private static AltinAyar? TryInferFromText(string? text)
+    private static AltinAyar? TryInferFromTextInternal(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
         if (Ayar24Regex.IsMatch(text)) return AltinAyar.Ayar24;

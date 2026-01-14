@@ -142,6 +142,12 @@ export type FormulaBindingCreatePayload = {
   isActive?: boolean
 }
 
+export type FormulaBindingUpdatePayload = {
+  templateId?: string
+  direction?: number | 'Purchase' | 'Sale' | string
+  isActive?: boolean
+}
+
 export type FormulaValidatePayload = {
   amount?: number | null
   hasGoldPrice?: number | null
@@ -275,6 +281,7 @@ export const api = {
   updateProduct: (id: string, payload: { code: string; name: string; isActive?: boolean | null; showInSales?: boolean | null; accountingType?: number | null; gram?: number | null }) => {
     return sendJson<Product>(`/api/products/${id}`, 'PUT', payload)
   },
+  listFormulas: () => getJson<FormulaTemplate[]>('/api/formulas'),
   getFormula: (id: string) => getJson<FormulaTemplate>(`/api/formulas/${id}`),
   createFormula: (payload: {
     code: string
@@ -294,9 +301,15 @@ export const api = {
     definitionJson: string
     isActive?: boolean | null
   }) => sendJson<FormulaTemplate>(`/api/formulas/${id}`, 'PUT', payload),
+  deleteFormula: async (id: string): Promise<void> => {
+    const url = `${API_BASE}/api/formulas/${id}`
+    const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })
+    if (!res.ok) throw new Error('Formül silinemedi')
+  },
   validateFormula: (id: string, payload: FormulaValidatePayload) => sendJson<{ ok: boolean; error?: string; result?: unknown }>(`/api/formulas/${id}/validate`, 'POST', payload),
   listProductFormulaBindings: (productId: string) => getJson<FormulaBindingRow[]>(`/api/products/${productId}/formula-bindings`),
   createFormulaBinding: (payload: FormulaBindingCreatePayload) => sendJson<FormulaBindingRow>('/api/formula-bindings', 'POST', payload),
+  updateFormulaBinding: (id: string, payload: FormulaBindingUpdatePayload) => sendJson<FormulaBindingRow>(`/api/formula-bindings/${id}`, 'PUT', payload),
   deleteProduct: async (id: string): Promise<void> => {
     const url = `${API_BASE}/api/products/${id}`
     const res = await fetch(url, { method: 'DELETE', headers: { ...authHeaders() } })

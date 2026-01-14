@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type FormulaBindingRow, type FormulaTemplate, type Product } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -99,6 +100,8 @@ const RESULT_PREVIEW_KEYS = [
   { key: 'vat', label: 'KDV', format: 'currency' as const },
 ]
 
+const NEW_FORMULA_ID = 'new'
+
 const PREVIEW_FORMAT_OPTIONS: Array<{ value: PreviewFormat; label: string }> = [
   { value: 'currency', label: 'Para' },
   { value: 'number', label: 'Sayı' },
@@ -148,24 +151,32 @@ function buildExprFromTokens(tokens: Token[]): string {
 
 export default function FormulaBuilderPage() {
   const [products, setProducts] = useState<Product[]>([])
-  const [productId, setProductId] = useState<string>('')
-  const [direction, setDirection] = useState<'Sale' | 'Purchase'>('Sale')
+  const [formulas, setFormulas] = useState<FormulaTemplate[]>([])
+  const [activeFormulaId, setActiveFormulaId] = useState<string>('')
   const [template, setTemplate] = useState<FormulaTemplate | null>(null)
   const [bindings, setBindings] = useState<FormulaBindingRow[]>([])
+  const [bindingProductId, setBindingProductId] = useState<string>('')
+  const [bindingDirection, setBindingDirection] = useState<'Sale' | 'Purchase'>('Sale')
+  const [bindingFormulaId, setBindingFormulaId] = useState<string>('')
+  const [bindingStatus, setBindingStatus] = useState('')
+  const [isBindingModalOpen, setIsBindingModalOpen] = useState(false)
   const [steps, setSteps] = useState<Step[]>([])
   const [definitionMeta, setDefinitionMeta] = useState<{ vars?: Record<string, unknown>; output?: Record<string, unknown> }>({})
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0)
   const [tokens, setTokens] = useState<Token[]>([])
   const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set())
   const [customComponents, setCustomComponents] = useState<CustomComponent[]>([])
+  const [setValueInput, setSetValueInput] = useState('')
   const [componentName, setComponentName] = useState('')
   const [componentInput, setComponentInput] = useState('Amount')
   const [componentOp, setComponentOp] = useState<'*' | '/' | '+' | '-' >('*')
   const [componentNumber, setComponentNumber] = useState('0')
+  const [customLiteralInput, setCustomLiteralInput] = useState('')
+  const [customLiterals, setCustomLiterals] = useState<string[]>([])
   const [previewTheme, setPreviewTheme] = useState<PreviewTheme>({ title: 'Hesap Özeti', fields: [] })
-  const [newTemplateCode, setNewTemplateCode] = useState('')
-  const [newTemplateName, setNewTemplateName] = useState('')
-  const [newFormulaType, setNewFormulaType] = useState<'Sale' | 'Purchase' | 'Both'>('Both')
+  const [draftTemplateCode, setDraftTemplateCode] = useState('')
+  const [draftTemplateName, setDraftTemplateName] = useState('')
+  const [draftFormulaType, setDraftFormulaType] = useState<'Sale' | 'Purchase' | 'Both'>('Both')
   const [newStepVar, setNewStepVar] = useState('sonuc')
   const [loadError, setLoadError] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
@@ -184,21 +195,31 @@ export default function FormulaBuilderPage() {
       kind: 'component' as const,
       expr: component.expr,
     }))
+    const literalSet = new Set(customLiterals.map((item) => item.trim()).filter(Boolean))
+    const customLiteralBlocks = Array.from(literalSet.values()).map((value) => ({
+      id: `custom-${value}`,
+      label: value,
+      value,
+      kind: 'literal' as const,
+    }))
 
     return {
       variables: VARIABLE_BLOCKS.map((item) => ({ ...item, kind: 'var' as const })),
       operators: OP_BLOCKS.map((item) => ({ ...item, kind: 'op' as const })),
       functions: FUNC_BLOCKS.map((item) => ({ ...item, kind: 'func' as const })),
-      literals: LITERAL_BLOCKS.map((item) => ({ ...item, kind: 'literal' as const })),
+      literals: [
+        ...LITERAL_BLOCKS.map((item) => ({ ...item, kind: 'literal' as const })),
+        ...customLiteralBlocks,
+      ],
       components: customBlocks,
     }
-  }, [customComponents])
+  }, [customComponents, customLiterals])
 
   const canSave = useMemo(() => {
     const hasSteps = steps.length > 0
-    if (template) return hasSteps
-    return hasSteps && Boolean(productId) && Boolean(newTemplateCode.trim()) && Boolean(newTemplateName.trim())
-  }, [steps.length, template, productId, newTemplateCode, newTemplateName])
+    if (template) return hasSteps && Boolean(draftTemplateCode.trim()) && Boolean(draftTemplateName.trim())
+    return hasSteps && Boolean(draftTemplateCode.trim()) && Boolean(draftTemplateName.trim())
+  }, [steps.length, template, draftTemplateCode, draftTemplateName])
 
   const previewKeyOptions = useMemo(() => {
     const keys = new Map<string, { key: string; label: string; format: PreviewFormat }>()
@@ -218,58 +239,20 @@ export default function FormulaBuilderPage() {
   }, [steps, previewTheme.fields])
 
   const fetchProducts = useCallback(async () => api.listProducts(), [])
+  const fetchFormulas = useCallback(async () => api.listFormulas(), [])
 
   useEffect(() => {
     let alive = true
-    const load = async () => {
-      try {
-        const data = await fetchProducts()
-        if (!alive) return
-        setProducts(data)
-        if (!productId && data.length > 0) setProductId(data[0].id)
-      } catch {
-        if (!alive) return
-        setLoadError('Ürünler alınamadı.')
-      }
-    }
-    load()
-    return () => { alive = false }
-  }, [fetchProducts, productId])
-
-  useEffect(() => {
-    let alive = true
-    if (!productId) return
     const load = async () => {
       try {
         setLoadError('')
-        setSaveStatus('')
-        const product = products.find((p) => p.id === productId)
-        const bindingRows = await api.listProductFormulaBindings(productId)
+        const [productsData, formulasData] = await Promise.all([fetchProducts(), fetchFormulas()])
         if (!alive) return
-        setBindings(bindingRows)
-        const activeBinding = bindingRows.find((row) => String(row.direction).toLowerCase() === direction.toLowerCase() && row.isActive)
-        const templateId = activeBinding?.templateId || product?.defaultFormulaId || ''
-        if (!templateId) {
-          setTemplate(null)
-          setSteps(buildRequiredSteps())
-          setDefinitionMeta({})
-          setPreviewTheme(buildDefaultPreviewTheme([]))
-          setActiveStepIndex(0)
-          setTokens([])
-          return
-        }
-        const formula = await api.getFormula(templateId)
-        if (!alive) return
-        setTemplate(formula)
-        const parsed = JSON.parse(formula.definitionJson || '{}')
-        const parsedSteps = Array.isArray(parsed.steps) ? parsed.steps : []
-        const parsedPreview = parsed.preview && typeof parsed.preview === 'object' ? parsed.preview : null
-        setSteps(parsedSteps)
-        setDefinitionMeta({ vars: parsed.vars || {}, output: parsed.output || {} })
-        setPreviewTheme(normalizePreviewTheme(parsedPreview, parsedSteps))
-        setActiveStepIndex(0)
-        const firstExpr = parsedSteps[0]?.expr || ''
-        setTokens(firstExpr ? tokenizeExpr(firstExpr) : [])
+        setProducts(productsData)
+        setFormulas(formulasData)
+        if (!activeFormulaId && formulasData.length > 0) setActiveFormulaId(formulasData[0].id)
+        if (!bindingProductId && productsData.length > 0) setBindingProductId(productsData[0].id)
+        if (!bindingFormulaId && formulasData.length > 0) setBindingFormulaId(formulasData[0].id)
       } catch {
         if (!alive) return
         setLoadError('Formül bilgisi alınamadı.')
@@ -277,15 +260,90 @@ export default function FormulaBuilderPage() {
     }
     load()
     return () => { alive = false }
-  }, [productId, direction, products])
+  }, [fetchProducts, fetchFormulas, activeFormulaId, bindingProductId, bindingFormulaId])
 
-useEffect(() => {
-  if (activeStep && activeStep.op === 'calc') {
-    setTimeout(() => {
-      document.getElementById('formula-drop-zone')?.scrollIntoView({ behavior: 'smooth' })
-    }, 0)
-  }
-}, [activeStepIndex])
+  useEffect(() => {
+    if (formulas.length === 0) return
+    if (!bindingFormulaId || !formulas.some((item) => item.id === bindingFormulaId)) {
+      setBindingFormulaId(formulas[0].id)
+    }
+  }, [formulas, bindingFormulaId])
+
+  useEffect(() => {
+    if (products.length === 0) return
+    if (!bindingProductId || !products.some((item) => item.id === bindingProductId)) {
+      setBindingProductId(products[0].id)
+    }
+  }, [products, bindingProductId])
+
+  useEffect(() => {
+    let alive = true
+    if (!bindingProductId) return
+    const load = async () => {
+      try {
+        setBindingStatus('')
+        const bindingRows = await api.listProductFormulaBindings(bindingProductId)
+        if (!alive) return
+        setBindings(bindingRows)
+      } catch {
+        if (!alive) return
+        setBindingStatus('Bağlantılar alınamadı.')
+      }
+    }
+    load()
+    return () => { alive = false }
+  }, [bindingProductId])
+
+  useEffect(() => {
+    setSaveStatus('')
+    if (!activeFormulaId || activeFormulaId === NEW_FORMULA_ID) {
+      setTemplate(null)
+      setDraftTemplateCode('')
+      setDraftTemplateName('')
+      setDraftFormulaType('Both')
+      setSteps(buildRequiredSteps())
+      setDefinitionMeta({})
+      setPreviewTheme(buildDefaultPreviewTheme([]))
+      setActiveStepIndex(0)
+      setTokens([])
+      setCustomComponents([])
+      return
+    }
+    const formula = formulas.find((item) => item.id === activeFormulaId)
+    if (!formula) return
+    setTemplate(formula)
+    setDraftTemplateCode(formula.code || '')
+    setDraftTemplateName(formula.name || '')
+    const formulaTypeValue = String(formula.formulaType) as 'Sale' | 'Purchase' | 'Both'
+    setDraftFormulaType(formulaTypeValue === 'Sale' || formulaTypeValue === 'Purchase' || formulaTypeValue === 'Both' ? formulaTypeValue : 'Both')
+    const parsed = JSON.parse(formula.definitionJson || '{}')
+    const parsedSteps = Array.isArray(parsed.steps) ? parsed.steps : []
+    const nextSteps = parsedSteps.length > 0 ? parsedSteps : buildRequiredSteps()
+    const parsedPreview = parsed.preview && typeof parsed.preview === 'object' ? parsed.preview : null
+    setSteps(nextSteps)
+    setDefinitionMeta({ vars: parsed.vars || {}, output: parsed.output || {} })
+    setPreviewTheme(normalizePreviewTheme(parsedPreview, nextSteps))
+    setActiveStepIndex(0)
+    const firstExpr = nextSteps[0]?.expr || ''
+    setTokens(firstExpr ? tokenizeExpr(firstExpr) : [])
+    const nextComponents = nextSteps
+      .filter((step: Step) => step.var && step.expr)
+      .map((step: Step, index: number) => ({
+        id: `component-${step.var}-${index}`,
+        name: step.var || '',
+        tokens: tokenizeExpr(step.expr || ''),
+        expr: step.expr || '',
+      }))
+    setCustomComponents(nextComponents)
+  }, [activeFormulaId, formulas])
+
+  useEffect(() => {
+    if (activeStep && activeStep.op === 'calc') {
+      setTimeout(() => {
+        document.getElementById('formula-drop-zone')?.scrollIntoView({ behavior: 'smooth' })
+      }, 0)
+    }
+  }, [activeStepIndex])
 
   useEffect(() => {
     if (!activeStep?.expr) {
@@ -295,6 +353,14 @@ useEffect(() => {
     setTokens(tokenizeExpr(activeStep.expr))
     setSelectedTokens(new Set())
   }, [activeStepIndex])
+
+  useEffect(() => {
+    if (activeStep?.op === 'set') {
+      setSetValueInput(activeStep.value?.toString() ?? '')
+      return
+    }
+    setSetValueInput('')
+  }, [activeStepIndex, activeStep?.op, activeStep?.value])
 
   useEffect(() => {
     // Reset drag state when switching steps to avoid stale drag lifecycle.
@@ -317,32 +383,31 @@ useEffect(() => {
   const handleDropAt = (index: number) => (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    let payload: Token | null = dragPayloadRef.current
+    try {
+      const text =
+        event.dataTransfer.getData('application/json') ||
+        event.dataTransfer.getData('text/plain')
+      if (text) payload = JSON.parse(text)
+    } catch {}
 
-  let payload: Token | null = dragPayloadRef.current
-  try {
-    const text =
-      event.dataTransfer.getData('application/json') ||
-      event.dataTransfer.getData('text/plain')
-    if (text) payload = JSON.parse(text)
-  } catch {}
+    if (!payload) return
 
-  if (!payload) return
-
-  // Use functional state to avoid stale closure bugs during rapid drag/drop.
-  setTokens((prev) => {
-    const safeIndex = Math.min(index, prev.length)
-    const next = [...prev]
-    next.splice(safeIndex, 0, {
-      ...payload,
-      id: `${payload.value}-${Date.now()}-${Math.random()}`
+    // Use functional state to avoid stale closure bugs during rapid drag/drop.
+    setTokens((prev) => {
+      const safeIndex = Math.min(index, prev.length)
+      const next = [...prev]
+      next.splice(safeIndex, 0, {
+        ...payload,
+        id: `${payload.value}-${Date.now()}-${Math.random()}`,
+      })
+      updateActiveStepExpr(next)
+      return next
     })
-    updateActiveStepExpr(next)
-    return next
-  })
 
-  dragPayloadRef.current = null
-  setIsDragging(false)
-}
+    dragPayloadRef.current = null
+    setIsDragging(false)
+  }
 
   const toggleTokenSelection = (tokenId: string) => {
     setSelectedTokens((prev) => {
@@ -412,6 +477,29 @@ useEffect(() => {
     dragPayloadRef.current = null
   }
 
+  const handleSetValueChange = (value: string) => {
+    setSetValueInput(value)
+    if (!activeStep || activeStep.op !== 'set') return
+    const normalized = value.replace(',', '.')
+    if (!normalized.trim()) {
+      setSteps((prev) => prev.map((step, idx) => idx === activeStepIndex ? { ...step, value: undefined } : step))
+      return
+    }
+    const parsed = Number(normalized)
+    if (!Number.isFinite(parsed)) return
+    setSteps((prev) => prev.map((step, idx) => idx === activeStepIndex ? { ...step, value: parsed } : step))
+  }
+
+  const handleAddCustomLiteral = () => {
+    const normalized = customLiteralInput.trim().replace(',', '.')
+    if (!normalized) return
+    const parsed = Number(normalized)
+    if (!Number.isFinite(parsed)) return
+    const fixed = normalized.replace(/^(-?)\./, '$10.')
+    setCustomLiterals((prev) => (prev.includes(fixed) ? prev : [fixed, ...prev]))
+    setCustomLiteralInput('')
+  }
+
   const handleSave = async () => {
     if (!canSave) return
     try {
@@ -430,44 +518,106 @@ useEffect(() => {
       }, null, 2)
       if (template) {
         await api.updateFormula(template.id, {
-          code: template.code,
-          name: template.name,
+          code: draftTemplateCode.trim(),
+          name: draftTemplateName.trim(),
           scope: template.scope as string,
-          formulaType: template.formulaType as string,
+          formulaType: draftFormulaType,
           dslVersion: template.dslVersion,
           definitionJson: nextDefinition,
           isActive: template.isActive,
         })
+        const updated = {
+          ...template,
+          code: draftTemplateCode.trim(),
+          name: draftTemplateName.trim(),
+          formulaType: draftFormulaType,
+          definitionJson: nextDefinition,
+        }
+        setFormulas((prev) => prev.map((item) => item.id === template.id ? updated : item))
+        setTemplate(updated)
         setSaveStatus('Kaydedildi.')
         return
       }
-      if (!productId) {
-        setSaveStatus('Ürün seçimi gerekli.')
-        return
-      }
       const created = await api.createFormula({
-        code: newTemplateCode.trim(),
-        name: newTemplateName.trim(),
+        code: draftTemplateCode.trim(),
+        name: draftTemplateName.trim(),
         scope: 'ProductSpecific',
-        formulaType: newFormulaType,
+        formulaType: draftFormulaType,
         dslVersion: 1,
         definitionJson: nextDefinition,
         isActive: true,
       })
-      await api.createFormulaBinding({
-        productId,
-        templateId: created.id,
-        direction,
-        isActive: true,
-      })
+      setFormulas((prev) => [created, ...prev])
       setTemplate(created)
-      setNewTemplateCode('')
-      setNewTemplateName('')
-      const bindingRows = await api.listProductFormulaBindings(productId)
-      setBindings(bindingRows)
-      setSaveStatus('Formül oluşturuldu ve ürüne bağlandı.')
+      setActiveFormulaId(created.id)
+      setSaveStatus('Formül oluşturuldu.')
     } catch {
       setSaveStatus('Kaydetme basarisiz.')
+    }
+  }
+
+  const handleSelectFormula = (id: string) => {
+    setActiveFormulaId(id)
+    setSaveStatus('')
+  }
+
+  const handleCreateNewFormula = () => {
+    setActiveFormulaId(NEW_FORMULA_ID)
+    setSaveStatus('')
+  }
+
+  const handleDeleteFormula = async (id: string) => {
+    const formula = formulas.find((item) => item.id === id)
+    const label = formula ? `${formula.code} • ${formula.name}` : 'Formül'
+    const confirmed = window.confirm(`${label} silinsin mi?`)
+    if (!confirmed) return
+    try {
+      await api.deleteFormula(id)
+      const nextFormulas = formulas.filter((item) => item.id !== id)
+      setFormulas(nextFormulas)
+      if (activeFormulaId === id) {
+        setActiveFormulaId(nextFormulas[0]?.id || NEW_FORMULA_ID)
+      }
+    } catch {
+      setSaveStatus('Formül silinemedi.')
+    }
+  }
+
+  const handleBindFormula = async () => {
+    if (!bindingProductId || !bindingFormulaId) return
+    try {
+      setBindingStatus('')
+      const existing = bindings.find((row) =>
+        row.productId === bindingProductId &&
+        row.templateId === bindingFormulaId &&
+        String(row.direction).toLowerCase() === bindingDirection.toLowerCase()
+      )
+      if (existing) {
+        await api.updateFormulaBinding(existing.id, { isActive: true, direction: bindingDirection })
+      } else {
+        await api.createFormulaBinding({
+          productId: bindingProductId,
+          templateId: bindingFormulaId,
+          direction: bindingDirection,
+          isActive: true,
+        })
+      }
+      const updated = await api.listProductFormulaBindings(bindingProductId)
+      setBindings(updated)
+      setBindingStatus('Bağlantı güncellendi.')
+    } catch {
+      setBindingStatus('Bağlantı oluşturulamadı.')
+    }
+  }
+
+  const handleToggleBinding = async (row: FormulaBindingRow) => {
+    try {
+      setBindingStatus('')
+      await api.updateFormulaBinding(row.id, { isActive: !row.isActive })
+      const updated = await api.listProductFormulaBindings(row.productId)
+      setBindings(updated)
+    } catch {
+      setBindingStatus('Bağlantı güncellenemedi.')
     }
   }
 
@@ -501,6 +651,7 @@ useEffect(() => {
   }
 
   const productOptions = products.map((product) => ({ id: product.id, label: `${product.code} • ${product.name}` }))
+  const formulaOptions = formulas.map((formula) => ({ id: formula.id, label: `${formula.code} • ${formula.name}` }))
   // Drop hedefi her zaman aktif olabilir; slotlar sadece drag sırasında görünür.
   const canDrop = Boolean(activeStep && activeStep.op === 'calc')
   const showSlots = canDrop && isDragging
@@ -509,69 +660,66 @@ useEffect(() => {
     <div className="space-y-6">
       <Card className="border-[color:hsl(var(--border))]">
         <CardHeader>
-          <CardTitle>Formül Motoru Tasarımı</CardTitle>
-          <p className="text-sm text-muted-foreground">Ürün bazlı formülleri sürükle bırak ile düzenleyin, birleşen oluşturup tekrar kullanın.</p>
+          <CardTitle>Formül Yönetimi</CardTitle>
+          <p className="text-sm text-muted-foreground">Formülleri oluşturun, düzenleyin, listeleyin ve ürünlere ayrı ekrandan bağlayın.</p>
         </CardHeader>
-        <CardContent className="grid gap-6 lg:grid-cols-[320px,1fr]">
+        <CardContent className="grid gap-6 lg:grid-cols-[340px,1fr]">
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Ürün</Label>
-              <Select value={productId} onChange={(event) => setProductId(event.target.value)}>
-                <option value="" disabled>Ürün seçin</option>
-                {productOptions.map((item) => (
-                  <option key={item.id} value={item.id}>{item.label}</option>
-                ))}
-              </Select>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleCreateNewFormula}>Yeni Formül</Button>
+              <Button variant="outline" onClick={() => setIsBindingModalOpen(true)}>Ürün-Formül Bağla</Button>
             </div>
             <div className="space-y-2">
-              <Label>Yön</Label>
-              <Select value={direction} onChange={(event) => setDirection(event.target.value as 'Sale' | 'Purchase')}>
+              <Label>Formül Listesi</Label>
+              <div className="space-y-2">
+                {formulas.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Formül bulunamadı.</p>
+                ) : formulas.map((formula) => {
+                  const isActive = formula.id === activeFormulaId
+                  const typeLabel =
+                    String(formula.formulaType) === 'Purchase' ? 'Alış'
+                      : String(formula.formulaType) === 'Sale' ? 'Satış'
+                        : 'Satış + Alış'
+                  return (
+                    <div
+                      key={formula.id}
+                      className={`rounded-md border px-3 py-2 text-sm transition ${
+                        isActive ? 'border-emerald-500 bg-emerald-50/60' : 'border-[color:hsl(var(--border))] hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{formula.code} • {formula.name}</div>
+                          <div className="text-xs text-muted-foreground">{typeLabel} • {formula.isActive ? 'Aktif' : 'Pasif'}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => handleSelectFormula(formula.id)}>Düzenle</Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDeleteFormula(formula.id)}>Sil</Button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Label>{template ? 'Formül Bilgileri' : 'Yeni Formül'}</Label>
+              <Input
+                placeholder="Formül kodu"
+                value={draftTemplateCode}
+                onChange={(event) => setDraftTemplateCode(event.target.value)}
+              />
+              <Input
+                placeholder="Formül adı"
+                value={draftTemplateName}
+                onChange={(event) => setDraftTemplateName(event.target.value)}
+              />
+              <Select value={draftFormulaType} onChange={(event) => setDraftFormulaType(event.target.value as 'Sale' | 'Purchase' | 'Both')}>
+                <option value="Both">Satış + Alış</option>
                 <option value="Sale">Satış</option>
                 <option value="Purchase">Alış</option>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Aktif Formül</Label>
-              <div className="rounded-md border px-3 py-2 text-sm">
-                {template ? `${template.code} • ${template.name}` : 'Formül bulunamadı'}
-              </div>
-            </div>
-            {!template && (
-              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-                <Label>Yeni Formül Oluştur</Label>
-                <Input
-                  placeholder="Formül kodu"
-                  value={newTemplateCode}
-                  onChange={(event) => setNewTemplateCode(event.target.value)}
-                />
-                <Input
-                  placeholder="Formül adı"
-                  value={newTemplateName}
-                  onChange={(event) => setNewTemplateName(event.target.value)}
-                />
-                <Select value={newFormulaType} onChange={(event) => setNewFormulaType(event.target.value as 'Sale' | 'Purchase' | 'Both')}>
-                  <option value="Both">Satış + Alış</option>
-                  <option value="Sale">Satış</option>
-                  <option value="Purchase">Alış</option>
-                </Select>
-                <p className="text-xs text-muted-foreground">Formül kaydedildiğinde seçili ürün ve yön için otomatik bağlanır.</p>
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label>Ürün Bağlantıları</Label>
-              <div className="space-y-2 text-xs text-muted-foreground">
-                {bindings.length === 0 ? (
-                  <p>Bağlı formül yok.</p>
-                ) : bindings.map((binding) => (
-                  <div key={binding.id} className="rounded-md border px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <span>{binding.templateCode || binding.templateName || binding.templateId}</span>
-                      <span>{String(binding.direction) === 'Purchase' ? 'Alış' : 'Satış'}</span>
-                    </div>
-                    <div>{binding.isActive ? 'Aktif' : 'Pasif'}</div>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-muted-foreground">Formül içeriğini sağ panelden düzenleyip kaydedebilirsiniz.</p>
             </div>
             {loadError && <p className="text-sm text-red-600">{loadError}</p>}
             <Separator />
@@ -587,11 +735,11 @@ useEffect(() => {
                     onClick={() => setActiveStepIndex(index)}
                   >
                     <div className="flex items-center justify-between">
-                    <span className="font-medium">{getStepDisplayName(step.var)}</span>
-                    <span className="text-xs text-muted-foreground">{step.op}</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate">{step.expr || step.value}</div>
-                </button>
+                      <span className="font-medium">{getStepDisplayName(step.var)}</span>
+                      <span className="text-xs text-muted-foreground">{step.op}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">{step.expr || step.value}</div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -652,6 +800,18 @@ useEffect(() => {
                     <Button variant="outline" onClick={handleAddCalcStep}>Adım ekle</Button>
                   </div>
                 </div>
+                {activeStep?.op === 'set' && (
+                  <div className="mb-4 rounded-lg border border-dashed border-[color:hsl(var(--border))] bg-white/70 p-4">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground">Sabit değer</Label>
+                    <Input
+                      className="mt-2 max-w-[220px]"
+                      placeholder="Örn. 0,916"
+                      value={setValueInput}
+                      onChange={(event) => handleSetValueChange(event.target.value)}
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground">Set adımındaki değeri güncelleyin.</p>
+                  </div>
+                )}
                 <div className="rounded-lg border border-dashed border-[color:hsl(var(--border))] bg-gradient-to-br from-muted/30 via-white to-muted/10 p-4">
                   <div className="mb-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     <span>Birleştirme Alanı</span>
@@ -751,7 +911,22 @@ useEffect(() => {
                 <PaletteBlock title="Girdi" blocks={palette.variables} onDragStart={handleDragStart} onDragEnd={() => { dragPayloadRef.current = null; setIsDragging(false) }} />
                 <PaletteBlock title="Operatör" blocks={palette.operators} onDragStart={handleDragStart} onDragEnd={() => { dragPayloadRef.current = null; setIsDragging(false) }} />
                 <PaletteBlock title="Fonksiyon" blocks={palette.functions} onDragStart={handleDragStart} onDragEnd={() => { dragPayloadRef.current = null; setIsDragging(false) }} />
-                <PaletteBlock title="Sabitler" blocks={palette.literals} onDragStart={handleDragStart} onDragEnd={() => { dragPayloadRef.current = null; setIsDragging(false) }} />
+                <div className="space-y-3">
+                  <div className="space-y-2 rounded-md border border-dashed border-[color:hsl(var(--border))] bg-white/70 p-3">
+                    <Label className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Sabit sayı ekle</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="Örn. 0.316"
+                        value={customLiteralInput}
+                        onChange={(event) => setCustomLiteralInput(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') handleAddCustomLiteral() }}
+                      />
+                      <Button size="sm" variant="outline" onClick={handleAddCustomLiteral}>Ekle</Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Virgül veya nokta kullanabilirsiniz, değer sabitlere eklenir.</p>
+                  </div>
+                  <PaletteBlock title="Sabitler" blocks={palette.literals} onDragStart={handleDragStart} onDragEnd={() => { dragPayloadRef.current = null; setIsDragging(false) }} />
+                </div>
                 <PaletteBlock title="Birleşenler" blocks={palette.components} onDragStart={handleDragStart} onDragEnd={() => { dragPayloadRef.current = null; setIsDragging(false) }} emptyText="Henüz bileşen yok" />
               </CardContent>
             </Card>
@@ -822,6 +997,64 @@ useEffect(() => {
           </div>
         </CardContent>
       </Card>
+      <Dialog open={isBindingModalOpen} onOpenChange={setIsBindingModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Ürün - Formül Bağlantısı</DialogTitle>
+            <p className="text-sm text-muted-foreground">Ürünü seçin, yön belirleyin ve formülü bağlayın.</p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Ürün</Label>
+                <Select value={bindingProductId} onChange={(event) => setBindingProductId(event.target.value)}>
+                  {productOptions.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Yön</Label>
+                <Select value={bindingDirection} onChange={(event) => setBindingDirection(event.target.value as 'Sale' | 'Purchase')}>
+                  <option value="Sale">Satış</option>
+                  <option value="Purchase">Alış</option>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Formül</Label>
+              <Select value={bindingFormulaId} onChange={(event) => setBindingFormulaId(event.target.value)}>
+                {formulaOptions.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </Select>
+            </div>
+            <Button onClick={handleBindFormula}>Bağla</Button>
+            {bindingStatus && <p className="text-sm text-muted-foreground">{bindingStatus}</p>}
+            <Separator />
+            <div className="space-y-2">
+              <Label>Mevcut Bağlantılar</Label>
+              {bindings.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Bu ürün için bağlanmış formül yok.</p>
+              ) : (
+                <div className="space-y-2">
+                  {bindings.map((binding) => (
+                    <div key={binding.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                      <div>
+                        <div className="font-medium">{binding.templateCode || binding.templateName || binding.templateId}</div>
+                        <div className="text-xs text-muted-foreground">{String(binding.direction) === 'Purchase' ? 'Alış' : 'Satış'} • {binding.isActive ? 'Aktif' : 'Pasif'}</div>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => handleToggleBinding(binding)}>
+                        {binding.isActive ? 'Kopar' : 'Bağla'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

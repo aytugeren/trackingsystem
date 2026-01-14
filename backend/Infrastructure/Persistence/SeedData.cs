@@ -1,4 +1,5 @@
 using KuyumculukTakipProgrami.Domain.Entities;
+using KuyumculukTakipProgrami.Infrastructure.Util;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 
@@ -46,6 +47,8 @@ public static class SeedData
 
         await EnsureBindingAsync(db, "ALTIN_22", template22SaleId, template22PurchaseId, now);
         await EnsureBindingAsync(db, "ALTIN_24", template24SaleId, template24PurchaseId, now);
+        await EnsureBindingsForAyarProductsAsync(db, AltinAyar.Ayar22, template22SaleId, template22PurchaseId, now);
+        await EnsureBindingsForAyarProductsAsync(db, AltinAyar.Ayar24, template24SaleId, template24PurchaseId, now);
     }
 
     private static async Task<Guid> EnsureTemplateAsync(
@@ -113,6 +116,30 @@ public static class SeedData
             Direction = direction,
             IsActive = true
         });
+    }
+
+    private static async Task EnsureBindingsForAyarProductsAsync(
+        KtpDbContext db,
+        AltinAyar ayar,
+        Guid saleTemplateId,
+        Guid purchaseTemplateId,
+        DateTime now)
+    {
+        var products = await db.Products.ToListAsync();
+        foreach (var product in products)
+        {
+            var inferred = ProductAyarResolver.TryInferFromText($"{product.Name} {product.Code}");
+            if (inferred != ayar) continue;
+
+            product.RequiresFormula = true;
+            if (!product.DefaultFormulaId.HasValue)
+                product.DefaultFormulaId = saleTemplateId;
+
+            await EnsureBindingRowAsync(db, product.Id, saleTemplateId, GoldFormulaDirection.Sale, now);
+            await EnsureBindingRowAsync(db, product.Id, purchaseTemplateId, GoldFormulaDirection.Purchase, now);
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private static string BuildDefaultFormulaDefinition(decimal safOran, decimal yeniOran)

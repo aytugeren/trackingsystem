@@ -1361,6 +1361,17 @@ app.MapPost("/api/products", async (ProductCreateRequest req, KtpDbContext db, H
 
     var requiresFormula = req.RequiresFormula ?? true;
     Guid? defaultFormulaId = req.DefaultFormulaId;
+    (Guid? saleTemplateId, Guid? purchaseTemplateId) autoTemplates = (null, null);
+    if (requiresFormula && !defaultFormulaId.HasValue)
+    {
+        var inferredAyar = ProductAyarResolver.TryInferFromText($"{name} {code}");
+        if (inferredAyar.HasValue)
+        {
+            autoTemplates = await TryGetDefaultFormulaTemplatesForAyarAsync(db, inferredAyar.Value, ct);
+            if (autoTemplates.saleTemplateId.HasValue)
+                defaultFormulaId = autoTemplates.saleTemplateId;
+        }
+    }
     if (defaultFormulaId.HasValue)
     {
         var formulaExists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Id == defaultFormulaId.Value, ct);
@@ -1392,6 +1403,11 @@ app.MapPost("/api/products", async (ProductCreateRequest req, KtpDbContext db, H
         UpdatedUserId = uid
     };
     db.Products.Add(entity);
+    if (autoTemplates.saleTemplateId.HasValue && autoTemplates.purchaseTemplateId.HasValue)
+    {
+        await EnsureFormulaBindingRowAsync(db, entity.Id, autoTemplates.saleTemplateId.Value, GoldFormulaDirection.Sale, ct);
+        await EnsureFormulaBindingRowAsync(db, entity.Id, autoTemplates.purchaseTemplateId.Value, GoldFormulaDirection.Purchase, ct);
+    }
     await db.SaveChangesAsync(ct);
     return Results.Ok(entity);
 }).WithTags("Products").RequireAuthorization();
@@ -1418,21 +1434,28 @@ app.MapPut("/api/products/{id:guid}", async (Guid id, ProductUpdateRequest req, 
     Guid? uid = Guid.TryParse(sub, out var uidVal) ? uidVal : null;
 
     Guid? defaultFormulaId = req.DefaultFormulaId ?? entity.DefaultFormulaId;
+    var requiresFormula = req.RequiresFormula ?? entity.RequiresFormula;
+    var willBeActive = req.IsActive ?? entity.IsActive;
+    (Guid? saleTemplateId, Guid? purchaseTemplateId) autoTemplates = (null, null);
+    var hasBinding = await db.GoldProductFormulaBindings.AsNoTracking()
+        .AnyAsync(x => x.GoldProductId == entity.Id && x.IsActive, ct);
+    if (willBeActive && requiresFormula && !defaultFormulaId.HasValue && !hasBinding)
+    {
+        var inferredAyar = ProductAyarResolver.TryInferFromText($"{name} {code}");
+        if (inferredAyar.HasValue)
+        {
+            autoTemplates = await TryGetDefaultFormulaTemplatesForAyarAsync(db, inferredAyar.Value, ct);
+            if (autoTemplates.saleTemplateId.HasValue)
+                defaultFormulaId = autoTemplates.saleTemplateId;
+        }
+    }
     if (defaultFormulaId.HasValue)
     {
         var formulaExists = await db.GoldFormulaTemplates.AsNoTracking().AnyAsync(x => x.Id == defaultFormulaId.Value, ct);
         if (!formulaExists) return Results.BadRequest(new { error = "Default formula bulunamadı" });
     }
-
-    var requiresFormula = req.RequiresFormula ?? entity.RequiresFormula;
-    var willBeActive = req.IsActive ?? entity.IsActive;
-    if (willBeActive && requiresFormula)
-    {
-        var hasBinding = await db.GoldProductFormulaBindings.AsNoTracking()
-            .AnyAsync(x => x.GoldProductId == entity.Id && x.IsActive, ct);
-        if (!hasBinding && !defaultFormulaId.HasValue)
-            return Results.BadRequest(new { error = "Formül olmadan ürün aktif edilemez" });
-    }
+    if (willBeActive && requiresFormula && !hasBinding && !defaultFormulaId.HasValue)
+        return Results.BadRequest(new { error = "Formül olmadan ürün aktif edilemez" });
 
     entity.Code = code;
     entity.Name = name;
@@ -1444,6 +1467,12 @@ app.MapPut("/api/products/{id:guid}", async (Guid id, ProductUpdateRequest req, 
     entity.DefaultFormulaId = defaultFormulaId;
     entity.UpdatedAt = DateTime.UtcNow;
     entity.UpdatedUserId = uid;
+
+    if (autoTemplates.saleTemplateId.HasValue && autoTemplates.purchaseTemplateId.HasValue)
+    {
+        await EnsureFormulaBindingRowAsync(db, entity.Id, autoTemplates.saleTemplateId.Value, GoldFormulaDirection.Sale, ct);
+        await EnsureFormulaBindingRowAsync(db, entity.Id, autoTemplates.purchaseTemplateId.Value, GoldFormulaDirection.Purchase, ct);
+    }
 
     await db.SaveChangesAsync(ct);
     return Results.Ok(entity);
@@ -1542,6 +1571,15 @@ app.MapPost("/api/products/opening-inventory", async (ProductOpeningInventoryReq
 }).WithTags("Products").RequireAuthorization();
 
 // Formula templates
+app.MapGet("/api/formulas", async (KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    var rows = await db.GoldFormulaTemplates.AsNoTracking()
+        .OrderBy(x => x.Code)
+        .ToListAsync(ct);
+    return Results.Ok(rows);
+}).WithTags("Formulas").RequireAuthorization();
+
 app.MapGet("/api/formulas/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
 {
     if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
@@ -1623,6 +1661,21 @@ app.MapPut("/api/formulas/{id:guid}", async (Guid id, FormulaUpsertRequest req, 
 
     await db.SaveChangesAsync(ct);
     return Results.Ok(entity);
+}).WithTags("Formulas").RequireAuthorization();
+
+app.MapDelete("/api/formulas/{id:guid}", async (Guid id, KtpDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!http.User.IsInRole(Role.Yonetici.ToString())) return Results.Forbid();
+    await db.GoldProductFormulaBindings
+        .Where(x => x.FormulaTemplateId == id)
+        .ExecuteDeleteAsync(ct);
+
+    var deleted = await db.GoldFormulaTemplates
+        .Where(x => x.Id == id)
+        .ExecuteDeleteAsync(ct);
+
+    if (deleted == 0) return Results.NotFound();
+    return Results.Ok();
 }).WithTags("Formulas").RequireAuthorization();
 
 app.MapPost("/api/formulas/{id:guid}/validate", async (
@@ -3939,6 +3992,43 @@ static async Task<bool> HasCustomerLookupPermissionAsync(HttpContext http, KtpDb
         return role?.CanUseInvoices == true || role?.CanUseExpenses == true;
     }
     return false;
+}
+
+static async Task<(Guid? saleTemplateId, Guid? purchaseTemplateId)> TryGetDefaultFormulaTemplatesForAyarAsync(
+    KtpDbContext db,
+    AltinAyar ayar,
+    CancellationToken ct)
+{
+    var saleCode = ayar == AltinAyar.Ayar22 ? "DEFAULT_22_SALE" : "DEFAULT_24_SALE";
+    var purchaseCode = ayar == AltinAyar.Ayar22 ? "DEFAULT_22_PURCHASE" : "DEFAULT_24_PURCHASE";
+
+    var saleTemplate = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Code == saleCode, ct);
+    if (saleTemplate is null) return (null, null);
+    var purchaseTemplate = await db.GoldFormulaTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Code == purchaseCode, ct);
+    if (purchaseTemplate is null) return (null, null);
+
+    return (saleTemplate.Id, purchaseTemplate.Id);
+}
+
+static async Task EnsureFormulaBindingRowAsync(
+    KtpDbContext db,
+    Guid productId,
+    Guid templateId,
+    GoldFormulaDirection direction,
+    CancellationToken ct)
+{
+    var exists = await db.GoldProductFormulaBindings.AsNoTracking()
+        .AnyAsync(x => x.GoldProductId == productId && x.FormulaTemplateId == templateId && x.Direction == direction && x.IsActive, ct);
+    if (exists) return;
+
+    db.GoldProductFormulaBindings.Add(new GoldProductFormulaBinding
+    {
+        Id = Guid.NewGuid(),
+        GoldProductId = productId,
+        FormulaTemplateId = templateId,
+        Direction = direction,
+        IsActive = true
+    });
 }
 
 static async Task<(GoldFormulaTemplate? Template, string? Error)> ResolveFormulaTemplateAsync(
