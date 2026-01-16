@@ -43,10 +43,10 @@ services:
       # TURMOB integration
       Turmob__Enabled: ${TURMOB__ENABLED:-true}
       Turmob__Environment: ${TURMOB__ENVIRONMENT:-Test}
-      Turmob__Test__ServiceUrl: ${TURMOB__TEST__SERVICEURL:-https://einvoiceserviceturmobtest.luca.com.tr/InvoiceService/ServiceContract/InvoiceService.svc}
+      Turmob__Test__ServiceUrl: ${TURMOB__TEST__SERVICEURL:-https://einvoiceserviceturmob.luca.com.tr/InvoiceService/ServiceContract/InvoiceService.svc}
       Turmob__Test__TimeoutSeconds: ${TURMOB__TEST__TIMEOUTSECONDS:-30}
       Turmob__Test__TemplateCode: ${TURMOB__TEST__TEMPLATECODE:-}
-      Turmob__Prod__ServiceUrl: ${TURMOB__PROD__SERVICEURL:-}
+      Turmob__Prod__ServiceUrl: ${TURMOB__PROD__SERVICEURL:-https://einvoiceserviceturmob.luca.com.tr/InvoiceService/ServiceContract/InvoiceService.svc}
       Turmob__Prod__TimeoutSeconds: ${TURMOB__PROD__TIMEOUTSECONDS:-30}
       Turmob__Prod__TemplateCode: ${TURMOB__PROD__TEMPLATECODE:-}
       Turmob__Retry__Count: ${TURMOB__RETRY__COUNT:-3}
